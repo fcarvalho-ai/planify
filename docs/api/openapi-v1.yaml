@@ -1,0 +1,1205 @@
+openapi: 3.1.0
+info:
+  title: Planify ELIOTE/FAV API
+  version: 1.0.0-sprint1
+  description: Contrat V1. Les routes RC1 non encore enveloppées restent documentées comme compatibilité transitoire.
+servers:
+  - url: http://localhost:8080/api/v1
+tags:
+  - name: Auth
+  - name: Users
+  - name: Clients
+  - name: Projects
+  - name: Sites
+  - name: Services
+  - name: Resources
+  - name: Pricing
+  - name: Commercial
+  - name: Analytics
+  - name: Audit
+  - name: Foundation
+  - name: Planning
+  - name: People
+paths:
+  /auth/login:
+    post:
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                password: { type: string, minLength: 8, maxLength: 256 }
+      responses:
+        '200':
+          description: Session ouverte
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /memberships:
+    get:
+      operationId: listUserMemberships
+      tags: [Users]
+      x-rc1-response: unwrapped
+      responses:
+        '200': { description: Utilisateurs et adhésions visibles dans la société active, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /memberships/{membershipId}/scopes:
+    put:
+      operationId: replaceMembershipScopes
+      tags: [Users]
+      parameters:
+        - { name: membershipId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MembershipScopeCommand' }
+            example:
+              version: 1
+              scope: sites
+              siteIds: [site_paris]
+              organizationUnitIds: []
+              projectIds: [project_1]
+              entityScopes: { resource: [resource_1], client: [client_1] }
+      responses:
+        '200': { description: Membership mise à jour avec scopes projet et entité persistés, content: { application/json: { schema: { type: object } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /roles:
+    get:
+      operationId: listRoles
+      tags: [Users]
+      x-rc1-response: unwrapped
+      responses:
+        '200': { description: Catalogue des rôles du tenant actif, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+  /clients:
+    get:
+      operationId: listClients
+      tags: [Clients]
+      x-rc1-response: unwrapped
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PageSize' }]
+      responses:
+        '200': { description: Clients du tenant courant, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+    post:
+      operationId: createClient
+      tags: [Clients]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ClientCreateCommand' } } } }
+      responses:
+        '201': { description: Client créé avec son contrat de facturation canonique, content: { application/json: { schema: { type: object } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [Projects]
+      x-rc1-response: unwrapped
+      parameters:
+        - { $ref: '#/components/parameters/SiteId' }
+        - { name: lifecycleStatus, in: query, schema: { $ref: '#/components/schemas/ProjectLifecycleStatus' } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200': { description: Projets bornés aux scopes serveur avec cycle Sprint 1 canonique, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+    post:
+      operationId: createProject
+      tags: [Projects]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProjectCreateCommand' } } } }
+      responses:
+        '201': { description: Projet créé avec responsabilités actives du tenant, content: { application/json: { schema: { type: object } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /sites:
+    get:
+      operationId: listSites
+      tags: [Sites]
+      x-rc1-response: unwrapped
+      responses:
+        '200': { description: Sites accessibles, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+  /service-offerings:
+    get:
+      operationId: listServices
+      tags: [Services]
+      x-rc1-response: unwrapped
+      responses:
+        '200': { description: Prestations structurées actives et accessibles, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+  /resources:
+    get:
+      operationId: listResources
+      tags: [Resources]
+      x-rc1-response: unwrapped
+      parameters: [{ $ref: '#/components/parameters/SiteId' }, { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PageSize' }]
+      responses:
+        '200': { description: Ressources accessibles, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+    post:
+      operationId: createResource
+      tags: [Resources]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ResourceCreateCommand' } } } }
+      responses:
+        '201': { description: Ressource rattachée à une catégorie de son site, content: { application/json: { schema: { type: object } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /resource-categories:
+    get:
+      operationId: listResourceCategories
+      tags: [Resources]
+      x-rc1-response: unwrapped
+      parameters: [{ $ref: '#/components/parameters/SiteId' }, { name: resourceType, in: query, schema: { $ref: '#/components/schemas/ResourceType' } }, { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PageSize' }]
+      responses:
+        '200': { description: Catégories accessibles du tenant et du site, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+    post:
+      operationId: createResourceCategory
+      tags: [Resources]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ResourceCategoryCreateCommand' } } } }
+      responses:
+        '201': { description: Catégorie créée, content: { application/json: { schema: { $ref: '#/components/schemas/ResourceCategory' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /resource-categories/{categoryId}:
+    parameters:
+      - { name: categoryId, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: updateResourceCategory
+      tags: [Resources]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ResourceCategoryPatchCommand' } } } }
+      responses:
+        '200': { description: Catégorie modifiée, content: { application/json: { schema: { $ref: '#/components/schemas/ResourceCategory' } } } }
+        '409': { description: Catégorie utilisée ou conflit de version }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      operationId: archiveResourceCategory
+      tags: [Resources]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [version]
+              properties: { version: { type: integer, minimum: 1 } }
+      responses:
+        '200': { description: Catégorie archivée logiquement, content: { application/json: { schema: { $ref: '#/components/schemas/ResourceCategory' } } } }
+        '409': { description: Catégorie encore utilisée ou conflit de version }
+  /rate-cards:
+    get:
+      operationId: listPricingGrids
+      tags: [Pricing]
+      x-rc1-response: unwrapped
+      responses:
+        '200': { description: Grilles tarifaires autorisées, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+  /rates:
+    get:
+      operationId: listRates
+      tags: [Pricing]
+      x-rc1-response: unwrapped
+      responses:
+        '200': { description: Tarifs accessibles après contrôle serveur, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+    post:
+      operationId: createRate
+      tags: [Pricing]
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RateCreateCommand' }
+      responses:
+        '201': { description: Tarif créé, content: { application/json: { schema: { $ref: '#/components/schemas/Rate' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /quotes:
+    get:
+      operationId: listCommercialDocuments
+      tags: [Commercial]
+      x-rc1-response: unwrapped
+      parameters:
+        - { name: kind, in: query, schema: { type: string, enum: [budget, quote] } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200': { description: Budgets ou devis accessibles, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+  /dashboard/revenue:
+    get:
+      operationId: getRevenueRecognition
+      tags: [Analytics]
+      responses:
+        '200': { description: CA issu des versions de devis acceptées, content: { application/json: { schema: { type: object } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /dashboard/occupancy:
+    get:
+      operationId: getPlanningAnalytics
+      tags: [Analytics]
+      responses:
+        '200': { description: Occupation et capacité du planning, content: { application/json: { schema: { type: object } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /planning/conflicts/check:
+    post:
+      operationId: checkPlanningConflicts
+      tags: [Planning]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReservationCommand' }
+      responses:
+        '200': { description: Résultat de disponibilité sans écriture, content: { application/json: { schema: { type: object } } } }
+  /audit:
+    get:
+      operationId: listAuditEvents
+      tags: [Audit]
+      x-rc1-response: unwrapped
+      responses:
+        '200': { description: Audit du tenant courant, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /technical-metrics:
+    get:
+      operationId: getTechnicalMetrics
+      tags: [Foundation]
+      responses:
+        '200': { description: Compteurs, latence API, SSE et événements sans données métier, content: { application/json: { schema: { type: object } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /person-skills:
+    get:
+      operationId: listPersonSkills
+      tags: [People]
+      parameters:
+        - { name: membershipId, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200': { description: Compétences visibles dans le périmètre Planning, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createPersonSkill
+      tags: [People]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PersonSkillCommand' } } } }
+      responses:
+        '201': { description: Compétence structurée créée, content: { application/json: { schema: { $ref: '#/components/schemas/PersonSkill' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /person-skills/{skillId}:
+    delete:
+      operationId: archivePersonSkill
+      tags: [People]
+      parameters:
+        - { name: skillId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [version], properties: { version: { type: integer, minimum: 1 } } } } } }
+      responses:
+        '200': { description: Compétence archivée, content: { application/json: { schema: { $ref: '#/components/schemas/PersonSkill' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /person-unavailabilities:
+    get:
+      operationId: listPersonUnavailabilities
+      tags: [People]
+      parameters:
+        - { name: membershipId, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200': { description: Indisponibilités visibles, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+    post:
+      operationId: createPersonUnavailability
+      tags: [People]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PersonUnavailabilityCommand' } } } }
+      responses:
+        '201': { description: Indisponibilité créée, content: { application/json: { schema: { $ref: '#/components/schemas/PersonUnavailability' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /person-unavailabilities/{unavailabilityId}:
+    delete:
+      operationId: cancelPersonUnavailability
+      tags: [People]
+      parameters:
+        - { name: unavailabilityId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [version], properties: { version: { type: integer, minimum: 1 } } } } } }
+      responses:
+        '200': { description: Indisponibilité annulée, content: { application/json: { schema: { $ref: '#/components/schemas/PersonUnavailability' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /reservations:
+    get:
+      operationId: listReservations
+      parameters:
+        - { $ref: '#/components/parameters/SiteId' }
+        - { name: projectId, in: query, schema: { type: string } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: Réservations bornées au scope serveur
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rc1List' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: createReservation
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReservationCommand' }
+            example:
+              siteId: site_paris
+              projectId: project_1
+              title: Montage émission
+              startsAt: '2026-08-24T07:00:00.000Z'
+              endsAt: '2026-08-24T16:00:00.000Z'
+              status: confirmed
+              resources: [{ resourceId: resource_1, quantity: 1 }]
+      responses:
+        '201':
+          description: Réservation créée (objet RC1 direct)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reservation' }
+              example: { id: reservation_1, companyId: company_northlight, siteId: site_paris, projectId: project_1, title: Montage émission, startsAt: '2026-08-24T07:00:00.000Z', endsAt: '2026-08-24T16:00:00.000Z', status: confirmed, resources: [{ resourceId: resource_1, quantity: 1 }], version: 1 }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /reservations/batch:
+    post:
+      operationId: batchReservations
+      description: Exécute atomiquement un collage de 1 à 200 cellules. Toute action invalide annule le lot complet. Un rejeu exact restitue le même résultat sans nouvel audit ni événement.
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReservationBatchCommand' }
+      responses:
+        '201': { description: Lot créé, content: { application/json: { schema: { $ref: '#/components/schemas/ReservationBatchResult' } } } }
+        '200': { description: Rejeu idempotent du lot, content: { application/json: { schema: { $ref: '#/components/schemas/ReservationBatchResult' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /reservations/{reservationId}:
+    patch:
+      operationId: updateReservation
+      parameters:
+        - { name: reservationId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReservationPatch' }
+            example:
+              version: 1
+              title: Montage émission — confirmé
+              resources: [{ resourceId: resource_1, quantity: 1 }]
+      responses:
+        '200':
+          description: Réservation mise à jour ou rejouée (objet RC1 direct)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reservation' }
+              example: { id: reservation_1, companyId: company_northlight, siteId: site_paris, projectId: project_1, title: Montage émission — confirmé, startsAt: '2026-08-24T07:00:00.000Z', endsAt: '2026-08-24T16:00:00.000Z', status: confirmed, resources: [{ resourceId: resource_1, quantity: 1 }], version: 2 }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /reservations/{reservationId}/generic-assignments:
+    post:
+      operationId: assignGenericReservation
+      tags: [Planning]
+      description: Remplace atomiquement une allocation générique par une ressource réelle compatible et disponible.
+      parameters:
+        - { name: reservationId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GenericAssignmentCommand' }
+      responses:
+        '200': { description: Réservation affectée ou rejeu idempotent, content: { application/json: { schema: { $ref: '#/components/schemas/Reservation' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      operationId: cancelReservation
+      parameters:
+        - { name: reservationId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [version]
+              properties: { version: { type: integer, minimum: 1 } }
+      responses:
+        '200': { description: Réservation annulée ou rejeu, content: { application/json: { schema: { $ref: '#/components/schemas/Reservation' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /planning/presence:
+    get:
+      operationId: listPlanningPresence
+      tags: [Planning]
+      description: Liste les modifications actives encore valides dans le périmètre Planning courant.
+      parameters:
+        - { name: siteId, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Présences visibles et TTL serveur, content: { application/json: { schema: { $ref: '#/components/schemas/ReservationPresenceList' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /reservations/{reservationId}/presence:
+    put:
+      operationId: acquireReservationPresence
+      tags: [Planning]
+      parameters:
+        - { name: reservationId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReservationPresenceCommand' }
+      responses:
+        '200': { description: Présence acquise ou renouvelée, content: { application/json: { schema: { $ref: '#/components/schemas/ReservationPresence' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '423': { description: Une autre session modifie déjà la réservation, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+    delete:
+      operationId: releaseReservationPresence
+      tags: [Planning]
+      parameters:
+        - { name: reservationId, in: path, required: true, schema: { type: string } }
+      responses:
+        '204': { description: Présence de la session libérée ou déjà absente }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /reservations/{reservationId}/cells/{sourceDate}/{sourceResourceId}:
+    patch:
+      operationId: moveReservationCell
+      description: Déplace une seule cellule quotidienne vers une autre salle du même jour. Un rejeu avec la même clé et le même contenu restitue le premier résultat sans nouvel audit ni événement.
+      parameters:
+        - { name: reservationId, in: path, required: true, schema: { type: string } }
+        - { name: sourceDate, in: path, required: true, schema: { type: string, format: date } }
+        - { name: sourceResourceId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReservationCellMove' }
+      responses:
+        '200': { description: Réservation mise à jour ou résultat rejoué, content: { application/json: { schema: { $ref: '#/components/schemas/Reservation' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /quotes/{quoteId}/planning-control:
+    get:
+      operationId: getQuotePlanningConsumption
+      parameters:
+        - { name: quoteId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Vendu, planifié, réel et dépassements (objet RC1 direct), content: { application/json: { schema: { type: object } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /domain-events:
+    get:
+      operationId: replayDomainEvents
+      tags: [Foundation]
+      parameters:
+        - { name: afterSequence, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
+      responses:
+        '200':
+          description: Événements du tenant courant, ordonnés par séquence
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /analytics/dimensions:
+    get:
+      operationId: getAnalyticsDimensions
+      tags: [Analytics]
+      description: Contrat des neuf dimensions et des étapes de la chaîne de revenus. Requiert finance.read.
+      responses:
+        '200':
+          description: Dimensions, étapes disponibles et définition du CA reconnu
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalyticsDimensionsResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /analytics/revenue-chain:
+    get:
+      operationId: getRevenueChain
+      tags: [Analytics]
+      description: Réconciliation Budget → Devis → Signé. Les étapes futures non alimentées sont explicitement indisponibles et ne valent jamais zéro métier. Requiert finance.read.
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: dimensions, in: query, description: Dimensions de regroupement séparées par des virgules, schema: { type: string } }
+        - { name: date, in: query, schema: { type: string, format: date } }
+        - { name: clientId, in: query, schema: { type: string } }
+        - { name: projectId, in: query, schema: { type: string } }
+        - { name: serviceOfferingId, in: query, schema: { type: string } }
+        - { name: resourceId, in: query, schema: { type: string } }
+        - { name: siteId, in: query, schema: { type: string } }
+        - { name: legalEntityId, in: query, schema: { type: string } }
+        - { name: salesOwnerId, in: query, schema: { type: string } }
+        - { name: userId, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Chaîne de revenus groupée et réconciliable aux sources
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RevenueChainResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /search:
+    get:
+      operationId: universalSearch
+      tags: [Foundation]
+      description: Recherche locale filtrée par société, sites, projets, entités et permissions avant classement. Les coordonnées des contacts ne sont jamais indexées ni retournées.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2, maxLength: 160 } }
+        - name: types
+          in: query
+          schema: { type: string, example: 'client,project,quote,resource,person,serviceOffering' }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Résultats accessibles classés par pertinence
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UniversalSearchResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 200 }
+    SiteId: { name: siteId, in: query, schema: { type: string } }
+    Page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+    PageSize: { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
+  schemas:
+    BillingAddress:
+      type: object
+      additionalProperties: false
+      required: [line1, postalCode, city, country]
+      properties:
+        line1: { type: string, maxLength: 200 }
+        line2: { type: string, maxLength: 200 }
+        postalCode: { type: string, maxLength: 24 }
+        city: { type: string, maxLength: 120 }
+        country: { type: string, pattern: '^[A-Z]{2}$' }
+    ClientCreateCommand:
+      type: object
+      additionalProperties: false
+      required: [name, code, billingAddress]
+      properties:
+        name: { type: string, maxLength: 160 }
+        code: { type: string, maxLength: 32 }
+        currency: { type: string, pattern: '^[A-Z]{3}$', description: Facultative à la création ; hérite de la devise de la société active. }
+        paymentTermsDays: { type: integer, minimum: 0, maximum: 365 }
+        billingTerms: { type: string, maxLength: 1000 }
+        billingAddress: { $ref: '#/components/schemas/BillingAddress' }
+        active: { type: boolean, default: true }
+    ProjectCreateCommand:
+      type: object
+      additionalProperties: false
+      required: [name, code, clientId, siteId, salesOwnerId, projectManagerId, planningOwnerId]
+      properties:
+        name: { type: string, maxLength: 160 }
+        code: { type: string, maxLength: 32 }
+        clientId: { type: string }
+        siteId: { type: string }
+        lifecycleStatus: { $ref: '#/components/schemas/ProjectLifecycleStatus' }
+        salesOwnerId: { type: string, description: Utilisateur actif et membre actif de la société. }
+        projectManagerId: { type: string, description: Utilisateur actif et membre actif de la société. }
+        planningOwnerId: { type: string, description: Utilisateur actif et membre actif de la société. }
+        color: { type: string }
+        active: { type: boolean, default: true }
+        projectNumber: { type: string, maxLength: 48 }
+        projectType: { type: string, maxLength: 160 }
+        productionCompany: { type: string, maxLength: 160 }
+        contactClient: { type: string, maxLength: 160 }
+        salesOwner: { type: string, maxLength: 160 }
+        projectManager: { type: string, maxLength: 160 }
+        planningOwner: { type: string, maxLength: 160 }
+        internalOwner: { type: string, maxLength: 160 }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        description: { type: string, maxLength: 4000 }
+        notes: { type: string, maxLength: 4000 }
+        costCenter: { type: string, maxLength: 160 }
+    ResourceType:
+      type: string
+      enum: [room, suite, equipment, person, other]
+    ResourceCategoryCreateCommand:
+      type: object
+      additionalProperties: false
+      required: [siteId, code, name, resourceType]
+      properties:
+        siteId: { type: string }
+        code: { type: string, pattern: '^[A-Z0-9][A-Z0-9_-]{1,63}$' }
+        name: { type: string, maxLength: 160 }
+        resourceType: { $ref: '#/components/schemas/ResourceType' }
+        active: { type: boolean, default: true }
+    ResourceCategoryPatchCommand:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version: { type: integer, minimum: 1 }
+        code: { type: string, pattern: '^[A-Z0-9][A-Z0-9_-]{1,63}$' }
+        name: { type: string, maxLength: 160 }
+        active: { type: boolean }
+    ResourceCategory:
+      allOf:
+        - { $ref: '#/components/schemas/ResourceCategoryCreateCommand' }
+        - type: object
+          required: [id, companyId, version]
+          properties:
+            id: { type: string }
+            companyId: { type: string, readOnly: true }
+            version: { type: integer, minimum: 1 }
+    ResourceCreateCommand:
+      type: object
+      additionalProperties: false
+      required: [siteId, resourceCategoryId, name, type, capacity]
+      properties:
+        siteId: { type: string }
+        resourceCategoryId: { type: string }
+        name: { type: string, maxLength: 160 }
+        type: { $ref: '#/components/schemas/ResourceType' }
+        capacity: { type: integer, minimum: 1 }
+        color: { type: string }
+        active: { type: boolean, default: true }
+    ProjectLifecycleStatus:
+      type: string
+      enum: [prospect, budget, quote, confirmed, to_plan, partially_planned, planned, production, completed, cancelled]
+    ProjectSprint1Fields:
+      type: object
+      description: Champs Sprint 1 additifs ; le champ status RC1 reste lisible pendant la compatibilité.
+      required: [lifecycleStatus, salesOwnerId, projectManagerId, planningOwnerId]
+      properties:
+        lifecycleStatus: { $ref: '#/components/schemas/ProjectLifecycleStatus' }
+        legacyStatus: { type: string, readOnly: true }
+        salesOwnerId: { type: string }
+        projectManagerId: { type: string }
+        planningOwnerId: { type: string }
+    ServiceOfferingSprint1Fields:
+      type: object
+      required: [defaultUnit, plannable, compatibleResourceTypes, compatibleResourceCategoryIds]
+      properties:
+        defaultUnit: { type: string, enum: [heure, demi_journee, jour, semaine, mois, forfait, unite, go_mois, to_mois] }
+        plannable: { type: boolean }
+        compatibleResourceTypes:
+          type: array
+          uniqueItems: true
+          items: { type: string, enum: [room, suite, equipment, person, other] }
+        compatibleResourceCategoryIds:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+    RateSurcharge:
+      type: object
+      additionalProperties: false
+      required: [kind, adjustmentBps, timezone]
+      properties:
+        kind: { type: string, enum: [weekend, night] }
+        adjustmentBps: { type: integer, minimum: 0, maximum: 10000 }
+        timezone: { type: string, description: Fuseau IANA utilisé pour qualifier la prestation. }
+        startsAtLocal: { type: string, pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }
+        endsAtLocal: { type: string, pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }
+    RateCreateCommand:
+      type: object
+      additionalProperties: false
+      required: [rateCardId, sourceType, sourceId, unit, costUnitMinor, saleUnitMinor]
+      properties:
+        rateCardId: { type: string }
+        sourceType: { type: string, enum: [resource, serviceOffering, manual, freeLine] }
+        sourceId: { type: string }
+        projectId: { type: string, description: Définit un tarif projet prioritaire. }
+        clientId: { type: string, description: Définit un tarif client prioritaire. }
+        unit: { type: string, maxLength: 40 }
+        costUnitMinor: { type: string, pattern: '^\\d+$' }
+        saleUnitMinor: { type: string, pattern: '^\\d+$' }
+        discountBps: { type: integer, minimum: 0, maximum: 10000, default: 0 }
+        validFrom: { type: string, format: date, default: '1970-01-01' }
+        validTo: { type: [string, 'null'], format: date }
+        surcharges:
+          type: array
+          items: { $ref: '#/components/schemas/RateSurcharge' }
+        active: { type: boolean, default: true }
+    Rate:
+      allOf:
+        - { $ref: '#/components/schemas/RateCreateCommand' }
+        - type: object
+          required: [id, companyId, scope, version]
+          properties:
+            id: { type: string }
+            companyId: { type: string, readOnly: true }
+            scope: { type: string, enum: [catalog, client, project], readOnly: true }
+            version: { type: integer, minimum: 1 }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    QuoteLinePricingSnapshot:
+      type: object
+      description: Instantané du tarif retenu ; une ligne sans tarif reste en pricingStatus=missing et bloque l'envoi ou l'acceptation.
+      required: [pricingStatus, priceOrigin]
+      properties:
+        pricingStatus: { type: string, enum: [resolved, missing] }
+        priceOrigin: { type: string, enum: [project, client, catalog, manual, missing] }
+        appliedRateId: { type: string }
+        appliedRateVersion: { type: integer, minimum: 1 }
+        appliedRateSnapshot: { type: object, additionalProperties: true }
+    UniversalSearchResult:
+      type: object
+      additionalProperties: false
+      required: [type, id, label, secondaryLabel, href]
+      properties:
+        type: { type: string, enum: [client, project, quote, resource, person, serviceOffering] }
+        id: { type: string }
+        label: { type: string }
+        secondaryLabel: { type: string }
+        href: { type: string, pattern: '^#' }
+        siteId: { type: string }
+        projectId: { type: string }
+    UniversalSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [items, page, pageSize, total, query, types]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/UniversalSearchResult' } }
+        page: { type: integer, const: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, minimum: 0 }
+        query: { type: string }
+        types: { type: array, uniqueItems: true, items: { type: string, enum: [client, project, quote, resource, person, serviceOffering] } }
+    AnalyticsDimensionName:
+      type: string
+      enum: [date, clientId, projectId, serviceOfferingId, resourceId, siteId, legalEntityId, salesOwnerId, userId]
+    RevenueStageName:
+      type: string
+      enum: [budgeted, quoted, signed, planned, actual, billable, invoiced, collected]
+    AnalyticsDimensionsResponse:
+      type: object
+      additionalProperties: false
+      required: [definitionVersion, dimensions, stages, recognizedRevenueStage]
+      properties:
+        definitionVersion: { type: string, const: revenue-chain-g1-v1 }
+        dimensions:
+          type: array
+          minItems: 9
+          maxItems: 9
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, nullable]
+            properties:
+              name: { $ref: '#/components/schemas/AnalyticsDimensionName' }
+              nullable: { type: boolean }
+        stages:
+          type: array
+          minItems: 8
+          maxItems: 8
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, availability]
+            properties:
+              name: { $ref: '#/components/schemas/RevenueStageName' }
+              availability: { type: string, enum: [available, unavailable] }
+        recognizedRevenueStage: { type: string, const: signed }
+    RevenueChainStage:
+      type: object
+      additionalProperties: false
+      required: [stage, availability, valueMinor, sourceCount, sourceIds]
+      properties:
+        stage: { $ref: '#/components/schemas/RevenueStageName' }
+        availability: { type: string, enum: [available, unavailable] }
+        valueMinor: { type: [string, 'null'], pattern: '^[0-9]+$' }
+        sourceCount: { type: integer, minimum: 0 }
+        sourceIds: { type: array, uniqueItems: true, items: { type: string } }
+    RevenueChainGroup:
+      type: object
+      additionalProperties: false
+      required: [currency, currencyExponent, dimensions, stages]
+      properties:
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        currencyExponent: { type: integer, enum: [0, 2, 3] }
+        dimensions: { type: object, additionalProperties: true }
+        stages: { type: array, minItems: 8, maxItems: 8, items: { $ref: '#/components/schemas/RevenueChainStage' } }
+    RevenueChainResponse:
+      type: object
+      additionalProperties: false
+      required: [period, dimensions, filters, definitionVersion, generatedAt, groups]
+      properties:
+        period:
+          type: object
+          additionalProperties: false
+          required: [from, to]
+          properties:
+            from: { type: [string, 'null'], format: date }
+            to: { type: [string, 'null'], format: date }
+        dimensions: { type: array, uniqueItems: true, items: { $ref: '#/components/schemas/AnalyticsDimensionName' } }
+        filters: { type: object, additionalProperties: true }
+        definitionVersion: { type: string, const: revenue-chain-g1-v1 }
+        generatedAt: { type: string, format: date-time }
+        groups: { type: array, items: { $ref: '#/components/schemas/RevenueChainGroup' } }
+    LoginResponse:
+      type: object
+      additionalProperties: false
+      required: [user, csrfToken]
+      properties:
+        user:
+          type: object
+          description: Contexte public de l'utilisateur et de sa société active.
+          additionalProperties: true
+        csrfToken: { type: string, minLength: 16 }
+    Rc1List:
+      type: object
+      description: Réponse de collection RC1 à migrer vers SuccessEnvelope sans rupture du frontend.
+      required: [items, total]
+      properties:
+        items: { type: array, items: {} }
+        total: { type: integer, minimum: 0 }
+    SuccessEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data: {}
+        meta:
+          type: object
+          properties:
+            request_id: { type: string }
+            page: { type: integer }
+            pageSize: { type: integer }
+            total: { type: integer }
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, error_id]
+          properties:
+            code: { type: string, pattern: '^[A-Z0-9_]+$' }
+            message: { type: string }
+            details: {}
+            error_id: { type: string }
+    Allocation:
+      oneOf:
+        - $ref: '#/components/schemas/ConcreteAllocation'
+        - $ref: '#/components/schemas/GenericAllocation'
+    ConcreteAllocation:
+      type: object
+      additionalProperties: false
+      required: [resourceId, quantity]
+      properties:
+        resourceId: { type: string }
+        quantity: { type: integer, minimum: 1 }
+        genericAllocationId: { type: string, readOnly: true, description: Traçabilité de l’allocation générique remplacée. }
+    GenericAllocation:
+      type: object
+      additionalProperties: false
+      required: [generic, resourceCategoryId, quantity]
+      properties:
+        generic: { type: boolean, const: true }
+        resourceCategoryId: { type: string }
+        quantity: { type: integer, minimum: 1 }
+        genericAllocationId: { type: string, readOnly: true }
+    GenericAssignmentCommand:
+      type: object
+      additionalProperties: false
+      required: [version, genericAllocationId, resourceId]
+      properties:
+        version: { type: integer, minimum: 1 }
+        genericAllocationId: { type: string }
+        resourceId: { type: string }
+    MembershipScopeCommand:
+      type: object
+      additionalProperties: false
+      required: [version, scope, siteIds, organizationUnitIds, projectIds, entityScopes]
+      properties:
+        version: { type: integer, minimum: 1 }
+        scope: { type: string, enum: [organization, sites] }
+        siteIds: { type: array, uniqueItems: true, items: { type: string } }
+        organizationUnitIds: { type: array, uniqueItems: true, items: { type: string } }
+        projectIds: { type: array, uniqueItems: true, items: { type: string } }
+        entityScopes:
+          type: object
+          additionalProperties:
+            type: array
+            uniqueItems: true
+            items: { type: string }
+    ReservationCommand:
+      type: object
+      additionalProperties: false
+      required: [siteId, projectId, title, startsAt, endsAt, resources]
+      properties:
+        siteId: { type: string }
+        projectId: { type: string }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        status: { type: string, enum: [draft, option, confirmed, completed, cancelled, unavailable, maintenance] }
+        optionGroupId: { type: string, description: Groupe explicite autorisant le chevauchement de doubles options. }
+        optionPriority: { type: integer, minimum: 1, maximum: 100 }
+        optionExpiresAt: { type: string, format: date-time }
+        resources: { type: array, minItems: 1, items: { $ref: '#/components/schemas/Allocation' } }
+        includeWeekends: { type: boolean, default: true }
+        timeGranularity: { type: string, enum: [hour, halfDay, day], default: day, description: Quand il est transmis, startsAt et endsAt doivent être alignés sur cette granularité dans le fuseau du site. }
+        snapMinutes: { type: integer, enum: [30, 60, 240, 1440], default: 1440, description: "hour: 30 ou 60 ; halfDay: 240 ; day: 1440. Les instants sont validés sur ce pas dans le fuseau du site." }
+        holidayCalendarId: { type: string, enum: [FR-national], description: Calendrier national résolu pour les sites Europe/Paris. }
+        planningMode: { type: string, enum: [continuous, dailyCells], default: continuous }
+        conflictPolicy: { type: string, enum: [strict, override], default: strict }
+        overrideReason: { type: string, minLength: 3, maxLength: 500 }
+    Reservation:
+      type: object
+      required: [id, companyId, siteId, projectId, title, startsAt, endsAt, status, resources, version]
+      properties:
+        id: { type: string }
+        companyId: { type: string, readOnly: true }
+        siteId: { type: string }
+        projectId: { type: string }
+        title: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        status: { type: string, enum: [draft, option, confirmed, completed, cancelled, unavailable, maintenance] }
+        optionGroupId: { type: string }
+        optionPriority: { type: integer, minimum: 1, maximum: 100 }
+        optionExpiresAt: { type: string, format: date-time }
+        optionDecision: { type: object, readOnly: true, additionalProperties: true }
+        resources: { type: array, minItems: 1, items: { $ref: '#/components/schemas/Allocation' } }
+        includeWeekends: { type: boolean }
+        timeGranularity: { type: string, enum: [hour, halfDay, day] }
+        snapMinutes: { type: integer, enum: [30, 60, 240, 1440] }
+        holidayCalendarId: { type: string, enum: [FR-national] }
+        planningMode: { type: string, enum: [continuous, dailyCells] }
+        timePolicyVersion: { type: string, readOnly: true, enum: [sprint3-v1] }
+        version: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ReservationPatch:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version: { type: integer, minimum: 1 }
+        siteId: { type: string }
+        projectId: { type: string }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        status: { type: string, enum: [draft, option, confirmed, completed, cancelled, unavailable, maintenance] }
+        optionGroupId: { type: string }
+        optionPriority: { type: integer, minimum: 1, maximum: 100 }
+        optionExpiresAt: { type: string, format: date-time }
+        resources: { type: array, minItems: 1, items: { $ref: '#/components/schemas/Allocation' } }
+        includeWeekends: { type: boolean }
+        timeGranularity: { type: string, enum: [hour, halfDay, day] }
+        snapMinutes: { type: integer, enum: [30, 60, 240, 1440], description: "hour: 30 ou 60 ; halfDay: 240 ; day: 1440" }
+        holidayCalendarId: { type: string, enum: [FR-national] }
+        planningMode: { type: string, enum: [continuous, dailyCells] }
+        conflictPolicy: { type: string, enum: [strict, override] }
+        overrideReason: { type: string, minLength: 3, maxLength: 500 }
+    ReservationCellMove:
+      type: object
+      additionalProperties: false
+      required: [version, targetDate, targetResourceId]
+      properties:
+        version: { type: integer, minimum: 1 }
+        targetDate: { type: string, format: date }
+        targetResourceId: { type: string }
+        conflictPolicy: { type: string, enum: [strict, override], default: strict }
+        overrideReason: { type: string, minLength: 3, maxLength: 500 }
+    ReservationBatchCommand:
+      type: object
+      additionalProperties: false
+      required: [actions]
+      properties:
+        actions:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            oneOf:
+              - { $ref: '#/components/schemas/ReservationBatchDuplicate' }
+              - { $ref: '#/components/schemas/ReservationBatchMove' }
+              - { $ref: '#/components/schemas/ReservationBatchResize' }
+              - { $ref: '#/components/schemas/ReservationBatchCancel' }
+              - { $ref: '#/components/schemas/ReservationBatchCreate' }
+              - { $ref: '#/components/schemas/ReservationBatchRestore' }
+    ReservationBatchDuplicate:
+      type: object
+      additionalProperties: false
+      required: [type, reservationId, sourceDate, sourceResourceId, targetDate, targetResourceId]
+      properties:
+        type: { type: string, enum: [duplicate] }
+        reservationId: { type: string }
+        sourceDate: { type: string, format: date }
+        sourceResourceId: { type: string }
+        targetDate: { type: string, format: date }
+        targetResourceId: { type: string }
+        conflictPolicy: { type: string, enum: [strict, override], default: strict }
+        overrideReason: { type: string, minLength: 3, maxLength: 500 }
+    ReservationBatchCancel:
+      type: object
+      additionalProperties: false
+      required: [type, reservationId, version]
+      properties:
+        type: { type: string, enum: [cancel] }
+        reservationId: { type: string }
+        version: { type: integer, minimum: 1 }
+    ReservationBatchMove:
+      type: object
+      additionalProperties: false
+      required: [type, reservationId, version, targetDate, targetResourceId]
+      properties:
+        type: { type: string, enum: [move] }
+        reservationId: { type: string }
+        version: { type: integer, minimum: 1 }
+        targetDate: { type: string, format: date }
+        targetResourceId: { type: string }
+        conflictPolicy: { type: string, enum: [strict, override], default: strict }
+        overrideReason: { type: string, minLength: 3, maxLength: 500 }
+    ReservationBatchResize:
+      type: object
+      additionalProperties: false
+      required: [type, reservationId, version, startsAt, endsAt]
+      properties:
+        type: { type: string, enum: [resize] }
+        reservationId: { type: string }
+        version: { type: integer, minimum: 1 }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        conflictPolicy: { type: string, enum: [strict, override], default: strict }
+        overrideReason: { type: string, minLength: 3, maxLength: 500 }
+    ReservationBatchCreate:
+      type: object
+      additionalProperties: false
+      required: [type, title, siteId, projectId, startsAt, endsAt, resources]
+      properties:
+        type: { type: string, enum: [create] }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        siteId: { type: string }
+        projectId: { type: string }
+        status: { type: string, enum: [option, confirmed], default: confirmed }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        notes: { type: string, maxLength: 4000 }
+        resources:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/ReservationAllocation' }
+        includeWeekends: { type: boolean, default: true }
+        timeGranularity: { type: string, enum: [hour, halfDay, day], default: day }
+        snapMinutes: { type: integer, enum: [30, 60, 240, 1440], default: 1440 }
+        holidayCalendarId: { type: string }
+        planningMode: { type: string, enum: [continuous, dailyCells], default: dailyCells }
+        sourceQuoteId: { type: string }
+        sourceQuoteVersionId: { type: string }
+        sourceQuoteLineId: { type: string }
+        planningQuantityMilli: { type: string, pattern: '^[0-9]+$' }
+        planningUnit: { type: string, maxLength: 40 }
+        conflictPolicy: { type: string, enum: [strict, override], default: strict }
+        overrideReason: { type: string, minLength: 3, maxLength: 500 }
+    ReservationBatchRestore:
+      type: object
+      additionalProperties: false
+      required: [type, reservationId, version]
+      properties:
+        type: { type: string, enum: [restore] }
+        reservationId: { type: string }
+        version: { type: integer, minimum: 1 }
+        conflictPolicy: { type: string, enum: [strict, override], default: strict }
+        overrideReason: { type: string, minLength: 3, maxLength: 500 }
+    ReservationBatchResult:
+      type: object
+      required: [operationId, items]
+      properties:
+        operationId: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Reservation' }
+    PersonSkillCommand:
+      type: object
+      additionalProperties: false
+      required: [membershipId, code, name, level]
+      properties:
+        membershipId: { type: string }
+        code: { type: string, pattern: '^[A-Z0-9][A-Z0-9_-]{1,63}$' }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        level: { type: integer, minimum: 1, maximum: 5 }
+    PersonSkill:
+      allOf:
+        - { $ref: '#/components/schemas/PersonSkillCommand' }
+        - type: object
+          required: [id, companyId, active, version]
+          properties:
+            id: { type: string }
+            companyId: { type: string, readOnly: true }
+            active: { type: boolean }
+            version: { type: integer, minimum: 1 }
+    PersonUnavailabilityCommand:
+      type: object
+      additionalProperties: false
+      required: [membershipId, startsAt, endsAt, type]
+      properties:
+        membershipId: { type: string }
+        siteId: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        type: { type: string, enum: [leave, rtt, illness, unavailable] }
+        reason: { type: string, maxLength: 500 }
+    PersonUnavailability:
+      allOf:
+        - { $ref: '#/components/schemas/PersonUnavailabilityCommand' }
+        - type: object
+          required: [id, companyId, status, version]
+          properties:
+            id: { type: string }
+            companyId: { type: string, readOnly: true }
+            status: { type: string, enum: [confirmed, cancelled] }
+            version: { type: integer, minimum: 1 }
+    ReservationPresenceCommand:
+      type: object
+      additionalProperties: false
+      required: [version, intent]
+      properties:
+        version: { type: integer, minimum: 1 }
+        intent: { type: string, enum: [editing, moving, resizing] }
+    ReservationPresence:
+      type: object
+      required: [reservationId, siteId, actorUserId, actorDisplayName, intent, acquiredAt, expiresAt]
+      properties:
+        reservationId: { type: string }
+        siteId: { type: string }
+        projectId: { type: string }
+        actorUserId: { type: string }
+        actorDisplayName: { type: string, maxLength: 120 }
+        intent: { type: string, enum: [editing, moving, resizing] }
+        acquiredAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+    ReservationPresenceList:
+      type: object
+      required: [items, ttlMs]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ReservationPresence' } }
+        ttlMs: { type: integer, minimum: 1000 }
+  responses:
+    Unauthorized: { description: Session absente ou expirée, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+    Forbidden: { description: Permission insuffisante, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+    NotFound: { description: Élément absent ou hors scope, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+    Conflict: { description: Conflit métier, de version ou d'idempotence, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
+    ValidationError: { description: Entrée invalide, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }

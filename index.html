@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1020" />
+    <title>Planify — Planning post-production</title>
+    <link rel="stylesheet" href="styles.css" /><link rel="stylesheet" href="planning.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar">
+        <div class="brand"><span class="brand-mark">P</span><span>Planify</span></div>
+        <div class="workspace-switcher"><button class="workspace" id="workspaceButton" type="button" aria-haspopup="listbox" aria-expanded="false"><span class="workspace-logo" id="workspaceLogo">NP</span><span><strong id="workspaceName">Organisation</strong><small id="workspaceMeta">Chargement du contexte…</small></span><span aria-hidden="true">⌄</span></button><div class="workspace-menu" id="workspaceMenu" role="listbox" aria-label="Changer d’organisation" hidden></div></div>
+        <nav aria-label="Navigation principale">
+          <p class="nav-label">Espace de travail</p>
+          <a href="#dashboard" data-route="dashboard"><span>⌂</span>Vue d'ensemble</a>
+          <a href="#planning" data-route="planning"><span>▦</span>Planning <kbd>G P</kbd></a>
+          <a href="#projects" data-route="projects"><span>◇</span>Projets</a>
+          <a href="#quotes" data-route="quotes" data-quote-nav><span>▧</span>Budgets & devis</a>
+          <a href="#clients" data-route="clients"><span>◎</span>Clients</a>
+          <p class="nav-label">Gestion</p>
+          <a href="#organizations" data-route="organizations" data-organization-nav><span>▦</span>Organisations</a>
+          <a href="#organization" data-route="organization" data-organization-nav><span>⌘</span>Configuration</a>
+          <a href="#resources" data-route="resources"><span>▤</span>Ressources</a>
+          <a href="#team" data-route="team"><span>♙</span>Équipe</a>
+          <p class="nav-label" data-stock-nav>Matériel & logistique</p>
+          <a href="#equipment" data-route="equipment" data-stock-nav><span>▣</span>Parc matériel</a>
+          <a href="#stock" data-route="stock" data-stock-nav><span>▥</span>Stock</a>
+          <a href="#maintenance" data-route="maintenance" data-stock-nav><span>⌁</span>Maintenance</a>
+          <a href="#settings" data-route="settings"><span>⚙</span>Paramètres</a>
+        </nav>
+        <div class="sidebar-foot">
+          <button id="helpButton">? <span>Aide & raccourcis</span></button>
+          <div class="user"><span class="avatar">FC</span><span><strong>Fernando</strong><small>Administrateur</small></span><button aria-label="Menu utilisateur">•••</button></div>
+        </div>
+      </aside>
+      <div class="main-area">
+        <header class="topbar">
+          <button class="icon-button mobile-only" id="menuButton" aria-label="Ouvrir le menu">☰</button>
+          <div class="breadcrumbs"><span>Northlight Post</span><b>/</b><strong id="pageCrumb">Vue d'ensemble</strong></div>
+          <button class="search-trigger" id="searchButton" type="button" aria-haspopup="dialog" aria-controls="commandPalette" aria-expanded="false"><span>⌕</span><span>Rechercher partout…</span><kbd>⌘ K</kbd></button>
+          <button class="icon-button" aria-label="Notifications">♢<i class="notification-dot"></i></button>
+          <button class="primary-button" id="quickCreate">＋ Créer</button>
+        </header>
+        <main id="app" tabindex="-1"></main>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="modalBackdrop" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-head"><div><small>NOUVELLE RÉSERVATION</small><h2 id="modalTitle">Planifier une session</h2></div><button class="icon-button" data-close>×</button></div>
+        <form id="bookingForm">
+          <input name="id" type="hidden" />
+          <label>Intitulé<input name="title" required placeholder="Ex. Étalonnage épisode 04" /></label>
+          <div class="form-grid"><label>Projet / émission <small>(obligatoire)</small><select name="project" id="bookingProject" required></select></label><label>Type d’affectation<select name="allocationMode" id="bookingAllocationMode"><option value="concrete">Salle précise</option><option value="generic">Salle à définir</option></select><small>Une salle à définir pourra être affectée plus tard, sans recréer la réservation.</small></label></div>
+          <label id="bookingConcreteResources">Ressources <small>(⌘/Ctrl pour plusieurs)</small><select name="resources" id="bookingResource" multiple required></select></label>
+          <label id="bookingGenericCategory" hidden>Catégorie demandée<select name="resourceCategoryId" id="bookingResourceCategory"></select><small>Ex. Salle de montage, mixage ou étalonnage. La capacité est contrôlée dès maintenant.</small></label>
+          <div class="form-grid booking-period"><label>Premier jour<input name="date" type="date" value="2026-08-17" required /></label><label>Dernier jour<input name="endDate" type="date" value="2026-08-17" required /></label></div>
+          <label class="checkbox booking-weekend-option"><input name="includeWeekends" type="checkbox" checked /><span><strong>Inclure le week-end</strong><small>Décochez pour ne pas réserver, compter ni bloquer les samedis et dimanches.</small></span></label>
+          <div class="period-shortcuts" aria-label="Raccourcis de période"><span>Appliquer sur</span><button type="button" data-period="day">1 jour</button><button type="button" data-period="week">1 semaine</button><button type="button" data-period="month">1 mois</button></div>
+          <div class="form-grid"><label>Heure de début<input name="start" type="time" value="09:00" required /></label><label>Heure de fin<input name="end" type="time" value="12:00" required /></label></div>
+          <div class="form-grid"><label>Granularité<select name="timeGranularity"><option value="hour">Heure (pas de 30 min)</option><option value="halfDay">Demi-journée</option><option value="day" selected>Journée</option></select></label><label>Calendrier<select name="holidayCalendarId"><option value="FR-national">France · jours fériés nationaux</option><option value="">Aucun calendrier</option></select></label></div>
+          <div class="form-grid"><label>Statut<select name="status"><option value="draft">Brouillon</option><option value="option">Option</option><option value="confirmed" selected>Confirmée</option><option value="completed">Réalisée</option><option value="cancelled">Annulée</option><option value="unavailable">Indisponible</option><option value="maintenance">Maintenance</option></select></label><label>Participants<input name="people" type="number" min="1" value="1" /></label></div>
+          <fieldset id="bookingOptionFields" class="booking-option-fields" hidden><legend>Double option</legend><p>Utilisez le même groupe pour plusieurs options concurrentes. La priorité 1 est la plus forte.</p><div class="form-grid"><label>Groupe d’options<input name="optionGroupId" maxlength="160" placeholder="Ex. LES50-MONTAGE-SEMAINE12" /></label><label>Priorité<input name="optionPriority" type="number" min="1" max="100" value="1" /></label></div><label>Échéance de l’option<input name="optionExpiresAt" type="datetime-local" /></label></fieldset>
+          <label>Notes<textarea name="notes" placeholder="Informations utiles pour l'équipe…"></textarea></label>
+          <div id="overrideFields" hidden><label class="checkbox"><input type="checkbox" name="conflictOverride" /> Autoriser exceptionnellement un conflit</label><label>Justification de l’override<textarea name="overrideReason" placeholder="Motif obligatoire et audité…"></textarea></label></div>
+          <div id="conflictAlert" class="conflict-alert" role="alert" hidden></div>
+          <label class="checkbox"><input type="checkbox" name="notify" checked /> Notifier les personnes affectées</label>
+          <div class="modal-actions"><button type="button" class="secondary-button" data-close>Annuler</button><button type="submit" class="primary-button">Créer la réservation</button></div>
+        </form>
+      </section>
+    </div>
+
+    <div class="command" id="commandPalette" hidden>
+      <section class="command-box" role="dialog" aria-modal="true" aria-labelledby="commandTitle"><h2 id="commandTitle" class="sr-only">Recherche universelle</h2><div class="command-input"><span aria-hidden="true">⌕</span><input id="commandInput" type="search" autocomplete="off" placeholder="Client, projet, devis, ressource, personne ou prestation…" aria-controls="commandResults" aria-describedby="commandHelp" /><kbd>esc</kbd></div><p id="commandHelp" class="command-help">Saisissez au moins 2 caractères. Les résultats respectent vos droits d’accès.</p><div id="commandResults" role="listbox" aria-live="polite"></div></section>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div class="stock-drawer-backdrop" id="stockDrawerBackdrop" hidden>
+      <aside class="stock-drawer" role="dialog" aria-modal="true" aria-labelledby="stockDrawerTitle">
+        <header><div><p class="eyebrow" id="stockDrawerEyebrow">MATÉRIEL</p><h2 id="stockDrawerTitle">Détail</h2></div><button type="button" class="icon-button" id="stockDrawerClose" aria-label="Fermer le panneau">×</button></header>
+        <form id="stockDrawerForm"><div id="stockDrawerBody"></div><div id="stockDrawerError" class="conflict-alert" role="alert" hidden></div><footer><button type="button" class="secondary-button" id="stockDrawerCancel">Annuler</button><button type="submit" class="primary-button" id="stockDrawerSubmit">Enregistrer</button></footer></form>
+      </aside>
+    </div>
+    <div class="login-screen" id="loginScreen" hidden>
+      <form class="login-card" id="loginForm"><span class="brand-mark">P</span><p class="eyebrow">PLANNING POST PROD</p><h1>Bienvenue sur Planify</h1><p>Connectez-vous à l’espace Northlight Post.</p><label>Adresse e-mail<input name="email" type="email" value="admin@northlight.fr" required /></label><label>Mot de passe<input name="password" type="password" value="demo2026" required /></label><div id="loginError" class="conflict-alert" hidden></div><button class="primary-button" type="submit">Se connecter</button><small>Démo : admin@northlight.fr · demo2026</small></form>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>

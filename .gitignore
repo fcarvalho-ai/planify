@@ -1,0 +1,11 @@
+.DS_Store
+.env
+.env.*
+node_modules/
+coverage/
+dist/
+output/
+tmp/
+data/*.json
+!data/.gitkeep
+*.log

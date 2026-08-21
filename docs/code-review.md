@@ -1,0 +1,3463 @@
+# Gate G5 — Re-REVIEW finale du cloisonnement Personnel
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g5_review`  
+Périmètre : nouveau candidat après correction des lectures et annulations d'indisponibilités inter-site  
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**APPROVED — Gate REVIEW G5 validé sur le candidat final**
+
+**0 P0, 0 P1 ouvert.** Le changement postérieur à la REVIEW précédente ferme correctement l'accès HTTP inter-site aux indisponibilités Personnel, sans régression observée sur les quatre corrections G5 déjà approuvées.
+
+## Correctif final vérifié
+
+- La liste `GET /api/v1/person-unavailabilities` filtre maintenant chaque snapshot avec `personnelSnapshotAllowed()`, donc tenant, site porté par l'indisponibilité et adhésion visible sont tous exigés (`server.js:2089`, `server.js:2138`). Un simple filtre `membershipId` ne peut plus réintroduire un élément hors site.
+- `DELETE /api/v1/person-unavailabilities/{id}` applique le même prédicat avant le contrôle de version et avant toute mutation (`server.js:2140`). Un identifiant deviné hors site répond `404 NOT_FOUND`, sans révélation de version ni changement d'état.
+- Le rejeu idempotent est également revalidé contre le snapshot courant : une ancienne autorisation ne permet pas de rejouer une annulation après réduction de scope.
+- Le test HTTP crée une indisponibilité Boulogne, utilise un acteur `planning.write` limité à Paris, vérifie la liste masquée, le `DELETE 404`, puis relit avec l'admin et confirme que le statut reste `confirmed` (`tests/api.test.js:49-54`, `tests/api.test.js:209-220`).
+- Les quatre fermetures P1 précédentes restent intactes : option simple indépendante, matrice SSE fail-closed, présence clavier et notification de libération logout/TTL.
+
+## P2 non bloquants conservés
+
+Les quatre P2 de la REVIEW précédente restent inchangés : clé d'intention idempotente des formulaires Personnel, absence de consommation SSE Personnel dans O3, test du rollback avancé/OpenAPI incomplets, et profondeur de preuve révocation SSE/expiration TTL. Aucun n'est aggravé par ce correctif.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --test tests/api.test.js` hors sandbox | **PASS, 40/40**, 0 échec/skip/todo, 2,015 s |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 43/43**, 0 échec/skip/todo, 122 ms |
+| `node --test tests/sprint5-realtime.test.js` hors sandbox | **PASS, 1/1**, 0 échec/skip/todo, 2,111 s |
+| `node --test tests/sprint5-migration.test.js` | **PASS, 1/1**, 0 échec/skip/todo, 225 ms |
+| `node --check server.js` | PASS |
+| `node --check app.js` | PASS |
+| `git diff --check` | PASS |
+| Inspection GET/DELETE/rejeu inter-site | PASS : lecture masquée, mutation introuvable, état inchangé |
+
+La première tentative du test temps réel dans le sandbox a été refusée par l'environnement (`listen EPERM 127.0.0.1`) avant exécution du scénario ; son rejeu autorisé hors sandbox est vert et constitue la preuve retenue. La suite complète n'a pas été rejouée par REVIEW ; le gate QA/intégration porte séparément la preuve `260/260` sur ce candidat.
+
+Hashes complets du candidat final revu :
+
+```text
+server.js                                        b9b6294f5816ca8ed12d7be1789127e4a9bc1f19d7f2e25a12ef8a3db5c0d200
+app.js                                           04f7a5a9ce015e6d2ae00d1faa092f63023ded430c2c8dff11944f1e394f5054
+planning.css                                     4016e6d89ac521cfc22eb42aad17ef16d54db5720e6e8df0bebf6c4739cc57d1
+tests/api.test.js                                1e581cec20a6f19e82d91dee9fa953ec3d20858803f11a53e9652229c2ec342b
+tests/planning-postproduction.test.js            9c5721e024c6e25161916c1a256202f1a289a80a86ae62e6b967764a714e061f
+tests/sprint5-realtime.test.js                    d8b17b3ac2f35b70d654552920387f4108f2ad18e0b7763d1e334db9f9320cf9
+tests/sprint5-migration.test.js                   d32231df043658ec415e3368f9f57763a6b5bcf280e793e8b62237dfadc441b7
+docs/api/openapi-v1.yaml                         a588ec9eb527b62034f426369b45fa901324020bf6d4dca945a7068a033b5575
+docs/specifications/sprint-5-advanced-resources-realtime.md 7f264fb3094ee4b51e064a2f943a834bd3af93eec0666425522f5f4993869350
+```
+
+## Handoff
+
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Le verdict précédent est supersédé par celui-ci pour les empreintes finales ci-dessus.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur avec `G5 REVIEW final = APPROVED — 0 P0/P1`.
+
+---
+
+# Gate G5 — Re-REVIEW indépendante du candidat corrigé Sprint 5
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g5_review`  
+Périmètre : fermeture des quatre P1 REVIEW du candidat Sprint 5, puis recherche de régressions sur `US-068`, `US-070` à `US-076`  
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**APPROVED — Gate REVIEW G5 validé**
+
+**0 P0, 0 P1 ouvert.** Les quatre défauts bloquants de la première REVIEW sont corrigés sans régression bloquante observée : une option simple reste indépendante, les événements SSE sont classifiés par permission et échouent fermés, les gestes clavier passent par le verrou court, et les libérations logout/TTL notifient les autres sessions. Les preuves ciblées fraîches couvrent le candidat exact et sont toutes vertes.
+
+## Fermeture des quatre P1
+
+### 1. Option simple indépendante et double option structurée — fermé
+
+- `patchReservation()` ne déclenche désormais l'arbitrage que pour une transition `option → confirmed` portant un `optionGroupId` non vide (`server.js:2827-2835`). Les concurrents et perdants ne sont donc jamais recherchés pour une option simple.
+- Le test négatif crée deux options simples indépendantes, confirme la première et vérifie que la seconde conserve statut, version et absence de décision.
+- Une double option groupée conserve le contrôle de priorité et le perdant visible. `optionAlternativeResources()` filtre les ressources actives du même tenant/site, compatibles avec la catégorie ou le type, autorisées et sans erreur/conflit (`server.js:2808-2814`) ; ces alternatives structurées sont attachées à la décision perdante (`server.js:2844-2847`).
+
+### 2. Permissions et scopes SSE — fermé
+
+- `ssePermissionsForEvent()` classe explicitement Réservation/Personnel sous `planning.read`, Ressource/Catégorie sous `resource.read` et les autres familles connues sous leur permission de lecture (`server.js:1078-1092`). Une famille inconnue retourne une liste vide et n'est pas diffusée.
+- À chaque émission, le serveur reconstruit le contexte courant de la session, vérifie au moins une permission requise, le tenant, le site et le scope d'entité avant l'écriture SSE (`server.js:1069-1070`, `server.js:1113-1123`). Une révocation est donc prise en compte sans conserver l'ancien contexte.
+- L'ouverture du flux exige au moins une famille lisible, limite une connexion par session et applique une capacité globale (`server.js:2585`). Les tests contractuels vérifient les classifications sensibles et l'échec fermé ; le scénario trois sessions confirme la diffusion autorisée et le refus du second flux d'une même session.
+
+### 3. Présence sur les commandes clavier — fermé
+
+- `withPlanningPresence()` acquiert la présence, annule la commande en cas de refus et libère systématiquement dans un `finally` (`app.js:113-115`).
+- Les déplacements verticaux, déplacements temporels et redimensionnements clavier passent tous par ce wrapper avec l'intention `moving` ou `resizing` (`app.js:867-879`). Ils utilisent donc le même protocole que les gestes pointeur et restent soumis au `423` serveur et au contrôle final de `version`.
+- Le test Planning lie explicitement les trois chemins clavier au wrapper de présence et conserve la couverture des alternatives accessibles.
+
+### 4. Libération logout/TTL diffusée — fermé
+
+- Chaque présence conserve un snapshot minimal de la réservation et un minuteur. `releaseReservationPresence()` supprime l'entrée, annule le minuteur puis émet `reservation.presenceReleased.v1` (`server.js:1073-1076`). Cette même fonction est appelée par libération manuelle, expiration TTL et libération de toutes les présences d'une session.
+- Le logout supprime la session sortante, libère ses présences puis ferme ses propres flux ; les autres sessions autorisées reçoivent l'invalidation (`server.js:2127`).
+- Le test temps réel attend explicitement l'événement de libération sur le second observateur avant de réacquérir la réservation, puis confirme la persistance et les invalidations après redémarrage.
+
+## Régressions recherchées et points conformes
+
+- Les allocations génériques conservent catégorie, `genericAllocationId`, compatibilité, disponibilité, contrôle de version, scope, audit et rejeu idempotent.
+- Le filtrage PlanyBot tient maintenant compte du site de l'indisponibilité : une absence locale n'exclut plus la personne sur un autre site (`server.js:1185-1187`).
+- Les snapshots Personnel vérifient tenant, site et adhésion visible avant lecture ou diffusion.
+- Les intervalles restent semi-ouverts ; options et réservations confirmées consomment la capacité ; les états terminaux restent protégés.
+- Le reset déterministe annule les minuteurs de présence et vide la structure éphémère (`server.js:274-280`).
+- Aucun préfixe effectivement émis par le candidat n'est laissé hors de la matrice SSE ; les familles inconnues restent silencieuses.
+- Syntaxe backend/frontend et whitespace Git restent valides.
+
+## P2 non bloquants
+
+1. **Clé d'intention UI Personnel** — `automaticIdempotencyKey()` reste dérivée uniquement du chemin et du corps (`app.js:40-41`). Après archivage/annulation, une nouvelle intention utilisateur strictement identique peut rejouer le résultat historique au lieu de créer un nouvel objet actif. Une clé doit rester stable pendant un retry mais changer entre deux soumissions distinctes.
+2. **Rafraîchissement O3 Personnel** — le serveur diffuse les invalidations `personSkill.*` et `personUnavailability.*`, mais `startEvents()` ne les consomme pas (`app.js:54`). Deux administrateurs ouverts sur O3 ne voient donc pas immédiatement leurs changements réciproques sans rechargement.
+3. **Rollback avancé et OpenAPI** — le test de migration exécute le rollback Personnel mais pas `rollbackSprint5AdvancedResources`. OpenAPI ne documente pas le `200` de rejeu des créations Personnel (`docs/api/openapi-v1.yaml:282-320`) et rattache encore `cancelReservation` à `/reservations/{reservationId}/generic-assignments` plutôt qu'à `/reservations/{reservationId}` (`docs/api/openapi-v1.yaml:392-449`).
+4. **Profondeur de preuve SSE/TTL** — les contrôles automatisés prouvent la matrice fail-closed, la limite de flux, la diffusion autorisée et la libération au logout ; ils ne simulent pas encore un rôle personnalisé sans permission puis une révocation en plein flux, ni l'attente réelle des 20 secondes d'expiration. L'implémentation relit toutefois le contexte à chaque émission et partage le même chemin de libération pour le TTL.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --test tests/api.test.js` hors sandbox | **PASS, 39/39**, 0 échec/skip/todo, 1,921 s |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 43/43**, 0 échec/skip/todo, 123 ms |
+| `node --test tests/sprint5-realtime.test.js` hors sandbox | **PASS, 1/1**, 0 échec/skip/todo, 2,093 s |
+| `node --test tests/sprint5-migration.test.js` | **PASS, 1/1**, 0 échec/skip/todo, 228 ms |
+| `node --check server.js` | PASS |
+| `node --check app.js` | PASS |
+| `git diff --check` | PASS |
+| Inspection statique options/SSE/présence/TTL | PASS : les quatre chemins bloquants sont fermés sur les lignes citées |
+
+La suite `npm test` complète n'a pas été rejouée par REVIEW : les sous-suites affectées ont été exécutées directement et le gate QA indépendant porte la preuve complète séparée sur le même candidat.
+
+Hashes complets du candidat approuvé :
+
+```text
+server.js                                        dd5d410a47670be5e50b313fa1634357f2b5718e645bde93c9987a0b368abe21
+app.js                                           04f7a5a9ce015e6d2ae00d1faa092f63023ded430c2c8dff11944f1e394f5054
+planning.css                                     4016e6d89ac521cfc22eb42aad17ef16d54db5720e6e8df0bebf6c4739cc57d1
+tests/api.test.js                                a1833d491bd36782031a2d1ccb72d762990e9dab34f124045f1fa5b23e0bba72
+tests/planning-postproduction.test.js            9c5721e024c6e25161916c1a256202f1a289a80a86ae62e6b967764a714e061f
+tests/sprint5-realtime.test.js                    d8b17b3ac2f35b70d654552920387f4108f2ad18e0b7763d1e334db9f9320cf9
+tests/sprint5-migration.test.js                   d32231df043658ec415e3368f9f57763a6b5bcf280e793e8b62237dfadc441b7
+docs/api/openapi-v1.yaml                         a588ec9eb527b62034f426369b45fa901324020bf6d4dca945a7068a033b5575
+docs/specifications/sprint-5-advanced-resources-realtime.md 7f264fb3094ee4b51e064a2f943a834bd3af93eec0666425522f5f4993869350
+```
+
+## Limites et handoff
+
+- Aucun E2E navigateur n'a été exécuté par REVIEW ; l'intégrateur doit conserver le contrôle navigateur multi-session au gate E2E.
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Conformément à l'exception mono-fichier, `docs/project-status.md` reste à mettre à jour par l'intégrateur avec `G5 REVIEW = APPROVED — 0 P0/P1`.
+- Les quatre P2 restent à planifier ; ils ne bloquent pas REVIEW selon le contrat de gate.
+
+---
+
+# Gate G5 — REVIEW indépendante du candidat Sprint 5
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g5_review`  
+Périmètre : `US-068`, `US-070` à `US-076` — double option, ressources génériques, personnel, présence/verrou court, SSE, idempotence, migrations et rollback  
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**CHANGES REQUESTED — Gate REVIEW G5 bloqué**
+
+**0 P0, 4 P1 ouverts, 4 P2 ouverts.** Les tests existants sont verts sur le candidat exact, mais ils ne couvrent pas quatre écarts bloquants aux critères Sprint 5 : l'arbitrage d'une option simple peut altérer des options sans rapport, les flux SSE Réservation/Ressource ne revalident pas leur permission de lecture, les commandes clavier contournent le protocole de présence, et la libération au logout/TTL n'est pas diffusée aux autres sessions.
+
+## Constats bloquants
+
+### P1 — Confirmer une option simple arbitre toutes les options sans groupe du tenant
+
+- `patchReservation()` définit `confirmingOption` pour toute transition `option → confirmed`, même lorsque `item.optionGroupId` est absent (`server.js:2795`). Une option simple sans métadonnées de double option est pourtant autorisée par `validateReservation()` (`server.js:1272-1274`).
+- Avec `optionGroupId === undefined`, les filtres de `server.js:2803` et `server.js:2813` sélectionnent toutes les autres réservations `option` dont le groupe est également absent, y compris sur d'autres ressources, projets, périodes ou sites de la même société.
+- Ces options sans rapport sont temporairement exclues du contrôle de capacité puis reçoivent `optionDecision.state = "lost"` et une incrémentation de version. Cela constitue une mutation collatérale silencieuse de données métier.
+- Le test `Sprint 5 double option` ne crée que deux options explicitement groupées ; aucun négatif ne confirme une option simple en présence d'une autre option simple indépendante.
+- En outre, le perdant ne reçoit que `winnerReservationId` : aucune ressource alternative structurée n'est calculée ni affichée, contrairement au contrat §3/§4.
+
+Correction attendue : n'exécuter l'arbitrage de groupe que si le groupe complet est présent et valide, conserver le comportement normal d'une option simple, borner les concurrents au contrat explicite, fournir les alternatives promises et tester options groupées/non groupées sur plusieurs projets/sites.
+
+### P1 — Les événements SSE Réservation et Ressource ne contrôlent pas la permission de lecture
+
+- `/api/v1/events` accepte toute session authentifiée ; sa résolution de permission de route est `null` (`server.js:2107`, `server.js:2561`).
+- `ssePermissionForEvent()` (`server.js:1073`) exige `planning.read` uniquement pour Personnel et `quote.read` pour Commercial. Les familles `reservation.*` et `resource.*` retournent `null`.
+- `emit()` diffuse donc ces métadonnées à un rôle personnalisé sans `planning.read`/`resource.read` dès lors que ses scopes d'entités ne l'excluent pas (`server.js:1097-1099`). `reservationAllowed()` et `resourceAllowed()` contrôlent les scopes, pas les permissions.
+- Cela contredit l'invariant §2.3 et le §5 : toute diffusion SSE doit revalider permission, société, site, projet et entités. Le test SSE utilise uniquement des rôles Admin/Planner autorisés et ne couvre pas un abonné authentifié sans droit Planning/Ressource.
+
+Correction attendue : classifier explicitement chaque famille SSE avec sa permission (`planning.read`, `resource.read`, etc.), échouer fermé pour toute famille sans classification, puis tester un rôle sans permission et une révocation de permission pendant le flux.
+
+### P1 — Les alternatives clavier déplacent/redimensionnent sans acquérir la présence
+
+- Le gestionnaire clavier de `app.js:860-878` appelle directement `movePlanningCellByRoom()`, `changePlanningBookingTime()`, `moveWholePlanningBooking()` ou `resizePlanningBooking()`.
+- Aucune de ces fonctions n'appelle `acquirePlanningPresence()`. L'acquisition ajoutée à `app.js:883` et `app.js:890` ne couvre que l'ouverture du formulaire et `pointerdown`.
+- Un utilisateur clavier peut donc initier une mutation sans que les autres opérateurs voient « X modifie cette réservation », contrairement au critère UI explicite §4 « les alternatives clavier […] déclenchent le même protocole de présence ».
+- Le test frontend Sprint 5 vérifie seulement la présence de chaînes/fonctions par expressions régulières ; il ne relie pas le chemin clavier à l'acquisition.
+
+Correction attendue : acquérir avec l'intention correcte avant chaque commande clavier sensible, annuler la mutation si l'acquisition échoue, libérer après fin/annulation et ajouter un test comportemental clavier.
+
+### P1 — Logout et expiration suppriment le verrou sans notifier les autres sessions
+
+- `releaseReservationPresenceForToken()` (`server.js:1070`) supprime silencieusement les entrées de la Map. Le logout l'appelle puis ferme uniquement les flux SSE de la session sortante (`server.js:2104`).
+- `pruneReservationPresence()` supprime également les verrous expirés sans produire `reservation.presenceReleased.v1`.
+- Les autres navigateurs ne rechargent la présence que lorsqu'ils reçoivent `reservation.presence.v1` ou `reservation.presenceReleased.v1` (`app.js:54`). Il n'existe pas de minuterie UI qui re-rende la carte à `expiresAt`.
+- Le test trois sessions confirme seulement qu'une seconde session peut réacquérir juste après le logout ; il n'attend aucun événement de libération sur l'autre flux. Le critère S5-D exige pourtant la diffusion SSE et la libération à la déconnexion.
+
+Correction attendue : diffuser une invalidation de libération autorisée pour chaque verrou retiré au logout/expiration, ou fournir un mécanisme équivalent borné côté client, puis prouver que les deux observateurs retirent l'état verrouillé sans rechargement manuel.
+
+## Constats non bloquants
+
+### P2 — Une même action légitime ne peut pas être recréée après archivage depuis l'UI
+
+`automaticIdempotencyKey()` (`app.js:35-36`) dérive la clé du chemin et du corps. Les formulaires Personnel n'ajoutent pas de clé d'intention aléatoire (`app.js:925`). Après archivage d'une compétence, recréer exactement la même compétence rejoue donc éternellement le premier résultat historique au lieu de créer une nouvelle version active. Même risque pour une indisponibilité annulée puis ressaisie à l'identique. La clé doit rester stable pendant un retry, mais changer entre deux intentions utilisateur distinctes.
+
+### P2 — Le site d'une indisponibilité n'est pas respecté par le filtrage PlanyBot
+
+`PersonUnavailability.siteId` est optionnel et la recherche reçoit un `siteId`, mais `planyAvailablePeople()` (`server.js:1164`) exclut une personne dès qu'une indisponibilité temporelle intersecte, sans comparer les sites. Une indisponibilité enregistrée pour Paris bloque donc aussi une proposition sur un autre site. Clarifier la sémantique puis filtrer `siteId` de façon cohérente et ajouter un test multi-site.
+
+### P2 — Les événements Personnel ne sont pas consommés par l'interface O3
+
+Le serveur diffuse `personSkill.updated.v1` et `personUnavailability.updated.v1`, mais `startEvents()` (`app.js:54`) ne recharge que Présence, Réservation et Ressource ; les écouteurs Organisation n'incluent pas les familles Personnel. Deux administrateurs ouverts sur O3 ne voient donc pas leurs changements réciproques en temps réel, malgré la couche SSE ajoutée et testée au niveau transport.
+
+### P2 — Couverture rollback et contrat OpenAPI incomplets
+
+- `tests/sprint5-migration.test.js` démontre seulement `rollbackSprint5Personnel`; aucun test dédié n'exécute `rollbackSprint5AdvancedResources` alors que le rollback S5-B est un critère de sortie.
+- Les créations Personnel peuvent répondre `200` lors d'un rejeu exact mais OpenAPI ne documente que `201` (`docs/api/openapi-v1.yaml:282-320`).
+- Le `delete: cancelReservation` est rattaché dans le YAML à `/reservations/{reservationId}/generic-assignments` au lieu de `/reservations/{reservationId}` (`docs/api/openapi-v1.yaml:415-449`), ce qui induit les consommateurs en erreur.
+
+## Points conformes vérifiés
+
+- Les empreintes correspondent exactement au candidat annoncé et n'ont pas varié pendant la revue.
+- Les allocations génériques séparent catégorie et ressource réelle, conservent `genericAllocationId`, contrôlent version, compatibilité, disponibilité, scope, audit et rejeu.
+- Les mutations Personnel exigent `planning.write`, CSRF/Origin, scope d'adhésion, validation bornée, version à l'annulation et idempotence avec conflit de payload ; l'audit/SSE n'est pas répété au rejeu.
+- Les intervalles d'indisponibilité sont semi-ouverts et les chevauchements actifs sont refusés.
+- Le scénario trois sessions couvre deux observateurs SSE, `423`, `409` sans écrasement, persistance et reconnexion après redémarrage.
+- Les sauvegardes et exports Personnel sont privés (`0600`) et la restauration testée est byte-exacte.
+- L'UI utilise un libellé textuel pour la présence et les décisions d'option, sans dépendre uniquement de la couleur.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --test tests/planning-postproduction.test.js` | **PASS, 43/43**, 0 échec/skip/todo, 129 ms |
+| `node --check server.js` | PASS |
+| `node --check app.js` | PASS |
+| `git diff --check` | PASS |
+| Inspection flux option simple | **FAIL fonctionnel déterministe** : `undefined === undefined` sélectionne les options sans groupe comme concurrentes/perdantes |
+| Inspection permission SSE | **FAIL autorisation** : Réservation/Ressource ont `requiredPermission = null` |
+| Inspection clavier → présence | **FAIL critère UI** : les appels de mutation clavier ne passent pas par `acquirePlanningPresence()` |
+| Inspection logout/TTL → SSE | **FAIL temps réel** : suppression Map sans émission `presenceReleased` |
+
+La reproduction HTTP locale isolée envisagée pour l'option simple n'a pas démarré : la demande d'autorisation a été interrompue. Aucun résultat dynamique n'est revendiqué pour cette commande. La suite complète n'a pas été rejouée par REVIEW à la demande de l'intégrateur ; le gate QA indépendant fournit séparément la preuve 257/257.
+
+Hashes complets du candidat revu :
+
+```text
+server.js                                        54ec6fd513df647c578690317b64e5ba532626099c56282589f66519459b76b0
+app.js                                           400d3e045b9ee9caffdea1aa0f81559f21cd61c830267a6e0eb270ae4dcba0fa
+planning.css                                     4016e6d89ac521cfc22eb42aad17ef16d54db5720e6e8df0bebf6c4739cc57d1
+tests/api.test.js                                080a40c806eaefac5a06d4aea8ab23dee35b5a25f3db13419338a31c0f1defe7
+tests/planning-postproduction.test.js            f2827562b1bfa54d52e3ed90f1dcb3c0a690945b6d750e082f941be43953b04a
+tests/sprint5-realtime.test.js                    c7c7a0ea2f9451c55ead7ceae87170cba322b30df8244fb3e7199578f73f6747
+tests/sprint5-migration.test.js                   d32231df043658ec415e3368f9f57763a6b5bcf280e793e8b62237dfadc441b7
+docs/api/openapi-v1.yaml                         a588ec9eb527b62034f426369b45fa901324020bf6d4dca945a7068a033b5575
+docs/specifications/sprint-5-advanced-resources-realtime.md 01693a430b00a243d96c2fc307da795bbfc5d84642202260cf02168581616faa
+```
+
+## Limites et handoff
+
+- Aucun E2E navigateur n'a été exécuté par REVIEW ; le rendu O3 et les gestes réels restent à revalider après correction.
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Conformément à l'exception de tâche mono-fichier, `docs/project-status.md` reste à mettre à jour par l'intégrateur avec `G5 REVIEW = CHANGES REQUESTED — 4 P1`.
+- Après correction, revenir à DEV puis repasser REVIEW et tous les gates aval impactés sur les nouvelles empreintes.
+
+---
+
+# Gate G4 — Re-REVIEW ultime du correctif DST automnal
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g3_review`  
+Périmètre : alignement de l'occurrence DST répétée entre frontend et batch, consolidation finale des correctifs G4  
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**APPROVED — Gate REVIEW G4 validé**
+
+**0 P0, 0 P1 ouvert.** Le dernier défaut bloquant est fermé : `move` et `duplicate` choisissent désormais l'occurrence précoce de l'heure automnale répétée, comme le frontend. Les heures printanières inexistantes restent refusées sans mutation, le rejeu historique reste protégé par le scope courant et les trois autres familles de P1 G4 ne régressent pas.
+
+## Fermeture du dernier P1
+
+- `exactZonedDateTimeIso()` (`server.js:1850-1857`) collecte les offsets IANA observables autour de la journée, construit tous les instants dont le round-trip reproduit exactement date et heure civiles, les trie par instant croissant puis retient le premier.
+- Pour `2027-10-31 02:30 Europe/Paris`, les deux occurrences restent distinguables et le résultat serveur est maintenant `2027-10-31T00:30:00.000Z`, soit l'occurrence `earlier` CEST attendue par `planningZonedIso()` côté frontend.
+- Le test API couvre séparément un `move` et un `duplicate` vers cette cible et vérifie dans les deux réponses l'instant `00:30Z`.
+- L'heure inexistante du printemps continue de ne produire aucun candidat : move et duplicate retournent `422 VALIDATION_ERROR`; le move conserve instant et version de la source.
+
+## Consolidation des fermetures G4
+
+- **Temporalité** : date/heure civiles dérivées dans le fuseau du site, minuit et changement d'offset représentable conservés, heure inexistante refusée, heure répétée alignée sur `earlier`.
+- **Rejeu/scope** : accès simultané exigé au snapshot historique et à la réservation courante, y compris Projet, site, ressource principale et overrides ; le replay après déplacement de ressource puis réduction du scope retourne `404` sans fuite.
+- **Undo/Redo** : versions attendues conservées et rafraîchies après compensation ; divergence refusée par le serveur ; piles bornées à 50 et purgées avec les autres états transitoires au changement de société.
+- **Sélection/accessibilité** : rectangle borné aux cellules rendues, Maj+clic et Maj+Entrée, état `aria-pressed` synchronisé.
+- **Autosave** : compteur des mutations concurrentes, `saving` jusqu'à la dernière intégration, puis `synced` ou `offline` selon le résultat réseau.
+- **Batch/Commercial** : atomicité, idempotence, version, terminalité, conflits intra-lot, liens Projet/Devis/ligne, moteur vendu-planifié et complément `+5 → +3 → 0` restent couverts sans régression automatisée.
+
+## P2 non bloquants conservés
+
+1. `docs/api/openapi-v1.yaml:324-329` omet encore les réponses batch `400 IDEMPOTENCY_KEY_REQUIRED` et les gardes `401/403` réellement possibles.
+2. Les audits métier portent `batchIndex`, mais `batchReservations()` ne produit pas l'audit récapitulatif batch explicite demandé au §5 (taille, familles d'actions, résultat) ; l'`operationId` batch reste dans le résultat/marker.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --test tests/api.test.js` hors sandbox | **PASS, 32/32**, 0 échec/skip/todo, 1,544 s |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 38/38**, 0 échec/skip/todo, 115 ms |
+| `npm test` hors sandbox | **PASS, 245/245**, 0 échec/skip/todo, 8,163 s |
+| `node --check server.js` | PASS |
+| `node --check app.js` | PASS |
+| `git diff --check` | PASS |
+| Move automne `2027-10-31 02:30` | PASS : `00:30Z`, occurrence `earlier` |
+| Duplicate automne `2027-10-31 02:30` | PASS : `00:30Z`, occurrence `earlier` |
+| Move/duplicate printemps inexistant | PASS : `422`, aucune mutation source |
+| Rejeu historique après changement de ressource/scope | PASS : entité courante lisible, ancien snapshot `404` |
+
+Hashes complets du candidat approuvé :
+
+```text
+server.js                                31f2e713320acae6833aef5b55a05701e7734cb7365679d896cf5389aa066b3b
+app.js                                   16dc6c21c3241fdd9d5391546ccafa7110cc11d63dbecc2b69762cc8543d4c84
+planning.css                             e4df59fc44cf624241bf4bd822b5059cbefd1ec4b109f65ca1cb9e8b5fbcf45f
+tests/api.test.js                        05a7d439035f7706d60346267b23cd49b33d9d1b8ce222c6c9bf1021bf073c27
+tests/planning-postproduction.test.js    7cb607aa612905690c1356a333eba7d5a5adeeaac1c00e9eedd938d0f09438c3
+docs/api/openapi-v1.yaml                 20eef6d443681732d5f04a2d730133beebbdb5aac78cc6d890b3c3fdd201b1a9
+package.json                             abe5863b875a828360ab67edf388968413b375168df9cc32e50487e9bbb3e376
+```
+
+## Limites et handoff
+
+- Aucun E2E navigateur n'a été exécuté par cette REVIEW ; les interactions DOM restent à confirmer au gate E2E sur ce même candidat.
+- Fichier modifié : `docs/code-review.md` uniquement. L'intégrateur doit reporter `G4 REVIEW = APPROVED — 0 P0/P1` dans `docs/project-status.md`.
+- Les deux P2 restent à planifier ; ils ne bloquent pas le verdict REVIEW selon le contrat de gate.
+
+---
+
+# Gate G4 — Re-REVIEW finale du candidat DST/scope
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g3_review`  
+Périmètre : correctif DST exact move/duplicate, rejeu historique après évolution de ressource et réduction de scope, consolidation des P1 G4  
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**CHANGES REQUESTED — Gate REVIEW G4 reste bloqué**
+
+**0 P0, 1 P1 ouvert, 2 P2 ouverts.** Les heures locales inexistantes sont maintenant refusées sans mutation pour `move` et `duplicate`, et le rejeu historique revalide correctement l'ancien snapshot ainsi que l'entité courante. Il reste cependant une divergence DST automnale entre le frontend et le batch serveur : les deux occurrences d'une heure répétée ne suivent pas la même politique.
+
+## Constat bloquant
+
+### P1 — Une cible automnale ambiguë choisit une occurrence différente entre UI et batch
+
+- Le frontend canonique `planningZonedIso()` (`app.js:47`) expose une désambiguïsation et choisit `earlier` par défaut.
+- Le batch reconstruit `move` et `duplicate` avec `exactZonedDateTimeIso()` (`server.js:1850-1852`, `server.js:2538`, `server.js:2590`). Cette fonction vérifie désormais le round-trip, mais délègue à `zonedDateTimeIso()`, qui n'expose aucune politique et converge vers la seconde occurrence.
+- Reproduction fraîche : `2027-10-31 02:30 Europe/Paris` devient `2027-10-31T01:30:00.000Z` côté serveur, soit l'occurrence tardive CET, alors que le défaut frontend retourne l'occurrence précoce CEST (`00:30Z`). Les deux instants ont le même libellé civil, mais diffèrent d'une heure et peuvent produire une disponibilité/conflit différent.
+- Le contrat G3 conservé exige que les occurrences répétées restent distinctes ; le correctif G4 doit donc préserver explicitement l'occurrence source ou porter une politique `earlier/later` validée dans la commande. Le test API actuel couvre le saut de printemps et des heures représentables après transition, mais aucune cible répétée d'automne.
+
+Correction attendue : partager le résolveur IANA canonique et sa politique de désambiguïsation entre frontend et serveur, inclure ou dériver cette politique sans ambiguïté dans `move`/`duplicate`, puis tester les deux occurrences automnales avec contrôle des instants et des conflits.
+
+## Fermetures vérifiées
+
+- **Heure inexistante — fermé** : `exactZonedDateTimeIso()` compare date et heure réaffichées ; `move` et `duplicate` retournent `422 VALIDATION_ERROR` avant désindexation/écriture si une borne n'existe pas. Le test vérifie le statut, l'instant et la version inchangés après move ; la copie refusée ne crée aucun item puisque `mutate()` ne commit pas sur exception.
+- **Minuit et changement d'offset représentable — fermé** : les dates/heures sont dérivées avec le fuseau du site et les tests conservent `23:30–03:30` lors du déplacement puis de la copie.
+- **Rejeu historique et scope courant — fermé** : `reservationSnapshotAllowed()` contrôle société, site, Projet, réservation, ressources principales et overrides. Le rejeu exige simultanément l'accès au snapshot historique et à la réservation courante. Le scénario déplace la réservation de `resource_3` vers `resource_5`, réduit ensuite le scope à `resource_5`, confirme que l'entité courante reste lisible puis obtient `404` au rejeu de l'ancien batch.
+- **P1 antérieurs — fermés sans régression** : versions attendues des compensations, refus de divergence, piles Undo/Redo bornées à 50 et purgées au changement de société, sélection rectangulaire Maj souris/clavier, autosave concurrent à compteur, atomicité/idempotence, terminalité et rollback restent couverts.
+
+## Constats non bloquants conservés
+
+### P2 — OpenAPI omet des réponses batch réelles
+
+`docs/api/openapi-v1.yaml:324-329` documente `200/201/404/409/422`, mais pas `400 IDEMPOTENCY_KEY_REQUIRED` ni les gardes `401/403` réellement exposés.
+
+### P2 — Aucun audit récapitulatif de niveau batch
+
+Les audits métier portent `batchIndex` et restent corrélables, mais `batchReservations()` ne produit pas l'audit batch explicite demandé au §5 (taille, familles d'actions et résultat). L'`operationId` batch reste limité au résultat/marker.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --test tests/api.test.js` hors sandbox | **PASS, 32/32**, 0 échec/skip/todo, 1,396 s |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 38/38**, 0 échec/skip/todo, 125 ms |
+| `npm test` hors sandbox | **PASS, 245/245**, 0 échec/skip/todo, 7,840 s |
+| `node --check server.js` | PASS |
+| `node --check app.js` | PASS |
+| `git diff --check` | PASS |
+| Test API DST inexistant | PASS : move et duplicate `422`; move conserve instant/version |
+| Test API rejeu scope | PASS : courant sur nouvelle ressource lisible, snapshot historique hors scope rejeté `404` |
+| Reproduction occurrence automnale | **FAIL fonctionnel confirmé** : serveur `2027-10-31 02:30` → `01:30Z` (later), frontend par défaut → `00:30Z` (earlier) |
+
+Hashes complets du candidat revu :
+
+```text
+server.js                                cc9172f1bd5b85eb2eb39f17344c6726c9478f9caf146a0f179d951c5533f6e9
+app.js                                   16dc6c21c3241fdd9d5391546ccafa7110cc11d63dbecc2b69762cc8543d4c84
+planning.css                             e4df59fc44cf624241bf4bd822b5059cbefd1ec4b109f65ca1cb9e8b5fbcf45f
+tests/api.test.js                        cac073c71655887d26d8a0cf175feff1354dab445be2128e48ef5564f66a6a41
+tests/planning-postproduction.test.js    7cb607aa612905690c1356a333eba7d5a5adeeaac1c00e9eedd938d0f09438c3
+docs/api/openapi-v1.yaml                 20eef6d443681732d5f04a2d730133beebbdb5aac78cc6d890b3c3fdd201b1a9
+```
+
+## Limites et handoff
+
+- Aucun E2E navigateur n'a été exécuté par cette REVIEW ; les comportements DOM restent démontrés par les tests frontend ciblés.
+- Fichier modifié : `docs/code-review.md` uniquement. L'intégrateur doit reporter `G4 REVIEW = CHANGES REQUESTED — 1 P1` dans `docs/project-status.md`.
+- Après alignement explicite de la désambiguïsation automnale et ajout des deux occurrences au test API, repasser REVIEW puis les gates aval impactés.
+
+---
+
+# Gate G4 — Re-REVIEW indépendante du candidat corrigé
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g3_review`  
+Périmètre : fermeture des quatre P1 REVIEW G4, rejeu batch après changement de scope et non-régression Sprint 4  
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**CHANGES REQUESTED — Gate REVIEW G4 reste bloqué**
+
+**0 P0, 1 P1 ouvert, 2 P2 ouverts.** Trois des quatre P1 précédents sont fermés et le rejeu batch revalide désormais le périmètre courant. La reconstruction temporelle batch reste néanmoins incorrecte sur une heure locale inexistante au passage DST : la commande réussit avec une autre heure civile au lieu de refuser l'entrée. Un test vert sur un déplacement autour de la transition ne couvre pas cette cible exacte.
+
+## Constat bloquant
+
+### P1 — `move`/`duplicate` batch altèrent silencieusement une heure locale inexistante
+
+- `server.js:2515-2524` et `server.js:2571-2574` dérivent maintenant correctement la date et l'heure civiles depuis le fuseau IANA du site ; les cas ordinaires, le voisinage de minuit et le passage d'un offset été à un offset hiver sont donc corrigés.
+- Cependant, le résolveur partagé `zonedDateTimeIso()` (`server.js:1828-1833`) itère sur les offsets sans vérifier que l'instant obtenu se réaffiche avec la date/heure demandée. Pour `Europe/Paris`, la cible inexistante `2027-03-28 02:30` retourne `2027-03-28T00:30:00.000Z`, qui se réaffiche **01:30**, et aucune validation batch ne détecte cette altération.
+- Le contrat temporel G3 conservé par Sprint 4 impose une saisie/affichage dans le fuseau IANA et le candidat G3 approuvé refuse explicitement les heures inexistantes. Un déplacement ou collage batch vers le dimanche de bascule peut donc enregistrer une réservation une heure plus tôt que la cellule demandée, ce qui est une corruption fonctionnelle visible.
+- Le nouveau test API « autour du changement DST » déplace une séance `23:30–03:30` vers une date où ces deux heures existent ; il ne cible ni `02:00` ni `02:30` le jour du saut.
+
+Correction attendue : utiliser le résolveur IANA canonique qui valide le round-trip civil, retourner une erreur stable pour une heure inexistante et couvrir `move` et `duplicate` sur `02:00/02:30` au printemps ainsi qu'une heure répétée à l'automne avec politique de désambiguïsation explicite.
+
+## Fermetures vérifiées
+
+- **Undo/Redo, versions, borne et société — fermé** : chaque compensation envoie la version mémorisée, met à jour cette version après succès et laisse le serveur refuser une divergence ; `pushPlanningHistory()` borne les deux piles à 50 ; `clearPlanningTransientState()` purge piles, presse-papiers, cible, peinture et sélections au changement de société.
+- **Sélection rectangulaire — fermé** : `selectPlanningRectangle()` étend entre l'ancre et la cible sur les seules cellules rendues ; Maj+clic et Maj+Entrée partagent le comportement, avec `aria-pressed` synchronisé.
+- **Autosave concurrent — fermé** : le compteur `planningPendingMutations` maintient `saving` tant qu'une mutation Planning reste en vol ; l'état final est `synced` seulement à zéro, ou `offline` après échec réseau.
+- **Rejeu et scope courant — fermé** : avant de restituer un batch idempotent, `server.js:2455-2460` retrouve chaque réservation historique dans la société et revalide site, projet et entités via `reservationAllowed`; le test réduit le scope après succès puis obtient `404` au rejeu, sans nouvel audit.
+- Atomicité, versions obsolètes, conflits intra-lot, terminalité, liens Devis/Projet/ligne, synchronisation du complément et émission SSE après commit restent couverts sans régression automatisée.
+
+## Constats non bloquants conservés
+
+### P2 — OpenAPI omet des réponses batch réelles
+
+`docs/api/openapi-v1.yaml:324-329` documente `200/201/404/409/422`, mais pas `400 IDEMPOTENCY_KEY_REQUIRED` ni les gardes `401/403` réellement exposés par la route.
+
+### P2 — Aucun audit récapitulatif de niveau batch
+
+Les audits métier portent `batchIndex` et sont corrélables, mais `batchReservations()` ne produit toujours pas l'audit batch explicite demandé au §5 (taille, familles d'actions et résultat). `operationId` n'est présent que dans la réponse et le marqueur idempotent.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --test tests/api.test.js` hors sandbox | **PASS, 32/32**, 0 échec/skip/todo, 1,431 s |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 38/38**, 0 échec/skip/todo, 120 ms |
+| `npm test` hors sandbox | **PASS, 245/245**, 0 échec/skip/todo, 8,178 s |
+| `node --check server.js` | PASS |
+| `node --check app.js` | PASS |
+| `git diff --check` | PASS |
+| Reproduction directe de l'algorithme `zonedDateTimeIso()` | **FAIL fonctionnel confirmé** : demandé `2027-03-28T02:30 Europe/Paris`, retourné `2027-03-28T00:30:00.000Z`, réaffiché `01:30` |
+
+Hashes complets du candidat revu :
+
+```text
+server.js                                1373ea2bffceeb11d492fdddb21fe6869a85ac0d368643b123d056d35eace25e
+app.js                                   16dc6c21c3241fdd9d5391546ccafa7110cc11d63dbecc2b69762cc8543d4c84
+planning.css                             e4df59fc44cf624241bf4bd822b5059cbefd1ec4b109f65ca1cb9e8b5fbcf45f
+tests/api.test.js                        0fbd58d6b61135801d9620dd36a0481ca8d0e511ad58884c7d0440e2899eaa04
+tests/planning-postproduction.test.js    7cb607aa612905690c1356a333eba7d5a5adeeaac1c00e9eedd938d0f09438c3
+tests/quotes.test.js                     380c3de4a5b431f5981992f949f5a37f0a3444b0433a95e7d94ad866ba60753e
+docs/api/openapi-v1.yaml                 20eef6d443681732d5f04a2d730133beebbdb5aac78cc6d890b3c3fdd201b1a9
+package.json                             abe5863b875a828360ab67edf388968413b375168df9cc32e50487e9bbb3e376
+```
+
+## Limites et handoff
+
+- Aucun E2E navigateur n'a été ajouté ou exécuté par cette REVIEW ; la sélection rectangulaire et l'ordre inversé des réponses autosave restent démontrés par la sous-suite frontend, pas par un navigateur réel.
+- Fichier modifié : `docs/code-review.md` uniquement. L'intégrateur doit reporter `G4 REVIEW = CHANGES REQUESTED — 1 P1` dans `docs/project-status.md`.
+- Après correction du résolveur batch et ajout des négatifs DST exacts, repasser REVIEW puis les gates aval impactés sur les nouveaux hashes.
+
+---
+
+# Gate G4 — REVIEW indépendante du candidat Sprint 4
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g3_review`  
+Périmètre : Sprint 4 complet — batch atomique/idempotent, copier/coller, multi-sélection, peinture, undo/redo, autosave, moteur vendu/planifié et cycle des Devis complémentaires ; contrôle du correctif O1  
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**CHANGES REQUESTED — Gate REVIEW G4 bloqué**
+
+**0 P0, 4 P1 ouverts, 2 P2 ouverts.** Les preuves automatisées sont vertes, mais le candidat ne satisfait pas encore quatre critères explicites : conservation temporelle des copies/déplacements, refus d'une compensation après divergence et historique borné/isolé, sélection rectangulaire, et autosave exact sous mutations concurrentes.
+
+## Constats bloquants
+
+### P1 — `move` et `duplicate` reconstruisent les dates depuis l'UTC au lieu du fuseau civil du site
+
+- `server.js:2500-2509` prend `item.startsAt.slice(0, 10)` comme date source puis concatène la date cible avec la portion horaire/offset brute persistée ; `server.js:2558-2559` fait de même pour une copie de cellule.
+- Les instants de l'interface étant stockés en UTC, une séance Europe/Paris à `00:30` peut porter la date UTC de la veille : le déplacement calcule alors un jour de trop. Une copie entre été et hiver conserve aussi l'heure UTC au lieu de l'heure murale de la cellule.
+- Le contrat Sprint 3/G3 impose le fuseau IANA exact et Sprint 4 exige la conservation des cellules/durées. Les tests batch n'utilisent que des heures UTC sans minuit ni DST.
+- Correctif attendu : dériver date/heure locales avec le fuseau du site, reconstruire via le résolveur IANA canonique, et tester printemps, automne et proximité de minuit sur `move`/`duplicate`.
+
+### P1 — Undo/Redo contourne la divergence et l'historique n'est ni uniformément borné ni vidé au changement de société
+
+- `app.js:687-692` et `app.js:703-706` envoient la **version courante** de `state.bookings`. Après modification SSE/concurrente, la compensation adopte cette nouvelle version et peut écraser l'évolution au lieu d'être refusée comme l'exige §7.
+- `app.js:666`, `app.js:695`, `app.js:708` et `app.js:711` poussent directement dans `planningUndo`; seule `rememberPlanningUndo()` (`app.js:660`) borne à 50. Move/resize unitaires, échec et Redo peuvent dépasser la borne.
+- Le changement de société (`app.js:529-530`) ne vide pas les piles, presse-papiers, cible et peinture déclarés à `app.js:651`.
+- Correctif attendu : conserver les versions résultat avant/après, refuser une compensation si la version diverge, centraliser les piles bornées et purger tout état Planning au changement de société. Tester divergence SSE, 51 actions et changement de contexte.
+
+### P1 — La multi-sélection rectangulaire spécifiée n'existe pas
+
+- US-039 exige « Ctrl/Cmd/Shift et rectangle ». `app.js:725-726` fournit seulement un toggle par clic avec modificateurs ; aucun rectangle/marquee/lasso n'existe dans `app.js` ou `planning.css`.
+- Le clic-glisser de `app.js:751-759` crée une nouvelle période sur une seule ressource : ce n'est pas une sélection rectangulaire de cellules existantes.
+- Aucun test Planning ne couvre cette interaction. Ajouter un rectangle visible borné aux cellules rendues/autorisées, sans conflit avec la création, avec alternative clavier et E2E.
+
+### P1 — L'autosave peut annoncer « Synchronisé » pendant qu'une mutation est encore en vol
+
+- `app.js:18-20` conserve un état scalaire sans compteur ; `app.js:37` met `saving` à chaque départ puis chaque réponse remet immédiatement `synced`.
+- Avec deux mutations concurrentes, la première réponse affiche donc « Synchronisé » avant réception/intégration de la seconde. Le test actuel ne fait qu'inspecter les trois libellés et ne simule pas des réponses inversées.
+- Correctif attendu : compteur de mutations (ou sérialisation explicite), `synced` uniquement à zéro requête pendante après intégration, et test de concurrence/ordre inversé.
+
+## Constats non bloquants
+
+### P2 — OpenAPI omet des réponses batch réelles
+
+`docs/api/openapi-v1.yaml:313-329` documente `200/201/404/409/422`, alors que le serveur renvoie aussi `400 IDEMPOTENCY_KEY_REQUIRED` et que le garde de route peut répondre `401/403`.
+
+### P2 — Pas d'audit récapitulatif de niveau batch
+
+Les audits métier sont corrélés par `operationId`, mais `batchReservations()` ne crée pas l'audit récapitulatif demandé au §5 (taille, familles d'actions, résultat). Les mutations restent traçables individuellement, mais le lot doit être reconstitué.
+
+## Contrôles conformes observés
+
+- `mutate()` n'écrit qu'après retour sans exception : les rejets en milieu de lot n'atteignent ni fichier, idempotence, audit, complément ni SSE.
+- Le garde central applique `planning.write`, auth/session, CSRF/Origin et isolation société ; les recherches ajoutent site, projet et entités autorisées.
+- L'index de conflits est maintenu dans le lot pour create/duplicate/move/resize/cancel/restore ; les conflits intra-lot sont détectés.
+- Rejeu exact sans nouvel audit/SSE ; contenu divergent en `IDEMPOTENCY_CONFLICT`.
+- Le moteur couvre non-planifiable, base principale + compléments acceptés et `+5 → +3 → 0`, sans réécrire les documents acceptés.
+- La peinture est focusable et utilisable par Entrée/Espace ; les statuts ne reposent pas seulement sur la couleur.
+- Le correctif O1 est couvert et la suite complète ne montre pas de régression.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande | Résultat |
+|---|---|
+| `node --test tests/api.test.js` | **PASS, 31/31**, 0 échec/skip/todo |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 35/35**, 0 échec/skip/todo |
+| `node --test tests/quotes.test.js` | **PASS, 47/47**, 0 échec/skip/todo |
+| `npm test` | **PASS, 241/241**, 0 échec/skip/todo, 8,149 s |
+| `node --check server.js` | PASS |
+| `node --check app.js` | PASS |
+| `git diff --check` | PASS |
+
+Hashes complets :
+
+```text
+server.js                                e9511b717c48571107796dfead2ce755d15fd61096b169e4f422f690ee6926b9
+app.js                                   4e4184596936fe90876b71e967ba39db2f8f0938b2b3d33b79f58b9fef3aa718
+planning.css                             e4df59fc44cf624241bf4bd822b5059cbefd1ec4b109f65ca1cb9e8b5fbcf45f
+tests/api.test.js                        c6aaf73f3e95c9e411c9ed5d1ebebaea29a6e06dea1d70507d8cb9b10518d0ff
+tests/planning-postproduction.test.js    684222c039fc23e207607c953aea513635f0747cc1821441c0819b9892b62e5f
+tests/quotes.test.js                     380c3de4a5b431f5981992f949f5a37f0a3444b0433a95e7d94ad866ba60753e
+docs/api/openapi-v1.yaml                 20eef6d443681732d5f04a2d730133beebbdb5aac78cc6d890b3c3fdd201b1a9
+package.json                             abe5863b875a828360ab67edf388968413b375168df9cc32e50487e9bbb3e376
+```
+
+## Limites et handoff
+
+- Aucun code/test corrigé et aucun E2E navigateur ajouté dans cette revue. L'E2E DEV antérieur ne couvre pas rectangle, concurrence autosave, divergence Undo/SSE ni copie/déplacement DST/minuit.
+- Fichier modifié : `docs/code-review.md` uniquement. L'intégrateur doit reporter `G4 REVIEW = CHANGES REQUESTED` dans `docs/project-status.md`.
+- Après correction, repasser REVIEW puis les gates aval impactés sur de nouveaux hashes.
+
+---
+
+# Gate G3 — Re-REVIEW indépendante du correctif focus SSE tardif
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g3_review`  
+Périmètre : maintien du focus Planning après rerendu SSE tardif, absence de vol de focus et non-régression du candidat G3 V4  
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**APPROVED — Gate REVIEW G3 maintenu**
+
+**0 P0, 0 P1 ouvert.** Le correctif conserve l'intention de focus durant 2,5 secondes, la rejoue après chaque `bind()` consécutif à un rerendu et ne reprend pas le focus si l'utilisateur l'a déplacé vers une zone extérieure à la matrice. Le scénario navigateur E2E communiqué confirme qu'après resize et actualisation SSE à 1,2 seconde, le focus reste sur la poignée « Étirer la fin… ».
+
+## Contrôles du correctif
+
+- `restorePlanningKeyboardFocus()` enregistre réservation, bord/cellule et échéance dans `planningKeyboardFocusIntent`, puis tente immédiatement la restauration.
+- `bind()` rappelle `applyPlanningKeyboardFocus()` après chaque reconstruction de la page Planning, ce qui couvre le second rendu provoqué par l'invalidation SSE.
+- L'intention expire après 2 500 ms et est annulée lorsqu'elle est périmée ; elle ne devient pas un état permanent.
+- Avant tout recentrage, le code vérifie `document.activeElement` : un focus actif hors de `.planning-matrix-scroll` est respecté, empêchant le correctif de voler le focus à un contrôle externe, une navigation ou un dialogue.
+- La cible reste priorisée : poignée exacte, puis réservation, puis région Planning focusable. Les recadrages Jour et les corrections DST/dailyCells du V4 restent inchangés.
+- Limite non bloquante : pendant la courte intention, un déplacement volontaire vers un autre contrôle **dans** la matrice peut être recentré par un SSE tardif. Le comportement protège la continuité de la commande initiatrice ; un futur raffinement pourrait annuler l'intention sur un `focusin` distinct.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --check app.js` | PASS |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 29/29**, 0 échec/skip/todo, 105 ms |
+| `npm test` hors sandbox | **PASS, 233/233**, 0 échec/skip/todo, 7,960 s |
+| `npm run lint` | PASS |
+| `npm run build` | PASS, 5 actifs runtime vérifiés |
+| `git diff --check` | PASS |
+| Preuve navigateur E2E fournie | PASS : poignée « Étirer la fin… » toujours focus après resize + attente SSE 1,2 s |
+| Inspection non-vol de focus | PASS : retour immédiat si le focus actif est hors matrice |
+
+Hashes complets du candidat approuvé :
+
+```text
+server.js                                faef9ad5d81f82a3bd967baf7e31fc541aa617c79b25bbb238501a3fbe7bcdd4
+app.js                                   35826e969bbd14d66a73b1a5ead67081e7ee648e0a0202b524e2450a6dd8a954
+planning.css                             1928f4cabc83cfb3d8acb652b64e060ca7fcaefcfa26e5f0fa34d8165083fe19
+tests/api.test.js                        165a12998808c0dfd38041abbdab2fea6ec096c981e30c190d50591535eea71c
+tests/planning-postproduction.test.js    833ece1c1f383a7a07f824e5e05b66a56daf4e5c7897c8432970b010dcf43c63
+docs/api/openapi-v1.yaml                 a70a98f727d02f0dc6c132357f11489a60c0878e1929c7cf8a179d58e36160c5
+```
+
+## Handoff intégrateur
+
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Conserver `G3 REVIEW = APPROVED — 0 P0/P1` pour les hashes ci-dessus.
+- Les gates aval doivent référencer le nouveau hash frontend et la preuve navigateur du focus après SSE.
+
+---
+
+# Gate G3 — Re-REVIEW ultime indépendante du candidat V4
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g3_review`  
+Périmètre : fermeture des deux derniers P1 G3, correctifs DST/focus et non-régression S3-A à S3-D  
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**APPROVED — Gate REVIEW G3 validé**
+
+**0 P0, 0 P1 ouvert.** Les déplacements et redimensionnements horaires utilisent désormais des instants UTC réels, y compris sur les bascules DST. Les poignées de resize en vue Jour recentrent la période sur leur nouveau bord avant restauration du focus. Les trois séries de constats précédentes sont fermées sans régression détectée sur le candidat exact.
+
+## Fermeture des deux P1 V3
+
+### Navigation horaire aux transitions DST — fermé
+
+- `planningShiftedInstants()` part des instants persistés `startsAt`/`endsAt`, ajoute le delta en millisecondes et reconvertit seulement ensuite vers l'heure civile du site.
+- Au printemps, `01:30 + 30 min` devient correctement `03:00`, créneau instantané adjacent malgré l'heure murale inexistante.
+- À l'automne, les deux occurrences de 02 h restent distinctes : la première `02:30 + 30 min` atteint la seconde occurrence de `02:00`, et la seconde `02:30 - 30 min` atteint cette même occurrence antérieure de 30 minutes, sans saut de 90 minutes.
+- Move complet horaire et resize start/end partagent ce calcul ; la durée positive est contrôlée avant mutation et le rollback restaure le snapshot sur rejet API.
+
+### Continuité des poignées de resize — fermé
+
+- Après un resize non horaire, la vue Jour récupère l'objet serveur actualisé, choisit `resized.date` pour la poignée de début ou `resized.endDate` pour la poignée de fin, met à jour `anchor`, invalide la fenêtre virtuelle puis rerend.
+- `restorePlanningKeyboardFocus()` s'exécute après ce recentrage et retrouve la poignée correspondante ; la région Planning focusable reste le dernier fallback en cas de cible indisponible.
+- Le même handler est `async`, attend succès ou rollback avant de restaurer le focus et permet donc une séquence de flèches sans perdre le contexte du bord manipulé.
+
+## Contrôles G3 consolidés
+
+- **Création** : clic-glisser avec ghost, formulaire prérempli et aucune mutation avant confirmation humaine.
+- **Vue Jour** : grille horaire réelle ; 48 slots ordinaires, 46 au passage à l'heure d'été et 50 au retour à l'heure d'hiver ; occurrences répétées libellées et instants exacts transmis.
+- **Fuseau/legacy** : conversion UTC ↔ heure civile via fuseau IANA du site, heures inexistantes refusées, instant ambigu inchangé préservé, aucune promotion implicite d'une réservation legacy vers `sprint3-v1`.
+- **Interactions** : move cellule limité à la salle du même jour, move complet, resize, copie/coller, undo/redo, ghosts opérationnels, snapshot et rollback.
+- **Clavier/accessibilité** : événements et poignées focusables, raccourcis annoncés, commandes move/resize opérantes, recentrage et restauration/fallback du focus visible.
+- **Cellules multi-jours** : chaque cellule `dailyCells` est bornée à son propre intervalle quotidien et ne déborde pas sur les colonnes intermédiaires.
+- **Serveur** : alignement réel au snap dans le fuseau IANA, contrôle optimiste de version, statuts terminaux, RBAC/scopes, isolation société/site, conflits et capacité conservés.
+- **Calendrier** : week-ends et jours fériés restent explicites verticalement, sans dépendance distante.
+- **Contrats/compatibilité** : OpenAPI cohérent avec les champs temporels ; aucun changement de stack, migration destructive ou fallback prototype silencieux.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --check server.js && node --check app.js` | PASS |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 29/29**, 0 échec/skip/todo, 111 ms |
+| `node --test tests/api.test.js` hors sandbox | **PASS, 30/30**, 0 échec/skip/todo, 1,266 s |
+| `npm test` hors sandbox | **PASS, 233/233**, 0 échec/skip/todo, 8,356 s |
+| `npm run lint` | PASS |
+| `npm run build` | PASS, 5 actifs runtime vérifiés |
+| `git diff --check` | PASS |
+| Inspection déplacement DST | PASS : delta appliqué aux instants, puis reconversion IANA |
+| Inspection resize/focus | PASS : recentrage sur le bord start/end en vue Jour avant restauration de la poignée |
+
+Performance DEV fournie, non réexécutée par cette REVIEW : lecture p95 104,48 ms ; conflit 144,55 ms ; écriture 179,18 ms ; replay 155,70 ms, sous les seuils contractuels.
+
+Hashes complets du candidat approuvé :
+
+```text
+server.js                                faef9ad5d81f82a3bd967baf7e31fc541aa617c79b25bbb238501a3fbe7bcdd4
+app.js                                   9cb7d996fdbd364f0e8d3ff95d7c43bd8173526f5990381233968e592b120e33
+planning.css                             1928f4cabc83cfb3d8acb652b64e060ca7fcaefcfa26e5f0fa34d8165083fe19
+tests/api.test.js                        165a12998808c0dfd38041abbdab2fea6ec096c981e30c190d50591535eea71c
+tests/planning-postproduction.test.js    a9a982239ca476af3336757298223b05c1fc4438aa6da9545bbda3534c7f82ff
+docs/api/openapi-v1.yaml                 a70a98f727d02f0dc6c132357f11489a60c0878e1929c7cf8a179d58e36160c5
+```
+
+## P2 / limites non bloquantes
+
+1. Plusieurs assertions frontend inspectent encore les branchements DOM par expressions régulières. Le gate E2E doit conserver un scénario navigateur réel sur séquences clavier, succès/rollback et limites de virtualisation.
+2. Le calendrier métier propre à un site reste distinct du calendrier national français actuellement implémenté ; toute extension de ce périmètre devra recevoir son contrat et ses tests.
+3. Cette approbation REVIEW ne remplace pas les verdicts indépendants QA, Sécurité, Performance, Intégration et E2E.
+
+## Handoff intégrateur
+
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Reporter `G3 REVIEW = APPROVED — 0 P0/P1` dans `docs/project-status.md`.
+- Ce verdict porte uniquement sur les six hashes ci-dessus ; toute modification ultérieure du candidat impose une nouvelle analyse d'impact.
+
+---
+
+# Gate G3 — Re-REVIEW terminale indépendante du candidat V3
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g3_review`  
+Périmètre : correctifs DST, focus clavier, granularité/cellules multi-jours et non-régression S3-A à S3-D  
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**CHANGES REQUIRED — Gate REVIEW G3 refusé**
+
+**0 P0, 2 P1 ouverts.** La grille civile produit maintenant 46 créneaux au printemps et 50 à l'automne, différencie les deux occurrences répétées, refuse l'heure inexistante et préserve l'instant ambigu lors d'une édition inchangée. Le focus est recentré après un déplacement complet en vue Jour et possède une région de repli. Deux interactions exigées restent cependant incorrectes : les commandes horaires par flèches ne suivent pas les créneaux instantanés lors des bascules DST, et les poignées de resize perdent leur contexte lorsque le bord modifié sort de la vue.
+
+## P1 ouverts
+
+### P1-1 — Les flèches horaires sautent 90 minutes ou échouent aux transitions DST
+
+`changePlanningBookingTime()` calcule encore la cible avec `shiftPlanningLocal()` sur l'heure murale, puis appelle `planningZonedIso()` avec la désambiguïsation par défaut `earlier`. Cette logique ne parcourt pas les créneaux réels construits par `planningTimelineSlots()` :
+
+- le 25 octobre 2026, ArrowRight depuis la première occurrence de `02:30` produit `03:00`, soit **+90 minutes instantanées** au lieu de +30 ;
+- ArrowLeft depuis la seconde occurrence de `02:30` choisit la première occurrence de `02:00`, soit **−90 minutes** ;
+- le 29 mars 2026, ArrowRight depuis `01:30` tente l'heure inexistante `02:00` et rollback, alors que le créneau adjacent réel est `03:00` trente minutes plus tard.
+
+Impact : la grille représente correctement le jour civil, mais le déplacement et le resize clavier ne suivent pas ses colonnes. Durée et position peuvent sauter d'une heure supplémentaire ou l'action peut être refusée sur un créneau valide adjacent. Cela rompt l'exactitude date/sélection de la vue Jour et l'alternative clavier des interactions principales.
+
+Correction attendue : en vue horaire, déplacer les bornes par instants UTC ou par index de `planningTimelineSlots()` plutôt que par chaîne locale ; conserver explicitement l'occurrence ambiguë et couvrir les quatre passages adjacents printemps/automne pour move et resize.
+
+### P1-2 — Une poignée de resize ne reste pas opérante quand son bord sort de la vue
+
+`restorePlanningKeyboardFocus()` possède désormais une cible de repli et le déplacement complet en vue Jour recale `anchor` sur la nouvelle date. Le resize ne recale toutefois jamais `anchor`. Exemple : en vue Jour/Journée, ArrowLeft sur la poignée de début étend la réservation au jour précédent ; la cellule du jour courant reste visible, mais la poignée `start` se trouve désormais sur le jour précédent hors DOM. Le sélecteur de poignée échoue, puis le fallback choisit l'article restant. Le focus est visible, mais l'utilisateur ne peut plus poursuivre la séquence de resize avec les flèches. Le même problème existe pour la poignée de fin et aux bords des fenêtres Semaine/virtualisées.
+
+Impact : la conservation visuelle du focus est améliorée, mais l'alternative clavier du resize n'est pas continue et le contexte d'action est perdu après une seule frappe aux limites de vue.
+
+Correction attendue : recentrer la période/fenêtre sur le bord redimensionné ou restaurer une commande de resize équivalente et annoncée sur la cible de repli ; couvrir une séquence de plusieurs flèches sur poignées start/end, succès et rollback, aux bords Jour/Semaine/virtualisation.
+
+## Corrections validées
+
+- La journée horaire Europe/Paris est construite entre deux minuits civils réels : 46 slots le 29 mars 2026, 50 slots le 25 octobre 2026.
+- Les heures répétées sont libellées `(1/2)` et `(2/2)` ; la création depuis une cellule transmet les instants exacts du slot, et une édition non temporelle préserve `startsAt`/`endsAt` d'origine.
+- `planningZonedIso()` refuse une heure locale inexistante et permet `earlier`/`later` pour une heure ambiguë.
+- Le déplacement complet hors vue Jour met à jour `anchor`, rerend la grille puis restaure le focus ; la région `.planning-matrix-scroll` est focusable et sert de fallback.
+- `planningCellInterval()` borne chaque cellule d'une réservation `dailyCells` multi-jours à son intervalle quotidien ; une période 09:00–18:00 ne déborde plus sur les colonnes intermédiaires.
+- Les corrections précédentes restent fermées : aucun offset frontend fixe, aucune promotion legacy implicite, validation serveur réelle du snap, grille horaire et commandes clavier présentes.
+
+## Non-régression contrôlée
+
+- Création avec ghost sans écriture anticipée, move cellule/complet, resize, rollback optimiste, copie/coller et undo/redo restent présents.
+- Terminalité, versions, RBAC/scopes, isolation site/société, conflits/capacité, week-ends et jours fériés restent cohérents.
+- OpenAPI et backend conservent les hashes déjà revus ; aucune migration de stack, dépendance distante ou fallback prototype implicite n'est introduit.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --check server.js && node --check app.js` | PASS |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 28/28**, 0 échec/skip/todo, 108 ms |
+| `node --test tests/api.test.js` hors sandbox | **PASS, 30/30**, 0 échec/skip/todo, 1,149 s |
+| `npm test` hors sandbox | **PASS, 232/232**, 0 échec/skip/todo, 10,279 s |
+| `npm run lint` | PASS |
+| `npm run build` | PASS, 5 actifs runtime vérifiés |
+| `git diff --check` | PASS |
+| Test direct grille DST | PASS : 46 slots printemps, 50 automne, occurrences différenciées |
+| Test direct déplacement instantané automne | **P1 confirmé** : première `02:30` → `03:00` = +90 min ; seconde `02:30` → première `02:00` = −90 min |
+| Inspection resize/focus | **P1 confirmé** : poignée sortie de la vue non retrouvée ; fallback visible sur article/région mais contexte resize perdu |
+
+Performance DEV fournie, non réexécutée par cette REVIEW : lecture p95 104,48 ms ; conflit 144,55 ms ; écriture 179,18 ms ; replay 155,70 ms, sous les seuils contractuels.
+
+Hashes complets du candidat contrôlé :
+
+```text
+server.js                                faef9ad5d81f82a3bd967baf7e31fc541aa617c79b25bbb238501a3fbe7bcdd4
+app.js                                   7dada2a00e2e5ee23c0f73ba4fe9b6db2222f502198ff32cc574ae2a454fedf1
+planning.css                             1928f4cabc83cfb3d8acb652b64e060ca7fcaefcfa26e5f0fa34d8165083fe19
+tests/api.test.js                        165a12998808c0dfd38041abbdab2fea6ec096c981e30c190d50591535eea71c
+tests/planning-postproduction.test.js    d450d34c61832fbba6ecf9a5efa4906c21cb41d64a448594737a9c28698cd2f3
+docs/api/openapi-v1.yaml                 a70a98f727d02f0dc6c132357f11489a60c0878e1929c7cf8a179d58e36160c5
+```
+
+## Limites et handoff intégrateur
+
+- Les tests actuels prouvent la construction DST et des branchements de focus par inspection statique, mais pas les séquences interactives move/resize aux bascules et limites de fenêtre.
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Reporter `G3 REVIEW = CHANGES REQUIRED — 2 P1` dans `docs/project-status.md`; retour DEV requis sur navigation instantanée et continuité des poignées, puis nouvelle REVIEW et gates aval impactés.
+- Ce verdict porte uniquement sur les six hashes ci-dessus.
+
+---
+
+# Gate G3 — Re-REVIEW ultime indépendante du candidat V2
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g3_review`  
+Périmètre : fermeture des trois P1 du candidat précédent, non-régression complète S3-A à S3-D, consommateurs Planning  
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**CHANGES REQUIRED — Gate REVIEW G3 refusé**
+
+**0 P0, 2 P1 ouverts.** Deux des trois P1 précédents sont fermés : le frontend convertit désormais les heures civiles via le fuseau IANA du site en été comme en hiver, et une réservation legacy sans `timePolicyVersion` n'est plus promue lors d'une édition ordinaire. La restauration du focus fonctionne tant que la réservation reste rendue. Elle échoue néanmoins lorsque l'opération déplace l'objet hors de la fenêtre visible. Par ailleurs, le nouveau convertisseur IANA ne traite pas les heures inexistantes ou dupliquées des jours de bascule DST, pourtant explicitement requises par l'architecture.
+
+## P1 ouverts
+
+### P1-1 — Les jours de changement d'heure produisent des créneaux faux ou ambigus
+
+`planningZonedIso()` converge correctement sur les offsets Paris d'été et d'hiver ordinaires. En revanche, le 29 mars 2026, heure inexistante, une saisie `02:00` est silencieusement convertie en `2026-03-29T00:00:00.000Z`, qui se réaffiche `01:00`; `02:30` se réaffiche `01:30`. Le 25 octobre 2026, les heures `02:00–02:59` existent deux fois mais aucune occurrence/offset ne peut être choisie ou distinguée. `planningTimelineSlots()` rend en outre toujours 48 demi-heures, alors qu'une journée Paris de bascule en compte respectivement 46 ou 50.
+
+Impact : une réservation saisie dans un créneau affiché peut être persistée à une autre heure civile et changer après rechargement ; lors du retour à l'heure d'hiver, deux instants distincts sont confondus. Cela contrevient à `docs/architecture.md` (« tests sur changements d'heure ») et au contrat Sprint 3 stockage UTC / saisie dans le fuseau IANA.
+
+Correction attendue : générer les créneaux à partir de la journée civile réelle du fuseau, refuser ou normaliser explicitement les heures inexistantes, désambiguïser les heures répétées et vérifier le round-trip civil avant mutation. Ajouter des tests ciblés sur les deux bascules Europe/Paris.
+
+### P1-2 — Le focus reste perdu quand le déplacement sort de la vue ou de la fenêtre virtualisée
+
+Les handlers attendent maintenant la mutation asynchrone et `restorePlanningKeyboardFocus()` retrouve correctement l'événement ou la poignée lorsque son nœud existe encore. Mais la fonction ne prévoit aucun repli focusable si le sélecteur ne trouve rien. En vue Jour avec granularité Journée ou Demi-journée, ArrowLeft/ArrowRight déplace la réservation au jour voisin sans changer `anchor`; l'objet quitte donc immédiatement le DOM de la vue Jour et `target` vaut `null`. Le même défaut peut survenir aux limites d'une fenêtre virtualisée. Le focus retombe alors hors de l'interaction, ce qui interdit une séquence clavier et viole le critère « conserve un focus visible ».
+
+Correction attendue : après une opération qui sort l'objet du rendu, suivre la date/ressource déplacée ou restaurer le focus sur une cible de repli explicite et pertinente (cellule cible, contrôle de période ou grille), puis couvrir succès et rollback avec un test DOM/E2E sur bord de vue et bord de fenêtre virtuelle.
+
+## P1 précédents fermés
+
+- **Fuseau été/hiver ordinaire** : tous les chemins Planning actifs examinés (`toApiReservation`, déplacement complet, resize, undo/redo, changement horaire et métriques) utilisent `planningZonedIso()`; `fromApiReservation()` reconvertit l'instant API avec `planningLocalParts()`. Aucun `+02:00` fixe ne subsiste dans ces consommateurs.
+- **Compatibilité legacy** : `fromApiReservation()` conserve l'absence de `timePolicyVersion`; le formulaire marque `timePolicyTouched=false` et `toApiReservation()` omet granularité, snap et calendrier tant que l'utilisateur ne modifie pas explicitement la politique. Le serveur ne déclenche donc pas `sprint3-v1` sur une édition non temporelle historique.
+- **Clavier dans la fenêtre rendue** : événements et poignées sont focusables, les mutations sont attendues, puis le focus est restauré après succès ou rollback par double `requestAnimationFrame`. La lacune restante est précisément le cas où la cible n'est plus rendue.
+
+## Non-régression contrôlée
+
+- La vue Jour conserve 48 créneaux de 30 minutes sur les jours ordinaires et les événements sont positionnés/spannés selon leurs heures.
+- La validation serveur du snap réel, la version optimiste, les conflits, scopes, statuts terminaux, ghosts et rollbacks restent inchangés.
+- Déplacement cellule/complet, resize, copie/coller, undo/redo, week-ends et jours fériés restent présents.
+- OpenAPI, tests API et règles serveur du candidat précédent ont les mêmes hashes ; aucune dérive contractuelle constatée.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --check server.js && node --check app.js` | PASS |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 26/26**, 0 échec/skip/todo, 116 ms |
+| `node --test tests/api.test.js` hors sandbox | **PASS, 30/30**, 0 échec/skip/todo, 1,262 s |
+| `npm test` hors sandbox | **PASS, 230/230**, 0 échec/skip/todo, 8,846 s |
+| Test direct `planningZonedIso` / `planningLocalParts` été-hiver | PASS sur 17 août et 17 décembre 2026 |
+| Test direct bascule Europe/Paris | **P1 confirmé** : `2026-03-29 02:00` revient `01:00`, `02:30` revient `01:30`; heure répétée d'octobre non désambiguïsée |
+| Inspection legacy aller-retour | PASS : `timeGranularity` et `snapMinutes` absents du DTO historique tant que politique non touchée |
+| Inspection focus asynchrone | PASS si cible rendue ; **P1 confirmé** si déplacement hors vue, aucun fallback quand `querySelector` retourne `null` |
+
+Hashes complets du candidat contrôlé :
+
+```text
+server.js                                faef9ad5d81f82a3bd967baf7e31fc541aa617c79b25bbb238501a3fbe7bcdd4
+app.js                                   ca2471b6ed278c0e11f2740c04b98e1a3ce598d481d6e8838844f2325731feba
+planning.css                             1928f4cabc83cfb3d8acb652b64e060ca7fcaefcfa26e5f0fa34d8165083fe19
+tests/api.test.js                        165a12998808c0dfd38041abbdab2fea6ec096c981e30c190d50591535eea71c
+tests/planning-postproduction.test.js    bb9693680d7c039c023413f0cc2ae370a796f550f49bc8ad806392c2a51e518b
+docs/api/openapi-v1.yaml                 a70a98f727d02f0dc6c132357f11489a60c0878e1929c7cf8a179d58e36160c5
+```
+
+## Limites et handoff intégrateur
+
+- Les tests actuels couvrent été/hiver ordinaires, mais pas les dates exactes de transition DST ni un focus DOM réel après sortie de vue.
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Reporter `G3 REVIEW = CHANGES REQUIRED — 2 P1` dans `docs/project-status.md`; retour DEV requis sur DST et fallback/follow focus, puis nouvelle REVIEW et gates aval impactés.
+- Ce verdict porte uniquement sur les six hashes ci-dessus.
+
+---
+
+# Gate G3 — Re-REVIEW indépendante du candidat corrigé
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g3_review`  
+Périmètre : fermeture des trois P1 de la REVIEW G3 initiale, contrats serveur/frontend/OpenAPI et compatibilité des consommateurs  
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**CHANGES REQUIRED — Gate REVIEW G3 refusé**
+
+**0 P0, 3 P1 ouverts.** La grille Jour comporte désormais 48 créneaux de 30 minutes, le serveur contrôle l'alignement réel dans le fuseau IANA du site et les événements/poignées exposent des commandes clavier. Ces correctifs ferment les lacunes statiques initiales, mais leurs consommateurs ne respectent pas encore le contrat de bout en bout : le frontend produit un offset fixe incompatible avec l'heure d'hiver, transforme silencieusement les réservations historiques en politique Sprint 3 et détruit le focus après une commande clavier.
+
+## P1 ouverts
+
+### P1-1 — L'offset frontend fixe `+02:00` rend le snapping serveur faux en heure d'hiver
+
+`toApiReservation()` et `changePlanningBookingTime()` construisent encore `startsAt`/`endsAt` avec `+02:00`, indépendamment du fuseau IANA et de la date du site. Le serveur, lui, valide correctement avec `localRateParts(..., site.timezone)`. Pour un site `Europe/Paris` en février, une saisie UI `09:00` devient `09:00+02:00`, soit `08:00` local réel ; une journée `09:00–18:00` ou une demi-journée conforme à l'écran est donc refusée en `422`. Les mêmes chaînes sont découpées directement dans `fromApiReservation()`, sans conversion vers le fuseau du site.
+
+Impact : création, édition et commandes clavier ne respectent pas toute l'année le contrat temporel que le serveur vient de durcir. Le P1 « alignement réel au snap » n'est pas fermé de bout en bout et des réservations peuvent être refusées ou représentées avec une heure de décalage.
+
+Correction attendue : construire les instants à partir du fuseau IANA du site et convertir explicitement API UTC ↔ heure civile du site, sans offset constant ; couvrir au minimum hiver/été, changement d'heure et journée/demi-journée/heure dans un test consommateur réel.
+
+### P1-2 — Une édition UI ordinaire casse la compatibilité des réservations historiques
+
+Les réservations historiques de `data/planify.json` n'ont ni `timeGranularity` ni `timePolicyVersion` et plusieurs utilisent des horaires différents de `09:00–18:00`. `fromApiReservation()` les convertit néanmoins en `timeGranularity: 'day'` et `snapMinutes: 1440`. À la soumission du formulaire, `toApiReservation()` renvoie toujours ces deux champs ; `reservationFrom()` pose alors `timePolicyVersion: 'sprint3-v1'` et `validateReservation()` impose immédiatement les bornes journalières. Une simple modification de titre, notes, statut ou ressource d'une réservation historique peut ainsi échouer en `422`, alors que le PATCH API sans métadonnées conserve correctement l'ancien contrat.
+
+Impact : la compatibilité legacy annoncée par le correctif serveur est contournée par le principal consommateur frontend. Les données existantes deviennent partiellement non éditables sans migration explicite.
+
+Correction attendue : préserver l'absence de politique pour un enregistrement legacy tant que l'utilisateur ne choisit pas explicitement une nouvelle granularité, ou fournir une migration/version de données approuvée et réversible ; ajouter un test UI/API qui édite un champ non temporel d'une réservation historique non alignée.
+
+### P1-3 — Les commandes clavier deviennent inopérantes en séquence car le focus n'est pas restauré
+
+Les événements sont maintenant focusables et les flèches appellent bien move/resize. Cependant chaque commande exécute `render()` avant l'appel API, puis de nouveau après succès ou rollback. Ce rerendu remplace le nœud DOM qui détenait le focus ; aucune clé de restauration ni appel `focus()` ne cible la cellule ou la poignée déplacée/redimensionnée. Après la première flèche, le focus retombe donc hors de la réservation et l'utilisateur ne peut pas poursuivre une série d'ajustements au clavier.
+
+Impact : l'alternative clavier existe uniquement comme action isolée et ne satisfait pas le critère explicite de conservation du focus visible. Les tests actuels vérifient des chaînes et branchements, pas le focus DOM après succès/rejet.
+
+Correction attendue : mémoriser réservation/cellule/bord actif, restaurer le focus après chaque rerendu sur succès et rollback, annoncer le résultat via la zone live et couvrir une séquence de plusieurs flèches dans un test DOM/E2E.
+
+## Contrôles satisfaisants
+
+- `planningTimelineSlots('day', 'hour', ...)` fournit bien **48** créneaux contigus de 30 minutes et la fenêtre virtuelle se positionne initialement vers 08:00.
+- Les réservations horaires occupent un nombre déterministe de colonnes selon leur durée ; les granularités demi-journée et journée exposent respectivement les bornes 09–13/13–18 et 09–18.
+- Le serveur active la validation temporelle renforcée uniquement avec `timePolicyVersion: 'sprint3-v1'`, calcule les minutes dans le fuseau IANA du site et retourne une erreur de validation sur un instant hors pas.
+- Le contrat OpenAPI décrit les granularités, les pas compatibles et la règle d'alignement ; le test API couvre le refus de `:15` et l'acceptation de `:30` au pas de 30 minutes.
+- Les événements éditables ont un `tabindex`, un libellé accessible et `aria-keyshortcuts`; les poignées acceptent ArrowLeft/ArrowRight. Les opérations continuent d'utiliser version optimiste, rollback, terminalité et contrôles serveur de scope/conflit.
+- Les week-ends, jours fériés français, créations avec ghost, déplacements cellule/complet et redimensionnements restent présents et la suite complète ne détecte aucune régression automatisée existante.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --check server.js && node --check app.js` | PASS |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 24/24**, 0 échec/skip/todo, 97 ms |
+| `node --test tests/api.test.js` hors sandbox | **PASS, 30/30**, 0 échec/skip/todo, 1,141 s |
+| `npm test` hors sandbox | **PASS, 228/228**, 0 échec/skip/todo, 8,245 s |
+| Inspection grille Jour | PASS : 48 créneaux de 30 minutes, positionnement/spans présents |
+| Inspection validation serveur | PASS isolé : contrôle réel via fuseau IANA sous politique `sprint3-v1` |
+| Inspection consommateur temporel | **P1 confirmé** : timestamps frontend toujours suffixés `+02:00` |
+| Inspection compatibilité legacy | **P1 confirmé** : défaut frontend `day/1440` retransmis et activation implicite de `sprint3-v1` |
+| Inspection clavier/focus | **P1 confirmé** : commandes branchées, mais `render()` remplace le nœud sans restauration du focus |
+
+Hashes complets du candidat contrôlé :
+
+```text
+server.js                                faef9ad5d81f82a3bd967baf7e31fc541aa617c79b25bbb238501a3fbe7bcdd4
+app.js                                   cdf88fc677050128976acbd9aa40f63afc4a4b6b9764118ca64977e2c0460bd8
+planning.css                             1928f4cabc83cfb3d8acb652b64e060ca7fcaefcfa26e5f0fa34d8165083fe19
+tests/api.test.js                        165a12998808c0dfd38041abbdab2fea6ec096c981e30c190d50591535eea71c
+tests/planning-postproduction.test.js    e15c954219cb01dd79312f4a8d4765310ced20126a1875f3f058eceada21d9b7
+docs/api/openapi-v1.yaml                 a70a98f727d02f0dc6c132357f11489a60c0878e1929c7cf8a179d58e36160c5
+```
+
+## Limites et handoff intégrateur
+
+- Les 228 tests verts sont nécessaires mais insuffisants : ils ne couvrent ni l'heure d'hiver côté frontend, ni l'édition UI d'un objet legacy, ni la conservation du focus DOM après mutation.
+- Fichier modifié par cette revue : `docs/code-review.md` uniquement.
+- Reporter `G3 REVIEW = CHANGES REQUIRED — 3 P1` dans `docs/project-status.md`; retour DEV requis, puis nouvelle REVIEW et gates aval impactés.
+- Ce verdict porte uniquement sur les six hashes ci-dessus. Toute modification du candidat impose une nouvelle preuve fraîche.
+
+---
+
+# Gate G3 — REVIEW indépendante du Sprint 3 Planning
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g3_review`  
+Périmètre : S3-A à S3-D, US-025 à US-032, US-035 à US-037 et US-043 à US-047 ; serveur, frontend, OpenAPI, consommateurs et tests Planning  
+Nature : revue seule ; aucun correctif de code, test, contrat ou autre rapport appliqué
+
+## Verdict
+
+**CHANGES REQUIRED — Gate REVIEW G3 refusé**
+
+**0 P0, 3 P1 ouverts.** Les vues civiles, la virtualisation, les ghosts sans écriture anticipée, les rollbacks optimistes, les scopes, la terminalité, les conflits, les week-ends et le calendrier national français sont cohérents. Trois critères G3 obligatoires ne sont cependant pas implémentés de bout en bout.
+
+## P1 ouverts
+
+### P1-1 — La vue Jour ne fournit pas la grille horaire exigée par US-025/045/046
+
+`planningDatesFor('day', ...)` produit une seule date et `planningMatrix()` conserve la même matrice `ressource × jour`, avec une colonne de 260 px. Le sélecteur « Heure · 30 min » modifie uniquement les valeurs proposées au formulaire et les métadonnées persistées ; il ne crée aucun axe horaire, aucun créneau de 30/60 minutes et aucune position temporelle dans la cellule. Deux prestations d'une même salle à des heures différentes restent donc empilées dans la même cellule quotidienne.
+
+Impact : l'utilisateur ne peut ni lire ni manipuler précisément une journée à la granularité horaire. La preuve statique actuelle ne satisfait pas le critère « Vue Jour — granularité horaire configurable » ni l'absence de dérive pixel/date attendue au gate G3.
+
+Correction attendue : rendre, au minimum en vue Jour, un axe horaire déterministe aligné sur le fuseau du site et le pas 30/60 minutes ; positionner les réservations selon début/fin ; couvrir création, déplacement, resize, conflit et changement de pas par tests fonctionnels et E2E.
+
+### P1-2 — Le serveur accepte des horaires non alignés sur `snapMinutes`
+
+`validateReservation()` vérifie seulement la combinaison de métadonnées (`hour` avec 30/60, `halfDay` avec 240, `day` avec 1440). Il ne vérifie jamais que `startsAt` et `endsAt` tombent effectivement sur les bornes annoncées. Un client direct peut donc déclarer `timeGranularity: "hour"`, `snapMinutes: 30` avec une heure telle que `10:17`, ou déclarer une journée avec des horaires arbitraires, et franchir la validation canonique.
+
+Impact : les payloads de drag/resize ne sont pas intégralement revalidés côté serveur, contrairement au contrat Sprint 3. Des réservations impossibles à représenter exactement dans la grille peuvent être persistées, entraînant dérive visuelle et divergences entre clients.
+
+Correction attendue : valider côté serveur l'alignement réel des instants dans le fuseau IANA du site, pour création, PATCH, duplication et commandes de cellule ; retourner `422 VALIDATION_ERROR` sans mutation/audit/SSE ; ajouter les cas négatifs 10:17/30 min, demi-journée hors borne et journée hors borne.
+
+### P1-3 — Déplacement et redimensionnement n'ont pas d'alternative clavier opérante
+
+Les événements Planning sont rendus en `<article draggable>` sans `tabindex`. Les poignées de resize sont des boutons focusables mais n'ont qu'un gestionnaire `dragstart`, sans commande clavier. Le gestionnaire `onkeydown` attaché aux éléments `data-select-cell` ne devient donc pas atteignable sur l'article lui-même ; les raccourcis globaux couvrent copier/coller et annuler/rétablir, pas le déplacement ou le resize. L'ouverture du formulaire par double-clic ne constitue pas une équivalence clavier documentée pour les gestes exigés.
+
+Impact : un utilisateur clavier ou technologie d'assistance ne peut pas exécuter les interactions principales du Sprint 3. Le critère explicite du gate « création, déplacement et resize fonctionnent par souris et clavier » n'est pas démontrable.
+
+Correction attendue : rendre les cellules/événements focusables avec rôle/état cohérents et proposer des commandes clavier explicites pour déplacement unitaire/complet et resize, avec ghost ou annonce `aria-live`, confirmation, rollback et conservation du focus. Ajouter des tests DOM/E2E clavier.
+
+## Contrôles satisfaisants
+
+- Les cinq sélecteurs de vue sont présents ; Mois, 6 semaines et 3 mois utilisent des plages civiles déterministes et une fenêtre virtualisée bornée.
+- Le clic-glisser de création peint un ghost puis ouvre seulement le formulaire ; aucun appel API n'est effectué avant confirmation humaine.
+- Déplacement complet et resize utilisent un snapshot optimiste et restaurent l'état sur rejet API ; déplacement unitaire reste limité à la salle du même jour conformément à la règle produit antérieure.
+- Le serveur refuse les réservations terminales, versions obsolètes, ressources/projets hors scope et dépassements de capacité avant mutation. La cible des exceptions quotidiennes applique `resourceAllowed()`.
+- Les week-ends peuvent être affichés ou masqués ; `includeWeekends=false` retire samedi/dimanche du calcul des cellules. Le calendrier `FR-national` est déterministe et limité aux sites `Europe/Paris`.
+- Les nouveaux champs sont documentés dans `docs/api/openapi-v1.yaml` et leurs combinaisons autorisées sont cohérentes avec le runtime.
+- Aucun accès réseau, SaaS, CDN, dépendance npm ni migration implicite de stack n'est introduit.
+
+## P2 / limites non bloquantes
+
+1. Le contrat Sprint 3 annonce des calendriers nationaux **et site** ; le candidat ne résout que `FR-national` pour `Europe/Paris`. La prise en charge d'un calendrier propre au site reste à spécifier et tester avant de déclarer US-044 exhaustif.
+2. Le frontend construit encore les timestamps avec l'offset fixe `+02:00` et découpe directement les chaînes API, alors que la spécification exige stockage UTC et affichage dans le fuseau IANA du site. Ce risque devient bloquant dès qu'une vue horaire traverse l'heure d'hiver ou un site hors Paris ; il doit être traité avec le P1-1/P1-2.
+3. Les tests Planning actuels inspectent plusieurs branchements par expressions régulières. Ils ne prouvent pas les interactions réelles du navigateur, la conservation du focus ou le nombre de mutations réseau ; les gates QA/E2E doivent conserver des scénarios instrumentés.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --check server.js` | PASS |
+| `node --check app.js` | PASS |
+| `node --check tests/api.test.js` | PASS |
+| `node --check tests/planning-postproduction.test.js` | PASS |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 22/22**, 0 échec/skip/todo, 85 ms |
+| `node --test tests/api.test.js` dans le sandbox | Non concluant : `listen EPERM`, restriction locale |
+| `node --test tests/api.test.js` hors sandbox | **PASS, 29/29**, 0 échec/skip/todo, 1,064 s |
+| Inspection vue Jour/granularité | **P1 confirmé** : une colonne quotidienne, aucun axe/créneau horaire |
+| Inspection validation serveur | **P1 confirmé** : compatibilité des métadonnées contrôlée, alignement réel des instants absent |
+| Inspection accessibilité des gestes | **P1 confirmé** : articles non focusables et poignées sans action clavier |
+| Suite complète | Preuve DEV fournie : **225/225 PASS** ; la QA indépendante reste l'autorité de la preuve complète G3 |
+
+Hashes complets du candidat contrôlé :
+
+```text
+server.js                                473a94c9c58b0aece7756766cde55b106dc9b74a6fda281e098a05ee1959dd0b
+app.js                                   c5abdac3cf039662dafeef09bcee04f699126a33ea0cfc896c32d918be444b93
+planning.css                             e9713e1c83dd2c6af3e2420790ad7d9b5e48087be5f836cb487d9d1339705f6b
+index.html                               e4741afedc32c5070196f24c4f8ae0e7965039a59cb0f430445f252f3af496d1
+tests/api.test.js                        a8263bb1edb5eaa1f31d6597f7ed3fb79c4f0015130c5a7ce7d0fe226408fb17
+tests/planning-postproduction.test.js    f89426c7071037a4616217d7837863f7142e0cd0ea9f6710c987a11b7552de3c
+```
+
+## Handoff intégrateur
+
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Reporter `G3 REVIEW = CHANGES REQUIRED — 3 P1` dans `docs/project-status.md`.
+- Retour DEV requis sur grille horaire Jour, validation serveur du snapping/fuseau et commandes clavier, puis re-REVIEW et tous les gates aval impactés.
+- Ne pas déclarer G3 franchi sur la seule base des 225 tests verts : les critères absents sont comportementaux et contractuels.
+
+---
+
+# Gate G2 — Re-REVIEW indépendante du correctif de défilement Planning
+
+Date : 2026-08-21  
+Reviewer : agent indépendant `g2_review`  
+Périmètre : scroll vertical natif Ressources ↔ grille, synchronisation, virtualisation, axe horizontal, accessibilité et non-régression  
+Nature : revue seule ; aucun correctif de code, test, contrat ou autre rapport appliqué
+
+## Verdict
+
+**APPROVED — Gate REVIEW G2 validé**
+
+**0 P0, 0 P1 ouvert.** Le correctif rétablit un défilement vertical natif depuis la colonne Ressources et le synchronise avec la grille sans détourner la molette. La fenêtre virtuelle conserve un tampon de 16 lignes de part et d'autre, restaure les deux axes après rerendu et ne modifie pas le dispositif horizontal.
+
+## Contrôles réalisés
+
+- **Scroll natif Ressources** : `.planning-fixed-column` utilise `overflow-y:auto`; aucun gestionnaire `wheel` ne capture ou ne transforme le mouvement vertical. Le masquage visuel de sa barre ne supprime pas sa capacité de défilement native.
+- **Synchronisation bidirectionnelle** : le scroll de la colonne fixe copie `scrollTop` vers la grille ; le scroll de la grille copie `scrollTop` vers la colonne. Le verrou `syncingVertical`, relâché au prochain `requestAnimationFrame`, empêche la récursion et les oscillations.
+- **Restauration sans saut** : `planningVirtualState.scrollTop` et `scrollLeft` sont réappliqués à la grille, à la colonne fixe et à la barre horizontale immédiatement puis après calcul de largeur. Le rerendu virtualisé repart donc de la position conservée.
+- **Virtualisation** : la fenêtre des ressources est calculée avec un overscan de `16`; le seuil `planningVirtualWindowNeedsRender()` évite un rerendu à chaque cran de molette. Les espaces avant/après maintiennent la hauteur logique des 250 ressources.
+- **Axe horizontal inchangé** : `scrollLeft` reste synchronisé uniquement entre la grille et la barre horizontale dédiée. Son interaction molette/clavier, son focus visible et les commandes Home/End/PageUp/PageDown sont conservés.
+- **Alignement** : colonne et grille partagent la même hauteur de ligne selon la vue ; le retrait de l'en-tête (`scrollTop - 62`) maintient la fenêtre de ressources alignée sur les cellules.
+- **Accessibilité** : le scroll natif n'est pas remplacé par un comportement propriétaire ; les contrôles internes restent atteignables au clavier et la barre horizontale conserve son focus visible. Aucun statut ni contenu n'est rendu dépendant de la position du pointeur.
+- **Confirmation PO** : le comportement visuel corrigé a été confirmé par le Product Owner ; la présente revue couvre la cohérence technique et les régressions du candidat exact.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-21.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --check app.js` | PASS |
+| `node --check tests/planning-postproduction.test.js` | PASS |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 14/14**, 0 échec/skip/todo, 81 ms |
+| `npm test` hors restriction de bind locale | **PASS, 217/217**, 0 échec/skip/todo, 8,170 s |
+| Inspection synchronisation verticale | PASS : deux sens présents, garde anti-boucle par frame |
+| Inspection restauration/virtualisation | PASS : deux axes restaurés, overscan vertical 16 et seuil de rerendu |
+| Inspection axe horizontal | PASS : mécanisme dédié conservé, sans couplage au scroll vertical Ressources |
+| Inspection CSS/accessibilité statique | PASS : overflow natif, focus horizontal visible, aucune interception de molette sur la colonne fixe |
+
+Hashes complets du candidat approuvé :
+
+```text
+app.js                               ccf24edfa0335db68de28bf1ca03d113a487fbb48e4ad06a529044d1237c0780
+planning.css                         2a71e804730932358c1e86cb1b14b6c68b06aafd608408c36935e68862e7bf8a
+tests/planning-postproduction.test.js a71a4301162ce6fb64631b5cc320327a1270d6d5d500b7ff4fae40ac1a0732cc
+```
+
+## P2 / limites non bloquantes
+
+1. Les tests automatisés valident les calculs et les branchements, mais ne mesurent pas le nombre réel d'événements `scroll`/frames ni les positions pixel par pixel dans plusieurs moteurs de navigateur. Conserver un smoke visuel Chrome/Safari dans l'E2E de release.
+2. La colonne Ressources masque sa barre verticale. Le défilement reste natif et la grille offre une barre visible, mais un libellé de région scrollable et un focus explicite amélioreraient encore la découvrabilité pour certains utilisateurs clavier/technologies d'assistance.
+3. Cette approbation vaut uniquement pour les trois hashes ci-dessus et le candidat backend G2 déjà approuvé ; tout changement ultérieur impose une nouvelle analyse d'impact.
+
+## Handoff intégrateur
+
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Reporter `G2 REVIEW scrolling = Approved — 0 P0/P1` dans `docs/project-status.md`.
+- Les gates QA/Performance/E2E doivent conserver le contrôle visuel multi-navigateur et la fluidité sur le jeu 250/10 000 ; ce verdict REVIEW ne les remplace pas.
+
+---
+
+# Gate G2 — Re-REVIEW finale du candidat corrigé
+
+Date : 2026-08-20  
+Reviewer : agent indépendant `g2_review`  
+Périmètre : fermeture du dernier P1 G2, invariants terminaux, scopes des commandes Planning et non-régression ciblée  
+Nature : revue seule ; aucun correctif de code, test, contrat ou autre rapport appliqué
+
+## Verdict
+
+**APPROVED — Gate REVIEW G2 validé**
+
+**0 P0, 0 P1 ouvert.** Le dernier contournement de `entityScopes.resource` est fermé dans le chemin direct et dans la validation commune des exceptions quotidiennes. Les deux P1 initiaux et le P1 résiduel sont désormais fermés sur le candidat exact ci-dessous.
+
+## Fermetures vérifiées
+
+- **Cible du déplacement de cellule** : `moveReservationCell()` exige `resourceAllowed(auth, value)` dès la résolution de la salle cible. Une salle masquée retourne 404 avant construction et persistance de la mutation.
+- **Validation commune `dailyCells`** : chaque `cellOverride.targetResourceId` est résolu avec `resourceAllowed(auth, resource)`. Un autre consommateur qui injecterait une exception quotidienne ne peut donc pas contourner le scope par ce validateur.
+- **Cas négatif source autorisée → cible masquée** : le test crée une réservation visible sur `resource_3`, tente le déplacement vers `resource_5` masquée, attend 404, puis confirme que la version et `cellOverrides` sont inchangés.
+- **Réservation réalisée** : la route et le cœur de `moveReservationCell()` refusent explicitement `completed` avec 409 `RESERVATION_TERMINAL`. La protection ne dépend donc pas uniquement du préfiltre HTTP.
+- **P1 précédents** : DELETE respecte toujours l'automate terminal ; duplication complète, duplication de cellule et déplacement exigent toujours `reservationAllowed()` sur la source.
+
+## Consommateurs et non-régression
+
+- La duplication complète et la duplication de cellule continuent à passer par `validateReservation()`, qui contrôle les allocations ordinaires et leurs scopes.
+- Le refus de cible masquée intervient avant `Object.assign`, audit et émission SSE ; l'état persistant ne change pas.
+- `app.js` et `planning.css` restent inchangés. Les statuts UI, la virtualisation et les consommateurs du contrat serveur précédemment relus ne présentent pas de nouvelle régression P0/P1 issue de ce correctif ciblé.
+- Les scénarios API de terminalité, scopes, idempotence, audit et fichiers statiques passent ensemble.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-20.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --check server.js` | PASS |
+| `node --check tests/api.test.js` | PASS |
+| `node --test tests/api.test.js` hors restriction de bind locale | **PASS, 29/29**, 0 échec/skip/todo, 1,054 s |
+| Inspection `moveReservationCell()` | PASS : source scoped, cible `resourceAllowed`, états `cancelled`/`completed` refusés avant mutation |
+| Inspection `validateReservation(cellOverrides)` | PASS : cible active, salle/suite, même société/site et `resourceAllowed` |
+| Inspection négatif cible masquée | PASS : 404, version identique, aucune exception ajoutée |
+| Suite complète | Preuve DEV fournie sur ce candidat : **216/216 PASS** ; non rejouée par ce reviewer après la preuve API fraîche ciblée |
+| Lint/build/diff | Preuves DEV fournies PASS ; aucun changement frontend dans cette correction finale |
+
+Hashes complets du candidat approuvé :
+
+```text
+server.js         5434fb65167956549fd474f5fa80bc9e3af9d456397e41a998ec110860f190e4
+app.js            76901020ac3e62d9013c8de48d84e37b7f8fd525ce3453aa767ef219c7ea5ae9
+planning.css      1b6923060c248d728d6e69aed3fa64a12d0d58d88dd52a8b3151e57d74142606
+tests/api.test.js c83494bc655f0ccea4caa3fef41bdc11810b82e737960045f9b2acc6c6f9b32b
+```
+
+## P2 / limites non bloquantes
+
+1. Le test de cible masquée prouve directement l'absence de mutation persistée par la version et les exceptions inchangées. Il ne compte pas explicitement les audits et événements SSE avant/après ; l'ordre du code garantit leur non-exécution, mais une assertion dédiée renforcerait la non-régression.
+2. Les preuves de fluidité réelle, focus clavier et interactivité du planning virtualisé restent la responsabilité des gates PERFORMANCE/E2E ; ce verdict REVIEW ne les remplace pas.
+3. Cette approbation vaut uniquement pour les quatre hashes ci-dessus. Toute modification ultérieure du candidat impose une nouvelle revue d'impact.
+
+## Handoff intégrateur
+
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Reporter `G2 REVIEW = Approved — 0 P0/P1` dans `docs/project-status.md`.
+- Poursuivre QA, Sécurité, Performance, Intégration et E2E sur exactement ce candidat ; leurs verdicts restent indépendants.
+
+---
+
+# Gate G2 — Re-REVIEW indépendante après corrections Planning
+
+Date : 2026-08-20  
+Reviewer : agent indépendant `g2_review`  
+Périmètre : fermeture des deux P1 du REVIEW G2 précédent, consommateurs API/UI et non-régression ciblée  
+Nature : revue seule ; aucun correctif de code, test, contrat ou autre rapport appliqué
+
+## Verdict
+
+**CHANGES REQUIRED — Gate REVIEW G2 toujours refusé**
+
+**0 P0, 1 P1 ouvert.** La terminalité de l'annulation et le contrôle du périmètre des réservations sources sont corrigés. Le déplacement d'une cellule conserve toutefois un contournement de `entityScopes.resource` sur la salle cible ; G2 reste donc bloqué.
+
+## Fermeture des constats précédents
+
+| Constat | Statut | Preuve |
+|---|---|---|
+| P1-1 — DELETE d'une réservation `completed` ou déjà `cancelled` | **FERMÉ** | `cancelReservation()` applique désormais `BOOKING_STATUS_TRANSITIONS`; les deux DELETE interdits retournent 409. Les tests vérifient aussi la conservation de l'état et de la version. |
+| P1-2 — commandes sur une réservation source hors périmètre | **PARTIELLEMENT FERMÉ** | `duplicateReservation()`, `duplicateReservationCell()` et `moveReservationCell()` exigent maintenant `reservationAllowed(auth, source)`. Les trois cas source cachée → cible autorisée retournent 404. La cible du déplacement de cellule reste cependant hors contrôle d'entité, objet du P1 ci-dessous. |
+
+## P1 ouvert
+
+### P1-1 — Une cellule autorisée peut encore être déplacée vers une salle cachée par `entityScopes.resource`
+
+Dans `moveReservationCell()` (`server.js:2448`), la salle cible est recherchée uniquement par identifiant, société, site, activité et type. Aucun `resourceAllowed(auth, target)` ni `entityAllowed(auth, 'resource', target.id)` n'est appliqué. La validation commune des exceptions `dailyCells` reproduit le même défaut (`server.js:1147-1151`) : elle valide l'existence et le type de la cible, mais pas son appartenance au périmètre du rôle.
+
+Impact : un utilisateur disposant de `planning.write`, autorisé sur la réservation et sa salle source, peut déplacer une journée vers une salle qu'il ne peut ni lister ni consulter, à condition d'en deviner l'identifiant. La mutation, l'audit et l'invalidation SSE sont alors réalisés comme pour une cible autorisée. Les nouveaux tests ne couvrent que le sens inverse — source cachée vers cible autorisée — et ne détectent pas ce contournement.
+
+Correction attendue : exiger le contrôle canonique de ressource sur toute cible de `cellOverrides` avant validation des conflits et avant mutation. Ajouter un test négatif **source/réservation autorisées → salle cible cachée** qui attend 404 et confirme l'absence de modification, d'audit et de SSE. Rejouer ensuite REVIEW et les gates aval impactés.
+
+## Contrôles satisfaisants et non-régression ciblée
+
+- La duplication complète et la duplication de cellule passent par `validateReservation()`, dont le contrôle des allocations ordinaires applique les scopes de ressources.
+- Les recherches de réservation source des trois commandes concernées sont maintenant fail-closed par `reservationAllowed()`.
+- L'annulation respecte l'automate canonique et ne permet plus de sortir d'un état terminal.
+- Les tests API ciblés passent intégralement ; aucune régression n'a été observée dans les 29 scénarios API exécutés.
+- `app.js` et `planning.css` sont inchangés par rapport au candidat précédent ; aucun nouveau défaut consommateur P0/P1 n'a été introduit par ce correctif backend.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-20.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --check server.js` | PASS |
+| `node --check tests/api.test.js` | PASS |
+| `node --test tests/api.test.js` hors restriction de bind locale | **PASS, 29/29**, 0 échec/skip/todo, 1,050 s |
+| Inspection DELETE terminal | PASS : `completed` et second `cancelled` refusés par l'automate |
+| Inspection sources duplicate/duplicate-cell/move | PASS : `reservationAllowed()` présent sur les trois recherches |
+| Inspection cible move/cellOverrides | **P1 confirmé** : aucun contrôle `entityScopes.resource` sur la salle cible |
+| `npm test` complet par ce reviewer | Non rejoué conformément à la demande de verdict terminal immédiat ; la QA doit produire sa preuve complète sur le candidat corrigé |
+
+Hashes complets du candidat contrôlé :
+
+```text
+server.js         7412d587fab0a387739076aa852db8aebf0aadee39cbcdfb45d455253fc2d554
+app.js            76901020ac3e62d9013c8de48d84e37b7f8fd525ce3453aa767ef219c7ea5ae9
+planning.css      1b6923060c248d728d6e69aed3fa64a12d0d58d88dd52a8b3151e57d74142606
+tests/api.test.js d233502c33a8ed977d7f60fea16635b1eae2f82abb1be9913520858436bbb3c5
+```
+
+## Handoff intégrateur
+
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Reporter `G2 REVIEW = CHANGES REQUIRED — 1 P1` dans `docs/project-status.md`.
+- Retour DEV strictement limité au contrôle de scope de la salle cible et à son cas négatif, puis nouvelle re-REVIEW sur les hashes corrigés.
+- Ce verdict ne valide ni QA, ni Sécurité, ni Performance, ni G2 globalement.
+
+---
+
+# Gate G2 — REVIEW indépendante du candidat Sprint 2
+
+Date : 2026-08-20  
+Reviewer : agent indépendant `g2_review`  
+Périmètre : US-017 à US-024, US-033/034, US-065 à US-067 et US-069 ; Commercial accepté exploitable ; Planning virtualisé 250 ressources / 10 000 réservations ; API, UI, accessibilité, compatibilité et rollback  
+Nature : revue seule ; aucun correctif de code, test, contrat ou autre rapport appliqué
+
+## Verdict
+
+**CHANGES REQUIRED — Gate REVIEW G2 refusé**
+
+**0 P0, 2 P1 ouverts.** La virtualisation, les sept statuts et le parcours commercial couvert par les tests ciblés sont cohérents, mais l'API permet encore de rompre un état terminal et de contourner des scopes lors de commandes Planning. Ces deux défauts bloquent G2 et la release.
+
+## P1 ouverts
+
+### P1-1 — L'annulation API rompt la terminalité d'une réservation réalisée ou déjà annulée (US-069)
+
+Le contrat canonique déclare `completed` et `cancelled` terminaux (`BOOKING_STATUS_TRANSITIONS` contient deux ensembles vides) et l'interface masque bien les actions correspondantes. Pourtant `cancelReservation()` affecte directement `item.status = 'cancelled'` après le seul contrôle de version, sans vérifier `BOOKING_TERMINAL_STATUSES` ni la transition autorisée. `DELETE /api/v1/reservations/{id}` peut donc transformer `completed → cancelled`, ou réannuler une réservation déjà `cancelled` en incrémentant sa version et en ajoutant un nouvel audit/SSE.
+
+Impact : l'historique opérationnel d'une réservation réalisée n'est plus immuable ; l'état réalisé peut disparaître et le journal contient une transition explicitement interdite par le contrat Sprint 2. L'UI ne constitue pas une protection serveur.
+
+Correction attendue : faire appliquer au chemin d'annulation le même automate canonique que le PATCH, refuser tout état terminal avec une erreur 409 stable sans mutation/audit/SSE, et ajouter les tests négatifs `completed → DELETE` et second `cancelled → DELETE` avec vérification de version et journal inchangés.
+
+### P1-2 — Déplacement et duplication contournent les scopes projet/entité sur un identifiant deviné (US-024/033/069)
+
+`duplicateReservation()` et `duplicateReservationCell()` chargent leur source par `companyId`, site et statut, mais sans `reservationAllowed(auth, source)`. La route `/reservations/{id}/duplicate` ne réalise aucun préfiltre canonique. `moveReservationCell()` a le même défaut ; sa route calcule bien un `current` avec `reservationAllowed`, mais n'arrête pas le traitement lorsque ce lookup échoue et appelle quand même le cœur, qui retrouve alors la réservation par société/site seulement.
+
+Impact : un rôle possédant `planning.write` mais limité par `projectIds`, `entityScopes.reservation` ou `entityScopes.resource` peut déplacer ou dupliquer une réservation hors périmètre en devinant son identifiant. La liste et le GET direct restent correctement masqués, ce qui rend le contournement discret.
+
+Correction attendue : utiliser `reservationAllowed(auth, source)` dans chaque commande, retourner 404 avant toute mutation lorsque la source est hors scope, conserver les contrôles sur la ressource cible, et couvrir déplacement, duplication complète et duplication de cellule avec un acteur écrivant à scopes projet/entité restreints.
+
+## Contrôles satisfaisants
+
+- Le viewport calcule des fenêtres bornées sur les axes ressource et temps, conserve les dimensions logiques avant/après et restaure les positions de défilement. Les en-têtes/ressources fixes partagent la géométrie du corps.
+- Les sept statuts sont alignés entre serveur et interface ; maintenance et indisponibilité consomment la capacité, portent un libellé textuel et un motif hachuré. Les transitions PATCH illégales sont refusées sans mutation.
+- Budget confirmé → Devis, versions commerciales, snapshot fiscal, tarifs automatiques, acceptation, reconnaissance du CA et conversion Planning idempotente sont couverts par la suite Devis. Le rejeu ne duplique pas de réservation et les montants HT/TVA/TTC restent identiques.
+- Ressources et capacités supérieures à 1 utilisent les validations serveur canoniques ; l'archivage logique d'une ressource conserve l'historique et reste réservé à l'administration.
+- Aucun changement de stack ni dépendance réseau n'est introduit ; la stratégie de rollback reste la restauration atomique du JSON/backup de migration documentée pour cette RC.
+
+## P2 non bloquants
+
+1. Les tests de virtualisation frontend vérifient principalement les fonctions pures et la présence des branchements/CSS. La fluidité réelle, l'interactivité `< 2 s`, le focus clavier après rerendu et la géométrie sous lecteurs d'écran doivent rester des preuves explicites des gates PERFORMANCE/E2E.
+2. Le dépôt n'a pas encore de commit initial : tous les fichiers apparaissent non suivis et `HEAD` est inexistant. Les hashes ci-dessous figent donc le candidat de revue, mais l'intégrateur doit établir une baseline Git avant RELEASE pour rendre le rollback et la comparaison de candidat reproductibles.
+3. La revue a constaté d'autres chemins historiques de manipulation Planning très concentrés dans `server.js`/`app.js`. Après correction des P1, une relecture ciblée doit confirmer que toutes les commandes de déplacement, copie, annulation, undo/redo appliquent de façon uniforme terminalité, scopes et idempotence.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, UTC `2026-08-20T15:58:52Z`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --check server.js` | PASS |
+| `node --check app.js` | PASS |
+| `node --test tests/planning-postproduction.test.js` | **PASS, 13/13**, 0 échec/skip/todo |
+| `node --test tests/domain.test.js` | **PASS, 22/22**, 0 échec/skip/todo |
+| `node --test tests/quotes.test.js tests/api.test.js` hors restriction de bind locale | **PASS, 76/76** (47 Devis + 29 API), 0 échec/skip/todo, 4,547 s |
+| Exécution API sous sandbox | Non concluante : `listen EPERM`, restriction locale ; relancée avec succès hors sandbox ci-dessus |
+| Inspection automate/annulation | **P1-1 confirmé** : `cancelReservation()` ne consulte pas l'automate terminal |
+| Inspection scopes déplacement/duplication | **P1-2 confirmé** : trois commandes source sans `reservationAllowed` effectif |
+| `npm test` complet par ce reviewer | Non rejoué après les ciblés à la demande de handoff immédiat ; preuve DEV 216/216 à revalider par QA |
+
+Hashes complets du candidat contrôlé :
+
+```text
+server.js                                                408e2ca2372c9f149c29a3dd18ac9940209357764b589a5041ed25ab5add507f
+app.js                                                   76901020ac3e62d9013c8de48d84e37b7f8fd525ce3453aa767ef219c7ea5ae9
+planning.css                                             1b6923060c248d728d6e69aed3fa64a12d0d58d88dd52a8b3151e57d74142606
+tests/api.test.js                                        445666eeb944abb833c9fbc555e34ad19e487f054f1a4dc9c6ce41fad0675dc7
+tests/quotes.test.js                                     784adb8e917650fe47f772eb9344dc9abc4d12978e3b4df8e2574e5b501b0e05
+tests/planning-postproduction.test.js                    1248165d5d8d153fc801f90226c9898c97f59a6279f25fe16d0f9f8b2a77687e
+tests/domain.test.js                                     4fc062d534da69e27d2b30106f8d6c805d520179a92d171d250824f70e22896f
+docs/specifications/sprint-2-commercial-planning-kernel.md 57b47d9f96335395bc6078ca8ceb17a44620f6e512a3d2644979a8277e250e89
+```
+
+## Handoff intégrateur
+
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Reporter `G2 REVIEW = CHANGES REQUIRED — 2 P1` dans `docs/project-status.md`.
+- Retour DEV limité au respect des états terminaux et des scopes des commandes Planning, avec tests négatifs ; puis re-REVIEW sur les nouveaux hashes et rejeu des gates aval impactés.
+- Cette revue ne déclare ni QA, ni Sécurité, ni Performance, ni G2 globalement validés.
+
+---
+
+# Gate G0 — Re-REVIEW finale du diff E2E frontend
+
+Date : 2026-08-19  
+Reviewer : agent indépendant `g0_review`  
+Candidat : `app.js ad22b4fa…`, `planning.css 7aadb6a0…`, tests fondations `bce34401…`, serveur inchangé `ae82955e…`  
+Nature : revue seule ; aucun correctif de code, test ou contrat appliqué
+
+## Verdict
+
+**APPROVED — Gate REVIEW validé**
+
+**0 P0, 0 P1 ouvert.** Le diff frontend rétablit un parcours de création Ressource utilisable, idempotent et accessible sans régression bloquante détectée.
+
+## Contrôles
+
+- Le bouton `Nouvelle ressource` est réservé à `resource.manage`; la dernière composition de `bind()` remplace le gestionnaire générique par `openResourceCreateDrawer`. Le parcours Ressource actif n'appelle donc pas le `prompt()` historique.
+- Le drawer expose nom, type, site, capacité et couleur avec exemples, contraintes HTML et erreur serveur visible. L'envoi utilise une clé `Idempotency-Key` stable pendant toute la tentative, puis recharge la liste depuis l'API.
+- Le dialogue porte `role="dialog"`, `aria-modal`, un titre référencé et une fermeture étiquetée. L'ouverture mémorise le déclencheur, place le focus dans le premier champ; fermeture, Échap et piège Tab sont présents.
+- Le formulaire de réservation est borné à `100dvh - 40px`, scrollable, avec en-tête/actions persistants. La sidebar devient scrollable verticalement avec confinement du surdéfilement; le layout reste utilisable à hauteur laptop.
+- Aucun consommateur serveur/API n'est modifié; le contrat de création Ressource et son idempotence précédemment approuvés restent inchangés.
+
+## P2 non bloquants
+
+1. Après création réussie, le drawer est masqué puis la page est rerendue sans restaurer explicitement le focus vers un élément stable; la restauration existe seulement dans `closeStockDrawer()`. Prévoir un focus sur le titre ou le bouton de création après succès.
+2. Le test frontend ajouté est une preuve statique de branchement et d'en-tête, pas un vrai test navigateur du focus, du piège Tab, de la soumission/rejeu et des dimensions laptop. Ces vérifications restent à matérialiser dans le gate E2E.
+3. La fonction générique historique `add()` contient encore un `prompt()` pour d'autres parcours. Elle n'est plus atteinte depuis le bouton Ressource après composition actuelle, mais sa conservation rend ce résultat dépendant de l'ordre des wrappers `bind()`.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, UTC `2026-08-19T20:05:22Z`.
+
+| Commande | Résultat |
+|---|---|
+| `node --test tests/foundations.test.js` | **PASS, 15/15**, 0 échec/skip/todo |
+| `npm run lint` | PASS |
+| `npm run build` | PASS, 5 actifs runtime |
+| `npm test` hors restriction de bind locale | **PASS, 195/195**, 0 échec/skip/todo, 7,381 s |
+| Inspection composition `bind()` et drawer | PASS, parcours Ressource sans prompt et clé stable |
+| Inspection CSS laptop/a11y | PASS statique; validation visuelle laissée au gate E2E |
+
+Hashes complets :
+
+```text
+app.js                    ad22b4fa21665fd7e58cf24e7244d73a6adeb06dd794521b93c7e8da9d5395fe
+planning.css              7aadb6a01b7bbf33edc8ac449ac184b44a37ff54e6b5c77ee57aad7ed4e1c060
+tests/foundations.test.js bce34401ab1af13674ecc77647e1ab1714a46d19dc870057430e48c1cb37c927
+server.js                 ae82955eb0b3862adec16396b9e6e3377c6db861e526f4fdc4ef0fd66bf0383f
+```
+
+## Handoff
+
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Cette approbation vaut uniquement pour les hashes ci-dessus; tout changement ultérieur impose une nouvelle relecture.
+- L'intégrateur peut reporter `G0 REVIEW = Approved` et poursuivre les gates aval; le gate E2E doit conserver la vérification visuelle laptop et clavier.
+
+---
+
+# Gate G0 — Re-REVIEW ultime du candidat figé
+
+Date : 2026-08-19  
+Reviewer : agent indépendant `g0_review`  
+Candidat : `server.js ae82955e…`, `app.js a2ce1f6a…`, tests API `189c4872…`  
+Nature : revue seule ; aucun correctif de code, test ou contrat appliqué
+
+## Verdict
+
+**APPROVED — Gate REVIEW validé**
+
+**0 P0, 0 P1 ouvert.** Les deux derniers P1 sont fermés sur le candidat contrôlé et aucune régression P0/P1 n'a été trouvée dans le périmètre impacté.
+
+## Fermeture vérifiée
+
+- **SSE fail-closed** : `sseScopeAllowed()` classe explicitement les familles connues, applique les scopes canoniques ressource/client/projet/devis/réservation et retourne `false` pour toute famille inconnue. Le test unitaire intégré vérifie événement inconnu refusé, ressource autorisée, ressource exclue et projet exclu.
+- **Dashboard d'occupation** : `occupancyResponse()` filtre les ressources par `resourceAllowed()` et les réservations par société, site et `reservationAllowed()` — lequel inclut projet, réservation et ressources. Le test API applique simultanément `projectIds` et `entityScopes`, ne restitue que `resource_3` et confirme zéro heure issue des réservations exclues.
+- Les corrections précédemment validées restent présentes : LoginResponse alignée, idempotence des commandes sensibles et audit canonique before/after de la gouvernance.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, UTC `2026-08-19T15:54:03Z`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `npm run lint` | PASS |
+| `npm run build` | PASS, 5 actifs runtime |
+| `npm test` hors restriction de bind locale | **PASS, 194/194**, 0 échec/skip/todo, 7,493 s |
+| Inspection ciblée `sseScopeAllowed` | PASS, famille inconnue refusée explicitement |
+| Inspection ciblée `occupancyResponse` | PASS, scopes ressource/réservation/projet appliqués |
+| Tests ciblés inclus dans `tests/api.test.js` | PASS au sein de la suite complète |
+
+Hashes complets :
+
+```text
+server.js          ae82955eb0b3862adec16396b9e6e3377c6db861e526f4fdc4ef0fd66bf0383f
+app.js             a2ce1f6adda4e73f538fc7ce37f414454b33cb0c484ebc96f21a6fdf11c6649c
+tests/api.test.js  189c4872bab0e7f9ea4b607d5293654583cbef0c504471a5daa465df5c58d6f3
+```
+
+## Limites et handoff
+
+- Cette approbation porte sur le candidat et les hashes ci-dessus ; toute modification ultérieure invalide automatiquement le verdict.
+- Les deux P2 historiques — duplication de blocs de routes inaccessibles et matrice idempotence non exhaustive pour chaque commande — restent des améliorations non bloquantes.
+- Fichier modifié : `docs/code-review.md` uniquement. L'intégrateur doit reporter `G0 REVIEW = Approved` dans `docs/project-status.md` et poursuivre les gates aval sur ce même candidat.
+
+---
+
+# Gate G0 — Re-REVIEW finale indépendante du candidat figé
+
+Date : 2026-08-19  
+Reviewer : agent indépendant `g0_review`  
+Candidat contrôlé : `server.js da1e4ec8…`, `app.js a2ce1f6a…`, OpenAPI `bd171012…`, tests API `23f32d7c…`  
+Nature : revue seule ; aucun correctif de code, test, contrat ou autre document appliqué
+
+## Verdict
+
+**CHANGES REQUIRED — Gate REVIEW refusé**
+
+**0 P0, 2 P1 ouverts.** Les corrections Login, idempotence et audit ferment trois des quatre P1 ciblés. Le filtrage SSE est corrigé pour les familles canoniques connues, mais reste fail-open pour une famille non mappée. L'inspection des scopes étendus révèle en outre une fuite HTTP sur le dashboard d'occupation.
+
+## Fermeture des quatre P1 ciblés
+
+| P1 ciblé | Statut | Preuve |
+|---|---|---|
+| LoginResponse OpenAPI/runtime | **FERMÉ** | `/auth/login` référence `LoginResponse`, qui exige exactement `user` et `csrfToken`, comme la réponse directe du runtime. OpenAPI parse avec 9 schémas. |
+| Idempotence rôles/memberships/scopes et archivage ressource | **FERMÉ** | Les routes actives appellent les commandes partagées basées sur `foundationCommandMarker`; le rejeu conserve résultat/version et n'émet pas de second SSE. Les tests couvrent création/modification rôle, scope membership et archivage ressource. |
+| SSE fail-closed et types canoniques | **PARTIEL — P1 ouvert** | `resource`, `client`, `quote`, `reservation`, tarifs et agrégats commerciaux sont désormais mappés correctement. Toutefois, `return ... && (!mappedType || entityAllowed(...))` autorise encore toute famille non mappée sans `entityType`, même lorsqu'un scope d'entité est actif. |
+| Audit before/after gouvernance | **FERMÉ** | Les commandes membership/roles/scopes et rôles capturent des snapshots structurés avant/après, avec version et opération idempotente ; la sanitisation canonique reste appliquée. Les tests vérifient rôle et scope réels via `/audit`. |
+
+## P1 ouverts
+
+### P1-1 — Les événements SSE non mappés restent fail-open sous scope d'entité (US-108)
+
+`sseScopeAllowed()` dérive correctement les types connus, puis utilise `(!mappedType || entityAllowed(...))`. Une famille d'événement nouvelle ou oubliée, sans `entity.entityType`, contourne donc entièrement `entityScopes`. Cela ne respecte pas la condition de fermeture précédente « refuser par défaut un type inconnu lorsqu'un scope d'entité est actif » et rend l'isolation dépendante de l'exhaustivité manuelle du mapping.
+
+Impact : une future invalidation ou une famille existante non classée peut exposer identifiant/version d'une entité hors périmètre sans échec visible.  
+Correction attendue : catalogue canonique fermé pour le SSE, décision explicite par famille (`scope entity`, `scope projet/site seulement`, ou refus), refus par défaut lorsque des scopes d'entité restreignent la session, et test négatif d'un événement inconnu/non mappé.
+
+### P1-2 — Le dashboard d'occupation ignore les scopes ressource et réservation (US-108)
+
+`occupancyResponse()` filtre seulement société, activité et site. Les ressources ne passent pas par `resourceAllowed()`/`entityAllowed(auth, 'resource', ...)` et les réservations agrégées ne passent ni par `reservationAllowed()` ni par `projectAllowed()`. Le test de scopes vérifie ressources, réservation directe, catalogue, contacts et tarifs, mais n'appelle pas `/api/v1/dashboard/occupancy` après restriction.
+
+Impact : un lecteur limité à `resource_3`, à une liste de réservations vide ou à certains projets peut obtenir les noms, types et taux d'occupation de ressources exclues du même site ; les agrégats peuvent aussi révéler l'activité de réservations hors périmètre.  
+Correction attendue : filtrer les ressources avec `resourceAllowed`, les réservations avec `reservationAllowed` et le projet, puis ajouter un test dashboard après application simultanée de `projectIds` et `entityScopes`.
+
+## P2
+
+1. Les anciens blocs de routes gouvernance restent présents après les nouveaux wrappers, bien qu'ils soient rendus inaccessibles par les retours anticipés. Leur duplication augmente le risque qu'un futur réordonnancement réactive une implémentation sans garanties G0.
+2. La couverture idempotence approfondie est inégale : les principaux rejeux sont testés, mais la matrice complète même contenu / ordre de clés différent / contenu divergent n'est pas répétée pour chaque commande de gouvernance.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, UTC `2026-08-19T15:43:32Z`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `npm run lint` | PASS |
+| `npm run build` | PASS, 5 actifs runtime |
+| `npm test` sous sandbox | Non concluant : `listen EPERM`, restriction de bind locale |
+| `npm test` relancé hors restriction de bind | **PASS, 193/193**, 0 échec/skip/todo, 7,255 s |
+| Parse YAML Ruby | PASS : OpenAPI 3.1.0, **21 chemins / 9 schémas** |
+| Inspection OpenAPI/runtime | LoginResponse alignée ; exemples réservation exécutables |
+| Inspection idempotence/audit | Commandes actives conformes ; rejeux et snapshots gouvernance présents |
+| Inspection scopes HTTP/SSE | Deux failles fail-open détaillées ci-dessus |
+
+Hashes complets vérifiés :
+
+```text
+server.js                       da1e4ec8d01279e52043cf846c4f3b94daeb4289c823a112b0a1839190a0ec69
+app.js                          a2ce1f6adda4e73f538fc7ce37f414454b33cb0c484ebc96f21a6fdf11c6649c
+docs/api/openapi-v1.yaml        bd171012cc0018384d3c3a35ffc5ff639fd1edb27697bd6d14feda36d7aeeae8
+tests/api.test.js               23f32d7c96849c2e7b63c3c8722ae90e1b075f66140b298f9044a2fb0205d4ef
+packages/audit/index.js         ecd710854ad0f474cd2dd9c56c0e8d2c7a5db1ab94269c729263e1961a607924
+packages/auth/rbac.js           e6aa3313d86108b328f7518b824171e0bbd513102df86c075de533af5a984f13
+```
+
+## Handoff intégrateur
+
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Reporter `G0 REVIEW = Bloqué / CHANGES REQUIRED — 2 P1` dans `docs/project-status.md`.
+- Retour DEV limité à `sseScopeAllowed`, `occupancyResponse` et leurs tests négatifs, puis re-REVIEW sur un nouveau candidat figé.
+
+---
+
+# Gate G0 — Re-REVIEW indépendante du candidat corrigé
+
+Date : 2026-08-19  
+Reviewer : agent indépendant `g0_review`  
+Candidat contrôlé : `server.js bac0e36f…`, `app.js a2ce1f6a…`, `packages/audit ecd71085…`, `packages/auth/rbac e6aa3313…`, OpenAPI `fb8dcb16…`  
+Nature : re-review seule ; aucun correctif de code, test, contrat ou autre document appliqué
+
+## Verdict de re-review
+
+**CHANGES REQUIRED — Gate REVIEW refusé**
+
+**0 P0, 4 P1 ouverts.** Deux P1 initiaux sont fermés, trois sont seulement partiellement fermés et un écart contractuel OpenAPI reste présent. La suite complète verte ne couvre pas les chemins bloquants décrits ci-dessous.
+
+## Statut des cinq P1 initiaux
+
+| P1 initial | Statut | Preuve de re-review |
+|---|---|---|
+| OpenAPI/runtime et exemples | **PARTIEL — P1 ouvert** | Les réservations utilisent désormais `resources`, les réponses RC1 directes sont documentées et les exemples POST/PATCH sont exécutés par `tests/api.test.js`. En revanche, `POST /auth/login` annonce encore `SuccessEnvelope {data,meta}` alors que `server.js` renvoie directement `{user, csrfToken}`; aucun test de contrat ne rejoue cet exemple. |
+| Idempotence mutations sensibles | **PARTIEL — P1 ouvert** | POST/PATCH/DELETE réservation et créations/modifications client-projet-ressource principales utilisent un digest stable/replay. Les mutations de sécurité `PUT memberships/{id}/roles`, `PUT memberships/{id}/scopes`, création/modification de rôles et archivage de ressource ignorent toujours la clé d'idempotence. |
+| Scopes projet/entité | **PARTIEL — P1 ouvert** | Persistance, contexte serveur, listes/IDs directs et PlanyBot filtrent projet/ressource. Les invalidations SSE contournent le scope d'entité pour les ressources et d'autres agrégats : `sseScopeAllowed()` appelle `entityAllowed(auth, entity.entityType || entity.type || '', entity.id)`; une ressource porte `type='room'|'suite'…`, alors que le scope est enregistré sous `resource`. |
+| Audit canonique | **PARTIEL — P1 ouvert** | Le runtime réutilise désormais `appendAudit`, avec sanitisation récursive, opération/origine et before/after; quatre mutations réelles sont testées. Plusieurs mutations critiques de gouvernance (`membership.rolesUpdated`, `membership.updated`, `role.updated`) ne fournissent toujours pas leur état avant/après; le contrat canonique produit donc des champs nuls sur des changements de droits. |
+| ADR-002 et statuts ADR | **FERMÉ** | ADR-002 définit journée commerciale, demi-journée, heures réelles, week-end, fériés, intervalles et cas DST inexistants/ambigus avec exemples. Les sept ADR portent le statut `adopté`. |
+
+## P1 ouverts
+
+### P1-1 — Réponse de login OpenAPI incompatible avec le runtime (US-002)
+
+`docs/api/openapi-v1.yaml` référence `SuccessEnvelope` pour le succès de `/auth/login`. `server.js` renvoie `{ user, csrfToken }` sans `data` ni `meta`, comportement également consommé par tous les helpers de tests. Le test « exemples OpenAPI exécutables » ne couvre que les réservations.
+
+Impact : un client généré depuis le contrat échoue dès l'authentification ou lit une structure inexistante.  
+Correction : documenter la réponse RC1 directe avec un schéma `LoginResponse`, ou envelopper réellement la réponse avec migration explicite du frontend, puis exécuter l'exemple de login contre le runtime.
+
+### P1-2 — L'idempotence reste absente de mutations sensibles de gouvernance (US-006)
+
+Les routes qui modifient les rôles, les scopes d'une membership et les rôles personnalisés n'appellent pas `foundationCommandMarker` et ne traitent pas `Idempotency-Key`. L'archivage de ressource reste également hors du contrat partagé. Ce sont des mutations sensibles : un retry après perte de réponse peut réappliquer version/audit/événement ou répondre différemment au lieu de rejouer le résultat initial.
+
+Impact : la règle absolue « toute mutation sensible est idempotente » n'est toujours pas satisfaite.  
+Correction : appliquer le scope/digest/replay partagé à ces routes, compléter OpenAPI et tester même contenu, ordre de clés différent et contenu divergent.
+
+### P1-3 — Les scopes d'entité ne protègent pas les invalidations SSE (US-108)
+
+Pour `resource.updated.v1`, l'entité transmise possède `type='room'` ou un autre métier. `sseScopeAllowed()` teste donc un scope nommé `room` au lieu de `resource`; comme ce scope n'existe pas, `entityAllowed()` autorise l'événement. Pour les entités sans `entityType`/`type`, la clé vide produit le même fail-open. Seules les réservations bénéficient d'un traitement spécial correct.
+
+Impact : un utilisateur limité à `entityScopes.resource=['resource_3']` peut recevoir l'identifiant/version d'une ressource exclue du même site; les scopes `client` et `quote` ne sont pas non plus correctement dérivés du nom d'événement. C'est une rupture d'isolation serveur temps réel.  
+Correction : mapper explicitement chaque famille d'événement vers son type canonique, refuser par défaut un type inconnu lorsqu'un scope d'entité est actif, puis tester SSE après restriction et révocation. Les chemins PlanyBot inspectés filtrent correctement projets, réservations et ressources; aucune régression P1 PlanyBot distincte n'a été trouvée.
+
+### P1-4 — L'audit canonique n'est pas complet sur les mutations de droits (US-004)
+
+`appendAudit` et la sanitisation récursive sont intégrés correctement. Cependant, `membership.rolesUpdated`, `membership.updated` et `role.updated` ne capturent pas l'objet avant/après; ils passent seulement les versions. La création d'une membership ou d'un rôle ne fournit pas non plus systématiquement `after`. Le test actuel vérifie projet, ressource, client et réservation, pas les mutations de gouvernance les plus sensibles.
+
+Impact : il est impossible de reconstruire quels rôles, permissions, statut ou périmètre ont été changés à partir de l'audit, alors que ces mutations conditionnent tous les accès.  
+Correction : capturer des snapshots minimaux sanitizés avant/après pour membership/role/scope et ajouter un test API de modification puis lecture de l'audit.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-19.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `npm run lint` | PASS |
+| `npm run build` | PASS, 5 actifs runtime |
+| `npm test` sous sandbox | Non concluant : `listen EPERM`, limitation de bind locale |
+| `npm test` relancé hors restriction de bind | **PASS, 192/192**, 0 échec/skip/todo, 7,233 s |
+| Parse YAML Ruby | PASS syntaxique : OpenAPI 3.1.0, **21 chemins / 8 schémas** |
+| Vérification hashes | Conformes aux cinq hashes de candidat transmis |
+| Inspection ciblée OpenAPI ↔ runtime | Réservations alignées; réponse login divergente |
+| Inspection scope HTTP/PlanyBot/SSE | HTTP et PlanyBot bornés; dérivation du type SSE incorrecte |
+| Fenêtre frontend visible | **Non exécutée : aucun navigateur n'était exposé par le runtime de contrôle (`browsers=[]`)**. Le serveur de prévisualisation local a bien démarré sur `127.0.0.1:8197`; cette limite ne remplace pas une preuve visuelle. |
+
+Hashes complets vérifiés :
+
+```text
+server.js                       bac0e36fd49d5b2e1e42fd1616e2a8b2f782f27bb2dc32fa99017ce65fcbbff5
+app.js                          a2ce1f6adda4e73f538fc7ce37f414454b33cb0c484ebc96f21a6fdf11c6649c
+packages/audit/index.js         ecd710854ad0f474cd2dd9c56c0e8d2c7a5db1ab94269c729263e1961a607924
+packages/auth/rbac.js           e6aa3313d86108b328f7518b824171e0bbd513102df86c075de533af5a984f13
+docs/api/openapi-v1.yaml        fb8dcb1660a81531dc7426ab2f059617fee25794daed222dc7c533d5398fb2fc
+```
+
+## Handoff intégrateur
+
+- Fichier modifié par cette re-review : `docs/code-review.md` uniquement.
+- Reporter `G0 REVIEW = Bloqué / CHANGES REQUIRED — 4 P1` dans `docs/project-status.md`.
+- Revenir à DEV, corriger les quatre P1, puis rejouer REVIEW et les gates aval sur un candidat figé.
+- Re-review minimale : exemple login OpenAPI exécuté, idempotence role/scope, SSE scope ressource/client/quote, audit before/after des droits, et chargement frontend dans une fenêtre réellement visible.
+
+---
+
+# Gate G0 — REVIEW indépendante du Sprint 0 V1
+
+Date : 2026-08-19  
+Reviewer : agent indépendant `g0_review`  
+Périmètre : US-001/002/003/004/005/006/106/108, sept ADR, OpenAPI, packages de fondation, migrations RBAC, intégration `server.js`/`app.js`, tests, CI et documents Sprint 0  
+Nature : revue seule ; aucun code, test, contrat ni autre document modifié
+
+## Verdict
+
+**CHANGES REQUIRED — Gate REVIEW refusé**
+
+Aucun P0 n'a été identifié. Cinq P1 restent ouverts. La suite automatisée est verte, mais elle ne démontre pas les contrats déclarés lorsque le contrat OpenAPI diverge du runtime et que les périmètres projet/entité, l'audit et l'idempotence ne sont pas intégrés de bout en bout. Les sept ADR portent encore le statut `proposé`; ils ne peuvent pas être considérés validés tant que les P1 ci-dessous ne sont pas corrigés puis relus.
+
+Sprint 1 reste bloqué conformément au critère G0 de `docs/specifications/sprint-0-foundations.md`.
+
+## P0 — Critique
+
+Aucun P0 identifié.
+
+## P1 — Bloquants
+
+### P1-1 — Le contrat OpenAPI des réservations n'est pas exécutable contre le runtime (US-002)
+
+- `ReservationCommand` exige `allocations`, tandis que `server.js` ne construit les allocations qu'à partir de `resources` ou `resourceId` (`canonicalAllocations`/`reservationFrom`). Un client conforme au YAML envoie donc un champ que le runtime ignore et sa création échoue à la validation.
+- `POST /reservations` et `PATCH /reservations/{id}` annoncent une `SuccessEnvelope`; le runtime renvoie directement la réservation.
+- `PATCH /reservations/{id}` annonce `Idempotency-Key`, mais la route appelle `patchReservation` sans lire ni mémoriser cette clé.
+- Le document ne fournit pas les exemples de requêtes/réponses exigés par le backlog et la SPEC. Les 16 chemins sont un sous-ensemble/alias de l'API réelle et ne publient pas les domaines minimaux comme contrats stables (`/users`, `/services`, `/pricing`, `/budgets`, `/planning`, `/analytics`).
+
+Impact : un consommateur généré depuis le contrat ne peut pas créer/modifier une réservation de manière fiable; US-002 n'est pas satisfaite.  
+Correction attendue : choisir un vocabulaire canonique unique, aligner enveloppes et en-têtes, publier les domaines/exemples requis, puis ajouter un test de contrat qui rejoue réellement les exemples OpenAPI contre le serveur.
+
+### P1-2 — L'idempotence n'est pas appliquée à toutes les mutations sensibles (US-006)
+
+La mise à jour d'une réservation est une mutation sensible et son propre contrat exige une clé, mais `patchReservation(rid, input, auth, res, requestId)` n'a aucun scope/digest/replay. La création de ressource, sa modification, la création/modification client-projet et l'annulation de réservation ne disposent pas non plus d'un contrat idempotent uniforme. Certaines commandes commerciales possèdent un marqueur ad hoc, parfois avec `JSON.stringify(input)` au lieu du digest stable du package partagé.
+
+Impact : après une coupure réseau, un retry ne bénéficie pas partout de la garantie déclarée; le comportement dépend de la route.  
+Correction attendue : inventorier les mutations sensibles V1, appliquer le contrat partagé `(société, acteur, commande, cible, clé, digest stable)`, persister le résultat/replay et tester le même payload, un ordre de clés différent et un payload divergent.
+
+### P1-3 — Les périmètres projet et entité ne sont pas implémentés côté serveur (US-108)
+
+`membershipScopes` ne représente que `organization|sites`, `siteIds` et `organizationUnitIds`. `buildUserContext` ne produit ni `projectIds` ni périmètre d'entité. Le package RBAC sait tester `context.projectIds` seulement si ce tableau existe, mais le runtime ne le renseigne jamais; aucun contrôle équivalent n'existe pour l'entité.
+
+Impact : la promesse « société/site/projet/entité » de la SPEC et du backlog est réduite à société/site/unité. Les tests de masquage tenant/site ne prouvent pas les deux scopes manquants.  
+Correction attendue : contractualiser et persister les scopes projet/entité, les injecter depuis la membership, les appliquer aux listes et identifiants directs avec masquage `404`, puis tester API et interface pour chaque rôle concerné.
+
+### P1-4 — L'audit intégré ne garantit pas avant/après, opération et origine (US-004)
+
+Le package `packages/audit` définit une entrée propre, mais le runtime utilise sa propre fonction `audit`. Celle-ci stocke acteur/société/action/cible/date et des détails libres; elle n'extrait pas de champs canoniques `versionBefore`, `versionAfter`, `before`, `after`, `operationId` ou `origin`. Plusieurs mutations critiques appellent l'audit sans détail : création/modification de ressource, création/modification client-projet; l'annulation d'une réservation ne conserve pas son état précédent. Le filtre runtime ne réutilise pas non plus le filtre de clés sensibles du package.
+
+Impact : le journal n'est pas une preuve reconstructible uniforme et le contrat testé en isolation ne démontre pas le comportement réel.  
+Correction attendue : intégrer un seul constructeur d'audit, rendre obligatoires les champs adaptés à chaque mutation, capturer avant/après et opération/origine, appliquer le masquage partagé, puis vérifier des mutations réelles par l'API.
+
+### P1-5 — Le modèle temps/calendrier reste ambigu et les ADR ne sont pas validables (US-001 / G0)
+
+ADR-002 définit UTC, fuseau IANA, intervalles semi-ouverts, week-ends/fériés explicites et annonce des tests DST, mais ne définit pas la journée commerciale, les demi-journées, les règles d'heures, la politique exacte des jours fériés ni les conversions lors des heures DST inexistantes/ambiguës. Ces points étaient explicitement requis par le prompt Sprint 0. Les sept ADR restent au statut `proposé`.
+
+Impact : deux modules futurs peuvent calculer différemment quantité vendue, durée planifiée et capacité aux limites calendaires.  
+Correction attendue : compléter ADR-002 avec une table normative et des exemples DST/week-end/férié/demi-journée, corriger les autres P1, puis faire passer les ADR au statut adopté uniquement après la re-review indépendante.
+
+## P2 — Importants non bloquants après fermeture des P1
+
+1. **US-106 n'est pas prouvée dans l'interface.** La migration additive, rejouable et contrôlée installe bien exactement sept rôles. Les tests couvrent catalogue et autorisation API, mais aucune preuve UI automatisée ne vérifie, pour les sept rôles, visibilité et impossibilité effective d'une action interdite. Ajouter une matrice rôle × action sur API et interface; documenter aussi quel rôle non-admin accepte/valide un devis.
+2. **US-003 est davantage un catalogue qu'une intégration complète.** Le journal séquencé/rejouable est tenant-scopé et les types requis existent, mais aucun producteur runtime `ActualConfirmed` n'a été trouvé et les payloads issus de `audit()` se limitent à action/versions. Ajouter les producteurs et schémas de payload nécessaires aux futurs consommateurs Analytics/PlanyBot, plus un test de rejeu multi-types.
+3. **US-005 manque de granularité opérationnelle.** `error_id`, logs JSON et métriques protégées existent. Les métriques restent globales (pas de ventilation route/moteur, requêtes lentes ou retard de rejeu), et les erreurs statiques ne suivent pas toutes l'enveloppe. Publier les limites et ajouter les dimensions utiles avant exploitation.
+4. **Référentiel incomplet.** Le Master V2, déclaré source prioritaire par l'ordre de lancement, n'est pas fourni. Son absence est bien tracée, mais empêche de certifier la cohérence fonctionnelle exhaustive au-delà des contrats techniques disponibles.
+5. **Candidat non figé par Git.** Tous les fichiers apparaissent non suivis et aucun commit candidat n'est disponible. Le hash agrégé ci-dessous permet cette revue, mais l'intégrateur doit figer un même état pour les gates aval.
+
+## P3 — Améliorations
+
+1. Déplacer le mapping RBAC transitoire actuellement dans ADR-004 vers ADR-007 afin de préserver une responsabilité par ADR.
+2. Ajouter une table de traçabilité `story → contrat → runtime → test → preuve` dans le rapport Sprint 0; les affirmations DEV sont aujourd'hui plus larges que les tests de fondation.
+3. Ajouter une validation OpenAPI sémantique dédiée à la CI, et pas seulement un parse YAML ponctuel.
+
+## Points conformes observés
+
+- L'architecture reste un monolithe CommonJS/JSON local; aucune migration de stack implicite ni dépendance runtime réseau n'a été introduite.
+- Les packages de fondation sont courts, CommonJS, sans I/O métier et respectent globalement la direction de dépendances annoncée.
+- Le catalogue d'événements est fermé; le journal possède identifiant, séquence, tenant, acteur, cible, payload et rejeu borné.
+- Le package d'idempotence produit un digest stable et détecte replay/conflit lorsqu'il est effectivement utilisé.
+- La migration RBAC sauvegarde l'état, vérifie son digest, est rejouable et installe exactement les sept rôles standards.
+- La CI exécute lint, tests de fondation, suite complète et build sur Node 20.
+- Le moteur de scheduling teste projet obligatoire, intervalles, capacité, week-end et DST; Pricing et QuoteConsumption ont des tests unitaires ciblés.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, UTC `2026-08-19T14:12:49Z`.
+
+| Commande exacte | Résultat |
+|---|---|
+| `npm run lint` | PASS |
+| `npm run test:foundations` | PASS, 14/14 |
+| `npm run build` | PASS |
+| `npm test` (sandbox restreint) | Non concluant : 143 échecs `listen EPERM`, limitation d'environnement locale |
+| `npm test` (relance autorisée hors restriction de bind local) | **PASS, 188/188, 0 échec, 0 skip, 0 todo**, 7,221 s |
+| `ruby -e "require 'yaml'; ... YAML.safe_load(...)"` | PASS syntaxique : OpenAPI `3.1.0`, 16 chemins, 5 schémas |
+| `rg` ciblés OpenAPI/runtime/RBAC/audit/événements | Confirment les divergences détaillées ci-dessus |
+
+Hash SHA-256 agrégé du périmètre revu (liste triée : runtime, OpenAPI, ADR, packages, test de fondation, CI, SPEC et rapport) :
+
+```text
+62e017ace7b973f39dd270444ef90c47f2bda5195e8f5d5d951797c8ce5901cc
+```
+
+Hashes structurants :
+
+```text
+server.js                         cc3e6953aecc9b318639222c7277884bb1cb4c0c03a12c6930909f654d945d7d
+app.js                            6223528dbe4ce60dab7790ac7930155d49fb20acded9012a56dd652b2393b440
+docs/api/openapi-v1.yaml          8ae9568cd8d88b211bf25877d8b8f5a0b0bb3a3267af8b79be3c981c7ff25370
+tests/foundations.test.js         de16792a190526b85f5417aa5facdbd5301d5392b389c4c7128e7bc5e44813c5
+packages/auth/rbac.js             dec6ffad4e2f4248868f732c7a44ee48599c1613e5fa459a54b244c77611eb90
+packages/shared/idempotency.js    0948b1175dabd3ac01a332ed4a495cdd412108c750d3cff0c64f24417e0b0ade
+packages/audit/index.js           131d41b1118c6b054c284314165897fdd269ad4ad10357c367071eb01881c9c3
+packages/events/index.js          9a4dfe0a24623f818ee3868202649a6506189fd0f89edb6999691324357b34b8
+```
+
+## Limites et condition de re-review
+
+- La revue a analysé les sources V1 copiées dans `docs/specifications`, le prompt Sprint 0, les documents et le code; le Master V2 absent n'a pas été reconstitué.
+- Le premier `npm test` rouge est exclusivement une restriction de bind du sandbox; la relance autorisée constitue la preuve fonctionnelle fraîche.
+- Aucun E2E navigateur n'a été exécuté dans ce gate REVIEW; il relève du gate E2E, mais le test UI RBAC demandé reste à ajouter avant de considérer US-106 entièrement prouvée.
+- Après corrections, revenir à DEV puis rejouer REVIEW et tous les gates aval sur le même hash candidat. La re-review doit vérifier au minimum un test OpenAPI→runtime, l'idempotence PATCH réservation, les scopes projet/entité, quatre audits réels et la matrice temps normative.
+
+## Handoff intégrateur
+
+Fichier modifié : `docs/code-review.md` uniquement.  
+Statut à reporter par l'intégrateur dans `docs/project-status.md` : `G0 REVIEW = Bloqué / CHANGES REQUIRED`, cinq P1 ouverts.  
+Aucune correction de code n'a été appliquée par le reviewer.
+
+---
+
+# Verdict final — revue de code Gate 01
+
+Date : 2026-08-14  
+Dernier périmètre contrôlé : câblage drag & drop multi-allocations  
+Application et tests inspectés sans modification
+
+## Verdict
+
+**APPROVED**
+
+Le dernier P1 est corrigé. Aucun défaut bloquant ne subsiste dans le périmètre des revues successives.
+
+## Preuves du contrôle final
+
+### Rendu multi-allocations
+
+- `planning()` rend une réservation sur chaque ligne dont l'identifiant apparaît dans `b.allocations` (`app.js:39`).
+- `event()` associe chaque occurrence à sa ressource de ligne avec `data-drag-resource` (`app.js:37`).
+
+### Drop d'une allocation
+
+- Le `dragstart` actif sérialise `{ bookingId, sourceResourceId }` dans `application/x-planify`, avec repli `text/plain` (`app.js:50`).
+- Le `drop` actif décode ce payload et appelle `dropAllocation(bookingId, sourceResourceId, targetResourceId, date)` (`app.js:50`).
+- `dropAllocation()` remplace l'allocation source, déduplique les ressources, conserve les quantités et resynchronise les champs de compatibilité (`app.js:45`).
+- `mutate()` envoie ensuite la réservation par `PATCH`; `toApiReservation()` sérialise la nouvelle liste `allocations` dans `resources[]` avec la version optimiste (`app.js:21,44`). La modification est donc persistée côté API.
+
+Le gestionnaire historique installé par `bindBase()` est bien remplacé ensuite par le gestionnaire spécialisé dans la redéfinition de `bind()`; il n'intercepte donc plus le drop final.
+
+### Dashboard
+
+- Les métriques serveur sont ventilées par type et les ressources les plus chargées sont rendues (`app.js:35`).
+- Un clic applique le filtre ressource ou type, reprend la date de la période serveur et navigue vers le planning (`app.js:52`).
+- Les filtres du planning tiennent compte de toutes les allocations (`app.js:36`).
+
+## Vérifications finales
+
+- `node --check app.js` : réussi.
+- Inspection statique ciblée du chemin complet DOM → payload drag → allocation → `PATCH` API.
+- Suite complète confirmée lors de la passe précédente : **32 tests réussis, 0 échec** (`npm test`), couvrant domaine, API, authentification, CSRF, permissions, isolation, conflits, override/audit, concurrence optimiste, annulation, fichiers sensibles et dashboard.
+
+## Conclusion
+
+Les cinq P1 de la revue finale ainsi que les deux reliquats frontend ont été fermés. Le code review Gate 01 rend donc le verdict **APPROVED**.
+
+---
+
+## Appendice — Gouvernance du dépôt
+
+Date de contrôle : 2026-08-14  
+Périmètre : `AGENTS.md`, `.gitignore` et initialisation Git  
+Référence : prompt maître « Développement autonome multi-agents — Planning Post Prod »
+
+### Verdict Gouvernance
+
+**APPROVED**
+
+### `AGENTS.md`
+
+Le contrat de contribution traduit correctement le mandat maître et l'adapte à l'état réel du dépôt :
+
+- hiérarchie explicite entre instructions PO, gouvernance, spécification et architecture ;
+- état RC1 réel distingué de la cible TypeScript/React/SQLite, sans masquer la divergence JSON ;
+- ownership par chemins couvrant produit, architecture, backend, frontend, persistance, tests, gates et release ;
+- séparation auteur/reviewer et interdiction d'auto-approuver son développement ;
+- workflow ordonné SPEC → DEV → REVIEW → QA → SECURITY/PERFORMANCE → INTEGRATION → E2E → RELEASE, avec retour au développement après échec ;
+- responsabilités correspondant aux agents 00 à 13 du prompt maître, exprimées sous forme d'ownership et de gates opérationnels ;
+- règles de non-interruption du PO cohérentes avec l'autonomie demandée et exceptions limitées aux décisions produit, actions irréversibles, données/droits manquants et risques critiques ;
+- critères précis de revue, QA, sécurité, performance, intégration, E2E et release ;
+- coordination multi-agents, writer unique par fichier, handoff reproductible et rôle exclusif de l'intégrateur ;
+- mise à jour obligatoire de `docs/project-status.md` et invalidation d'un ancien `APPROVED` après modification ;
+- commandes réellement disponibles dans `package.json`, sans inventer de scripts absents ;
+- invariants métier, API, sécurité, autonomie locale et fallback prototype fail-closed conformes au dépôt actuel.
+
+Aucune contradiction bloquante n'a été trouvée entre `AGENTS.md`, le prompt maître et l'état du projet. Le choix d'autoriser `data/planify.json` comme persistance RC1 tout en l'excluant de Git est cohérent : le serveur possède un seed déterministe et `data/.gitkeep` conserve le répertoire.
+
+### `.gitignore`
+
+Les exclusions couvrent les catégories pertinentes :
+
+- métadonnées macOS : `.DS_Store` ;
+- secrets locaux : `.env`, `.env.*` ;
+- dépendances et sorties : `node_modules/`, `coverage/`, `dist/` ;
+- données runtime : `data/*.json` ;
+- journaux : `*.log` ;
+- exception explicite `!data/.gitkeep`.
+
+Contrôle avec `git check-ignore -v` : `.DS_Store`, `.env`, `node_modules/`, `coverage/`, `dist/` et `data/planify.json` sont bien ignorés; `data/.gitkeep` est réinclus. Les sources applicatives ne sont pas exclues.
+
+### Initialisation Git
+
+- `.git/` est présent et reconnu comme worktree Git ;
+- la branche symbolique active est `main` ;
+- le dépôt est neuf et ne possède encore aucun commit ; tous les fichiers versionnables apparaissent donc non suivis, ce qui est normal avant le commit initial ;
+- `data/planify.json` et `.DS_Store` n'apparaissent pas dans les fichiers à versionner grâce au `.gitignore`.
+
+L'exigence « dépôt Git initialisé sur `main` » est satisfaite. La création du commit initial relève de l'intégrateur/release manager et n'est pas requise pour valider l'initialisation elle-même.
+
+### Conclusion Gouvernance
+
+Le complément de mandat est conforme. Aucun changement de gouvernance, d'exclusion ou d'initialisation Git n'est requis avant handoff à l'intégrateur.
+
+---
+
+## Architecture cible / Specs 0.2 — Revue indépendante
+
+Date : 2026-08-14  
+Périmètre : `docs/target-architecture-v1.md`, `docs/architecture-roadmap.md`, `docs/spec-rental-stock.md`, `docs/spec-finance-analytics.md`, `AGENTS.md` et compatibilité avec la RC1  
+Nature : Gate REVIEW documentaire ; aucune spec ni fichier applicatif modifié
+
+### Verdict
+
+**CHANGES REQUIRED**
+
+L'architecture cible et la stratégie de migration sont cohérentes, incrémentales et compatibles avec la RC1. Les deux specs 0.2 couvrent correctement sécurité, isolation, concurrence, audit, performance, rollback et E2E. Cependant, quatre P1 rendent encore certains comportements métier non déterministes ou laissent le Gate SPEC explicitement ouvert. Le développement ne doit pas commencer avant leur fermeture.
+
+### P0 — Critique
+
+Aucun P0 identifié.
+
+### P1 — Bloquants avant DEV
+
+1. **État d'un dossier après sortie partielle contradictoire.** `docs/spec-rental-stock.md:168-174` conserve le dossier en `ready` lors d'une sortie partielle, alors que `docs/spec-rental-stock.md:176-180` indique qu'un dossier avec quantité sortie incomplètement retournée reste `out`. Les invariants d'édition/annulation dépendent aussi de cette distinction (`:150-152`). Il faut définir un état canonique après la première unité sortie — par exemple `out` dès toute sortie avec progression par ligne, ou un statut fermé `partiallyOut` — puis préciser les transitions retour, annulation, nouvelle sortie et modification. Sans cela, API, UI et tests peuvent implémenter des machines d'état incompatibles.
+
+2. **Sémantique comptable du journal de stock insuffisante pour reconstruire les soldes.** Les mouvements `allocate`, `release`, `checkout`, `return`, `transfer`, maintenance, quarantaine et `adjustment` partagent un champ `quantity` toujours positif (`docs/spec-rental-stock.md:118-127`), tandis que le solde disponible doit être reconstruit exactement depuis le journal (`:129-133`, critère `:316`). Aucune table d'effets ne dit quels mouvements modifient le stock physique, le réservé et le disponible, dans quel sens, ni comment `fromLocationId`/`toLocationId` affectent chaque agrégat. En l'état, `allocate` puis `checkout` peut être compté deux fois et un `adjustment` positif ne peut exprimer une baisse. La spec doit définir les comptes/projections et l'effet signé de chaque type, y compris compensation et transfert.
+
+3. **État `stale` d'un relevé financier non représenté par le modèle fermé.** Les statuts de relevé sont déclarés fermés à `draft`, `exported`, `archived` (`docs/spec-finance-analytics.md:123-133`), mais une modification source « marque [le draft] `stale` » (`:211-215`) et l'API prévoit `BILLING_DRAFT_STALE` (`:319-326`). `billingDrafts` ne définit ni statut `stale`, ni booléen/motif/versions sources permettant de le calculer (`:139-145`). Il faut choisir et contractualiser un quatrième statut ou un état de fraîcheur orthogonal, ses transitions, sa version et sa représentation API/UI avant d'implémenter recalcul et concurrence.
+
+4. **Le Gate SPEC reste explicitement soumis à des décisions non consignées comme approuvées.** Location/Stock exige encore la validation PO du périmètre visible et des transitions (`docs/spec-rental-stock.md:379-383`). Finance exige la confirmation de six décisions produit/architecture, dont préfacturation, droits, modèle tarifaire, devise et réévaluation (`docs/spec-finance-analytics.md:476-487`). `docs/project-status.md` les marque « Spec terminée, review en cours », sans décision enregistrée ni owners techniques nommés. Conformément à `AGENTS.md` Gate SPEC, ces choix doivent être confirmés et inscrits dans le statut avant DEV ; une adoption du synoptique global ne vaut pas automatiquement validation de ces règles détaillées.
+
+### P2 — Importants, non bloquants une fois planifiés
+
+1. **Ordre des modules 06/07 divergent entre roadmap et spec.** `docs/architecture-roadmap.md:108-112` place Location (06) avant Stock/logistique (07), alors que `docs/spec-rental-stock.md` fait du catalogue, des exemplaires, emplacements et mouvements le socle préalable au workflow de location. La roadmap devrait expliciter soit un lot conjoint 06/07, soit la dépendance réelle « socle Stock → Location », afin d'éviter deux autorités ou modèles de disponibilité temporaires.
+
+2. **Positionnement de Finance 0.2 par rapport à la phase 5 à clarifier.** La roadmap place le module 09 après 06 et 08 avec modèles de fiscalité (`docs/architecture-roadmap.md:108-114`), tandis que `docs/spec-finance-analytics.md` propose volontairement une tranche préfacturation sans fiscalité, location ni commercial. Cette tranche peut être légitime plus tôt, mais la roadmap doit l'identifier comme sous-lot 09a dépendant seulement de Planning/Projets/Tarifs, plutôt que laisser croire que l'ordre directeur est respecté tel quel.
+
+3. **Statut opérationnel ambigu pour l'architecture historique.** `docs/project-status.md` indique simultanément « Architecture & contrats — Terminé » et « Architecture cible v1 — Review en cours ». Renommer la première ligne « Architecture RC1 » ou expliciter son périmètre éviterait qu'un lecteur considère la cible déjà approuvée.
+
+### P3 — Améliorations
+
+1. Ajouter aux deux specs une table compacte `commande → permission → version/idempotence → audit → événement` rendrait les contrôles de couverture plus mécaniques.
+2. Ajouter un glossaire transversal des mots `allocation`, `réservation`, `dossier`, `mouvement`, `snapshot`, `projection` éviterait les collisions de sens entre Planning, Stock et Finance.
+3. Référencer depuis chaque spec le numéro de module cible (06/07, 09/10) et la phase exacte de roadmap améliorerait la traçabilité.
+
+### Points approuvés par la revue
+
+- La cible est correctement décrite comme monolithe modulaire extractible, sans microservices, cache, bus, GraphQL, IA ou Kubernetes prématurés.
+- La RC1 Node/CommonJS/JSON demeure explicitement l'autorité tant qu'un lot de migration n'est pas approuvé.
+- La roadmap évite le big bang, conserve `/api/v1`, prévoit seams, strangler, expand/contract, sauvegarde, validation et rollback.
+- La bascule JSON → SQLite interdit la conversion silencieuse et exige comparaison, restauration et arrêt contrôlé des écritures.
+- Tenant et site viennent du contexte de session ; les erreurs hors périmètre restent non discriminantes.
+- Audit, événement après commit, version optimiste, idempotence, pagination, limites et fonctionnement hors ligne sont traités.
+- Les specs définissent des critères d'acceptation, jeux de charge, scénarios E2E, matrices de permissions et données de démonstration substantiels.
+- Finance sépare correctement préfacturation interne et facture fiscale, utilise des entiers monétaires et la durée UTC réelle.
+- Location/Stock sépare ressource planifiable et exemplaire physique, interdit le stock négatif et les overrides d'un état physique indisponible.
+
+### Conditions pour APPROVED
+
+1. Corriger les trois ambiguïtés métier P1 : sortie partielle, effets du journal de mouvements, représentation `stale` des relevés.
+2. Consigner les validations Gate SPEC demandées par les deux documents et nommer les owners du contrat partagé, backend, frontend et tests.
+3. Aligner la roadmap sur la dépendance réelle Stock/Location et positionner explicitement la tranche Finance 0.2.
+4. Repasser cette revue documentaire sur les versions corrigées avant tout changement de code ou de données 0.2.
+
+### Re-review ciblée P1/P2 — 2026-08-14
+
+#### Verdict final SPEC 0.2
+
+**CHANGES REQUIRED**
+
+Les corrections fonctionnelles demandées sont satisfaisantes : machine de sortie/retour déterministe, grand livre reconstructible, `sourceState` financier orthogonal, ordre 07a → 06a → 07 avancé, tranche 09a/10a et autorités Planning/Finance/Analytics clarifiés. Deux reliquats d'ownership Matériel/Stock empêchent encore de fermer complètement le Gate SPEC.
+
+#### Statut des constats précédents
+
+| Constat | Statut | Preuve |
+|---|---|---|
+| Sortie partielle Rental | **CORRIGÉ** | Catalogue `partiallyOut`/`partiallyReturned`, `checkoutClosed`, diagramme fermé, préconditions de retour et commande `final` définis dans `docs/spec-rental-stock.md:111`, `:201-205`, `:219-255`. |
+| Grand livre Stock | **CORRIGÉ** | Legs serveur signés, comptes fermés, formules physique/réservé/disponible, table d'effets, exemple chiffré, séquence/idempotence et invariants de non-négativité définis dans `docs/spec-rental-stock.md:118-185`. |
+| État financier `stale` | **CORRIGÉ** | `sourceState=current|stale` est orthogonal à `status`, avec table de transitions, anomalies, modèle persistant et E2E explicite dans `docs/spec-finance-analytics.md:141-177`, `:478`. |
+| Décisions Finance | **CORRIGÉ** | Huit décisions exécutables sont adoptées et les choix produit visibles sont fermés dans `docs/spec-finance-analytics.md:510-523`. |
+| Owners Finance/Analytics | **CORRIGÉ** | Tableau d'ownership Finance 09a, hook Planning, Analytics 10a, Frontend, QA, Sécurité, Performance et Intégration dans `docs/spec-finance-analytics.md:32-46`. |
+| Ordre roadmap 06/07 et 09a | **CORRIGÉ** | La roadmap impose 07a Stock → 06a Location → 07 avancé et positionne 09a/10a (`docs/architecture-roadmap.md:104-126`, carte `:164`). La cible reprend les mêmes dépendances (`docs/target-architecture-v1.md:73-101`). |
+| Autorité runtime/migration | **CORRIGÉ** | La cible et la roadmap distinguent explicitement autorité RC1, SPEC de migration et bascule limitée au périmètre intégré (`docs/target-architecture-v1.md:12-18`, `docs/architecture-roadmap.md:12`). |
+
+#### P1 ouverts
+
+1. **Owners Matériel/Stock/Location non désignés.** La condition de sortie indique encore que « l'équipe technique désigne » les owners du contrat partagé, backend/persistance, frontend et tests (`docs/spec-rental-stock.md:457-459`), mais aucun tableau équivalent à Finance ne les nomme et `docs/project-status.md:26-27` conserve seulement des responsables produit génériques. Avant DEV, nommer au minimum les owners `stock_07a`, `rental_06a`, contrat Planning/disponibilité (avec revue Agent 04), frontend, QA, sécurité, performance et intégration, avec critères de handoff.
+
+2. **Autorité de maintenance physique encore chevauchante.** `docs/spec-rental-stock.md:50` place la maintenance simple dans le lot **07a Stock socle** et `:13` donne au module matériel/stock l'autorité de l'état physique. Pourtant `docs/target-architecture-v1.md:69` attribue aussi la maintenance au module 02 Ressources et `:73` au module 06 Location, tandis que la description 07a (`:96`) ne la mentionne pas. Le catalogue cible doit distinguer clairement : maintenance structurelle/indisponibilité d'une ressource planifiable (02), maintenance d'un exemplaire physique (07a ou 06a, un seul writer), et orchestration de disponibilité, afin d'éviter trois modules capables de modifier le même état.
+
+#### P2 ouverts
+
+1. **Statut projet non encore synchronisé avec la re-review.** `docs/project-status.md:25-29` conserve « review en cours » et les anciennes lignes combinées Finance/Analytics. C'est attendu pendant la revue, mais l'intégrateur doit créer les lignes 07a, 06a, Finance 09a et Analytics 10a avec leurs owners et basculer les états uniquement après ce gate.
+
+2. **Libellé de périmètre Rental à actualiser.** `docs/spec-rental-stock.md:17-33` présente kits, transferts et inventaire comme inclus dans le « premier incrément », alors que `:48-54` les place dans un troisième lot après 07a/06a. La séquence est désormais claire, mais renommer « premier incrément » en « programme 0.2 » ou marquer l'inclusion par lot réduirait le risque de livrer trop tôt les routes/UI du lot 3.
+
+#### Conditions restantes pour APPROVED
+
+1. Ajouter le tableau d'ownership/handoff Matériel 07a/Location 06a et synchroniser `docs/project-status.md`.
+2. Désigner une autorité unique pour la maintenance d'un exemplaire physique et corriger le catalogue cible/roadmap en conséquence.
+3. Rejouer une ultime revue documentaire limitée à ces deux corrections ; aucun autre P0/P1 métier n'est ouvert.
+
+### Re-review finale Rental — 2026-08-14
+
+#### Verdict final SPEC 0.2
+
+**APPROVED**
+
+Aucun P0/P1 ne reste ouvert sur le périmètre documentaire SPEC 0.2. Les derniers constats Rental/Stock sont corrigés de manière cohérente avec la cible et la roadmap ; le développement peut commencer lot par lot sous réserve de repasser tous les gates prévus par `AGENTS.md`.
+
+#### Statut des derniers constats
+
+| Constat | Statut | Preuve |
+|---|---|---|
+| Owners et handoffs 07a/06a | **CORRIGÉ** | La matrice nomme les owners du contrat partagé, de Stock 07a, Location 06a, Frontend, REVIEW, QA, Performance, Sécurité et Intégration, avec un critère de remise pour chacun (`docs/spec-rental-stock.md:65-77`). L'ordre de writer unique dans `server.js` et le contenu obligatoire de chaque handoff sont explicités (`:79`). |
+| Autorité de maintenance physique | **CORRIGÉ** | 07a est l'unique writer de l'état/localisation d'un exemplaire, de `maintenanceRecord`, des legs physiques et des projections (`docs/spec-rental-stock.md:218-220`). Les responsabilités distinctes de 02 Ressources, 03 Planning, 06a Location et 07 avancé sont fermées (`:222-225`) ; les ports autorisés, leurs consommateurs et effets faisant autorité sont publiés (`:227-240`). La roadmap confirme que 07a reste l'unique autorité physique et que 06a ne tient aucun inventaire parallèle (`docs/architecture-roadmap.md:111-113`). |
+| Périmètre du lot 3 | **CORRIGÉ** | Kits, transferts métier, inventaires et scan sont explicitement hors du premier incrément 07a/06a (`docs/spec-rental-stock.md:33-42`). Les trois lots et leur ordre contractuel sont séparés (`:57-63`) ; routes (`:377-388`), critères (`:481-487`), E2E (`:503`) et seed (`:507`) du lot 07 avancé sont différés jusqu'à son propre workflow de gates. |
+
+#### Points non bloquants et limites
+
+- `docs/project-status.md` doit être synchronisé par l'owner Intégration après ce verdict, conformément au handoff défini dans la spec. Cette opération administrative aval ne remet pas en cause la fermeture du Gate REVIEW documentaire.
+- Les libellés synthétiques « maintenance » des modules 02 et 06 dans `docs/target-architecture-v1.md` restent larges, mais la section d'autorité normative de la spec tranche explicitement leur sens et interdit tout writer physique concurrent. Une référence croisée dans le catalogue cible serait une amélioration P3, pas un défaut bloquant.
+- Revue strictement documentaire : aucun fichier applicatif, test, donnée ou spécification n'a été modifié et aucun verdict DEV/QA/SECURITY/PERFORMANCE n'est conféré par cette approbation SPEC.
+
+---
+
+## Gate CODE REVIEW — Stock 07a
+
+Date : 2026-08-14  
+Périmètre : `server.js`, consommateurs/tests existants, `AGENTS.md`, `docs/spec-rental-stock.md` et contrats d'architecture  
+Nature : revue indépendante du lot backend Stock 07a ; aucun code ni test modifié
+
+### Verdict
+
+**CHANGES REQUIRED**
+
+Aucun P0 n'est identifié, mais cinq P1 restent ouverts. Le seed en mémoire produit un journal cohérent et les mutations utilisent correctement la chaîne d'écriture puis le renommage atomique avant émission SSE. En revanche, l'isolation site, l'intégrité canonique du ledger, la reprise des données RC1 et plusieurs contrats fonctionnels 07a ne sont pas respectés sur l'état courant.
+
+### P0 — Critique
+
+Aucun P0 identifié.
+
+### P1 — Bloquants release
+
+1. **Une demande sans site/emplacement traverse le périmètre de sites autorisés.** Le chemin quantité de `checkStockAvailability` reconstruit tous les mouvements de la société lorsque la ligne omet `siteId` et `locationId`, sans filtrer les emplacements par `siteAllowed` (`server.js:280-299`). `allocateStock` accepte ensuite cette ligne, crée un leg `reserved` sans emplacement et ne rattache pas la commande à un dossier 06a existant (`:303-309`). Preuve reproductible : avec un planificateur limité à `site_paris`, la demande de `stock_battery` — présent uniquement à Boulogne — annonce `available: 8`, puis crée une allocation pour `orderId: "forged-order"`. Le mouvement sans `locationId/siteId` est en outre diffusé par SSE à toute la société. Cela viole l'isolation par référence et par ligne (`docs/spec-rental-stock.md:244`, `:417`). Exiger un site/emplacement autorisé pour une quantité, borner tous les agrégats aux sites de la session et ne permettre l'allocation que via un contexte 06a canonique.
+
+2. **Le ledger accepte des effets non canoniques choisis par le client.** `adjustStock` reprend directement `input.account` et génère un `adjustment` sur n'importe quel compte (`server.js:318-324`), tandis que `validateStockLedger` contrôle surtout l'équilibre global sans table stricte `type → legs/champs` (`:242-260`). Preuve reproductible : un ajustement `{ account: "custody", delta: 2 }` sans `rentalOrderId` est accepté et `validateStockLedger` retourne `{ valid: true }`, créant de la garde externe et augmentant `ownedPhysical` sans sortie. La spec limite pourtant `adjustment` à un leg physique signé et impose les effets fermés (`docs/spec-rental-stock.md:171-188`). Valider les legs canoniques par type dans l'autorité serveur et ne jamais accepter le compte depuis le client.
+
+3. **La conversion additive RC1 n'existe pas et le dépôt démarre sans données Stock.** `ensureStockCollections` ajoute silencieusement des tableaux vides mais ne change pas `schemaVersion`, ne sauvegarde pas le fichier précédent et n'hydrate pas le seed 07a (`server.js:130-146`). Le fichier réel `data/planify.json` est encore en `schemaVersion: 1`; `readDb()` retourne actuellement `0` article, `0` emplacement, `0` exemplaire et `0` mouvement, alors que `makeSeed()` construit un schéma 2. Cela contredit la sauvegarde avant première conversion, la conversion additive et le seed déterministe (`docs/spec-rental-stock.md:507`, `:511-514`). Implémenter une migration explicite, sauvegardée, idempotente et testée, ou livrer un fichier schema 2 compatible avec une procédure de rollback démontrée ; ne pas masquer une donnée ancienne par une hydratation vide.
+
+4. **Le parcours obligatoire quarantaine → maintenance est refusé.** `openAssetMaintenance` exige `asset.status === "available"` et ne sait débiter que `onHandAvailable` (`server.js:325-329`). Un exemplaire retourné `damaged`, donc placé en `quarantine`, reçoit ainsi `409 ASSET_UNAVAILABLE` au lieu d'entrer en maintenance. Le scénario E2E 07a exige explicitement « retour endommagé → quarantaine → ouverture puis clôture de maintenance » (`docs/spec-rental-stock.md:496`) et les effets canoniques autorisent `quarantineOut` vers maintenance (`:184-185`). Ajouter une transition atomique et canonique depuis la quarantaine, avec projection, audit, versions et événements cohérents.
+
+5. **Aucun test automatisé ne couvre le nouveau lot Stock.** `tests/api.test.js` et `tests/domain.test.js` ne contiennent aucun cas Stock, équipement, ledger, idempotence ou maintenance. La suite fraîche est verte (`npm test` hors sandbox : **34/34**), mais elle n'exécute aucun des critères ajoutés aux lignes `441-471` de la spec et n'aurait détecté aucun des quatre défauts ci-dessus. Conformément au Gate DEV d'`AGENTS.md`, ajouter au minimum les tests domaine du ledger et des fenêtres, puis les tests API RBAC/isolation société-site, version, idempotence, atomicité/rollback, migration legacy, audit et SSE avant re-review.
+
+### P2 — Importants
+
+1. **Des routes de commandes internes/hors lot sont publiquement exposées.** `/api/v1/stock/allocations` et `/api/v1/stock/releases` ne figurent pas dans l'API publique du premier incrément (`docs/spec-rental-stock.md:339-375`) et contournent actuellement l'orchestration 06a. `/api/v1/stock/adjustments` active `stock.adjust` alors que la matrice dit explicitement que l'ajustement d'inventaire reste inactif avant le lot 07 avancé (`:414`). Retirer ces routes du routeur 07a ou publier/valider formellement un contrat API cohérent avec le lot et son autorité ; l'ajustement doit rester désactivé.
+
+2. **Le lien optionnel ressource planifiable ↔ exemplaire n'est pas implémenté.** `equipmentAsset.resourceId` n'est ni persisté/validé dans `createEquipmentAsset`/`patchEquipmentAsset` (`server.js:337-338`), ni consulté par la disponibilité Stock ou les conflits Planning. Le critère d'une réservation Planning active bloquant l'exemplaire lié (`docs/spec-rental-stock.md:333-337`, `:462`) reste donc non couvert. Si ce lien est bien dans 07a, l'implémenter avec unicité, société/site et contrôle bidirectionnel ; sinon obtenir une décision SPEC explicite de report.
+
+3. **Les audits et invalidations sont incomplets pour certaines projections.** Plusieurs audits article/emplacement/maintenance omettent `siteId`, `correlationId` ou versions avant/après alors que l'enveloppe est contractuelle (`docs/spec-rental-stock.md:421-425`). `allocateStock` et `releaseStock` changent aussi `equipmentAsset.status/version` mais leurs routes n'émettent que `stockMovement.created.v1` (`server.js:369-370`), laissant un consommateur de la collection équipements potentiellement obsolète. Compléter les détails d'audit et émettre `equipmentAsset.updated.v1` pour chaque projection réellement modifiée après commit.
+
+4. **Les lectures critiques multiplient les balayages complets.** Disponibilité sérialisée parcourt les mouvements pour chaque exemplaire et chaque ligne ; disponibilité quantité et reconstruction recherchent aussi les emplacements par scans imbriqués (`server.js:229-299`). Avec 50 lignes, 2 000 exemplaires et 10 000 mouvements, ce schéma peut devenir quadratique. Indexer en mémoire par société/article/exemplaire/emplacement pendant une requête et faire mesurer le p95 par le gate Performance avant approbation release.
+
+### P3 — Améliorations
+
+1. Canonicaliser récursivement le payload d'idempotence avant hash : `JSON.stringify(payload)` rend deux objets sémantiquement identiques mais ordonnés différemment conflictuels (`server.js:262-267`).
+2. Borner ou purger `stockIdempotency` selon une politique documentée afin d'éviter une croissance indéfinie du fichier JSON.
+3. Décomposer les fonctions monolignes du domaine Stock et le dispatch des routes pour rendre les préconditions et la revue de sécurité mécaniques.
+
+### Points conformes vérifiés
+
+- `makeSeed()` produit 20 mouvements à séquence unique et `validateStockLedger` les valide ; les soldes initiaux quantité sont reconstructibles depuis les legs.
+- Les intervalles Stock utilisent bien le chevauchement semi-ouvert.
+- Les mutations passent par `mutate`, qui sérialise les écritures et remplace le JSON par renommage ; une exception avant `atomicWrite` n'altère pas le fichier persistant.
+- Les événements SSE des mutations existantes sont déclenchés dans les continuations de `mutate`, donc après persistance réussie, et les replays idempotents n'émettent pas de second événement.
+- Les routes kits, transferts métier et inventaires du lot 07 avancé ne sont pas enregistrées.
+- Le contrôle de syntaxe `node --check server.js` réussit. `npm test` échoue uniquement dans le sandbox (`listen EPERM`) puis réussit hors sandbox avec **34 tests sur 34** ; cette réussite ne couvre pas Stock 07a.
+
+### Conditions de re-review
+
+1. Fermer les P1 isolation site, effets canoniques du ledger, migration/hydratation RC1 et transition quarantaine → maintenance.
+2. Ajouter les tests domaine/API négatifs et de non-régression Stock 07a, puis exécuter `node --check server.js` et `npm test` sur le même état.
+3. Retirer/désactiver les routes hors contrat ou publier leur autorité exacte, puis revalider RBAC, audit, SSE et consommateurs Planning/06a.
+4. Faire mettre à jour `docs/project-status.md` par l'intégrateur après ce verdict ; la présente tâche est explicitement limitée à `docs/code-review.md`.
+
+### Re-review ciblée des P1 applicatifs Stock 07a — 2026-08-14
+
+#### Verdict sur le code applicatif
+
+**APPROVED — conditionné à la preuve QA Stock 07a**
+
+Aucun P0/P1 **de code** ne reste ouvert parmi les cinq constats ciblés. Cette approbation couvre les corrections de `server.js`; elle ne vaut pas approbation du gate QA. Les tests Stock dédiés restent obligatoires avant intégration/release et doivent être revus sur le même état candidat.
+
+#### Statut des cinq P1
+
+| P1 précédent | Statut code | Preuve de re-review |
+|---|---|---|
+| Isolation site et source forgée | **CORRIGÉ** | Un article en quantité exige maintenant un `locationId` résolu par `stockLocationFor`; site et emplacement doivent correspondre (`server.js:312-329`). `allocateStock` exige une réservation active de la même société et d'un site autorisé, reprend exactement sa période et impose le même site aux exemplaires/emplacements (`:335-344`). Reproduction négative : un planner Paris obtient `422` sans emplacement, `404` avec l'emplacement Boulogne et `404` pour `forged-order`. |
+| Ledger non canonique | **CORRIGÉ** | `validateMovementShape` impose une forme fermée à chaque type (`server.js:254-270`) et `validateStockLedger` vérifie en plus emplacements, source réservation pour `reserved/custody`, séquences, non-négativité et position physique unique (`:271-291`). Un `adjustment` ne peut plus cibler `custody`; l'ancien payload reçoit `403` sans le marqueur interne. |
+| Migration/backup RC1 | **CORRIGÉ dans le code** | `migrateLegacyDb` refuse les versions antérieures inconnues, crée une sauvegarde immuable nommée par digest avant l'écriture, ajoute les collections et la trace de migration, puis remplace atomiquement le fichier en schema 2 (`server.js:141-155`). Essai sur copie temporaire du fichier RC1 : schema final `2`, une migration `schema-v1-to-v2`, une sauvegarde unique strictement identique aux octets source. |
+| Quarantaine → maintenance | **CORRIGÉ** | `openAssetMaintenance` accepte `available` ou `quarantine`, refuse une maintenance ouverte concurrente et choisit le compte source correspondant avant le leg `onHandMaintenance +1` (`server.js:362-364`). Essai sur `asset_lens_2` : transition vers `maintenance`, legs `onHandQuarantine -1 / onHandMaintenance +1`, ledger toujours valide à 21 mouvements. |
+| Tests Stock absents | **À COUVRIR PAR QA — pas de P1 code requalifié** | La suite actuelle passe à **34/34**, mais ne contient toujours aucun test Stock. L'approbation du code est donc conditionnelle à des tests dédiés couvrant précisément migration/backup, isolation société/site, formes du ledger, idempotence, atomicité, maintenance quarantaine, RBAC, audit et SSE. Un échec ou une couverture manquante significative renverra le lot en DEV puis REVIEW. |
+
+#### Route d'ajustement et frontières
+
+- **Correction confirmée :** `/api/v1/stock/adjustments` n'est plus enregistrée. `adjustStock` exige `options.internal === true`, limite l'opération aux articles en quantité et aux comptes physiques autorisés, et refuse exemplaire/compte arbitraire (`server.js:355-360`).
+- **P2 restant :** `stock.adjust` demeure annoncé dans les permissions de l'administrateur alors que la capacité doit rester inactive avant le lot 07 avancé (`server.js:39`). Retirer cette permission de `publicUser` jusqu'à l'ouverture du lot évitera d'annoncer une capacité indisponible.
+- **P2 restant :** les routes publiques `/api/v1/stock/allocations` et `/api/v1/stock/releases` restent absentes du catalogue API de la spec. Leur implémentation est désormais bornée à une réservation canonique et ne présente plus le P1 d'autorité précédent, mais leur exposition doit être confirmée comme port technique 07a ou déplacée derrière l'orchestration 06a.
+
+#### Limites non bloquantes de cette approbation code
+
+1. La migration préserve correctement une base RC1 en ajoutant des collections vides. Le fichier de démonstration suivi est encore schema 1 : après migration il ne contient donc aucune donnée Stock. L'intégrateur/QA doit livrer ou générer séparément le seed 07a déterministe annoncé par la spec, sans injecter de données de démonstration dans une base utilisateur legacy.
+2. `migrateLegacyDb` accepte actuellement toute version `>= 2`; une version future inconnue devrait être refusée plutôt que réécrite par un runtime plus ancien. Classement **P2** de durcissement migration.
+3. Les anciens P2 sur le lien optionnel Planning ↔ exemplaire et sur les balayages de performance restent à arbitrer/mesurer par leurs gates propriétaires ; cette re-review ciblée ne les transforme pas en approbation.
+4. `node --check server.js` réussit. `npm test` hors sandbox réussit avec **34 tests sur 34**, mais cette suite ne constitue pas la preuve QA Stock demandée.
+
+#### Condition de fermeture complète du gate
+
+Le code applicatif peut être remis à QA. Le gate CODE REVIEW Stock 07a devient pleinement `APPROVED` lorsque les tests Stock dédiés sont présents, verts, relus et qu'aucune correction issue de QA ne modifie l'état ici approuvé. `docs/project-status.md` reste à synchroniser par l'intégrateur après cette preuve.
+
+---
+
+## Gate CODE REVIEW — Frontend Stock 07a
+
+Date : 2026-08-14  
+Périmètre : `app.js`, `index.html`, `planning.css`, contrats réels de `server.js`, `docs/ux-rental-stock.md` et `docs/spec-rental-stock.md`  
+Nature : revue indépendante frontend ; aucun code ni test modifié
+
+### Verdict
+
+**CHANGES REQUIRED**
+
+Aucun P0 n'est identifié. Six P1 empêchent cependant de considérer les parcours Stock utilisables et accessibles : contrat temporel d'allocation incorrect, sélections fondées sur des identifiants opaques, filtres/onglets instables, réactivation silencieuse d'articles, gestion SSE/concurrence incomplète et navigation/dialogue inaccessibles sur clavier/mobile.
+
+### P0 — Critique
+
+Aucun P0 identifié.
+
+### P1 — Bloquants release
+
+1. **Le DTO d'allocation reconstruit une fenêtre différente de la réservation canonique.** `fromApiReservation` découpe directement les heures UTC de `startsAt/endsAt` (`app.js:29`), puis `allocateFromReservation` les renvoie avec l'offset fixe `+02:00` (`:71`). Ainsi `2026-08-17T07:00:00.000Z` devient `2026-08-17T07:00:00+02:00`, soit `05:00Z`; le serveur exige au contraire l'égalité exacte avec la réservation et répond `422` (`server.js:335-340`). Conserver les instants canoniques du DTO ou effectuer une conversion de fuseau explicite, puis envoyer ces valeurs inchangées à Stock. Cette correction doit aussi éviter l'offset fixe lors des changements heure d'été/hiver.
+
+2. **Affecter/libérer dépend d'identifiants que l'interface ne rend pas disponibles.** Les prompts demandent `stockItemId`, `equipmentAssetId` et `allocationId` (`app.js:71-72`), tandis que les tables montrent nom/SKU/numéro de série mais jamais ces identifiants ni les legs/allocation IDs (`:64-67`). Hors inspection réseau, un utilisateur ne peut donc pas affecter un exemplaire précis ni libérer une allocation. Remplacer les prompts par des sélecteurs bornés aux données autorisées, afficher la réservation/période/site en lecture seule et exposer les allocations actives comme actions contextuelles conformément au flow de préparation (`docs/ux-rental-stock.md:217-259`).
+
+3. **La recherche perd le focus après le premier caractère et les onglets partagent un état incompatible.** Tous les champs `data-stock-filter`, y compris la recherche, déclenchent `render()` sur `input`, ce qui remplace immédiatement le nœud focalisé (`app.js:74`) ; la saisie continue et la position de curseur ne sont pas restaurées. En parallèle, un unique `stock.tab` porte successivement `assets/items` et `balances/movements` (`:15`, `:64-67`) : passer de `Articles` à Stock affiche les soldes sans onglet actif, et passer de `Mouvements` à Parc affiche les articles sans onglet actif. Séparer les états par vue et préserver focus/sélection lors des rerenders ; ajouter les scénarios navigation arrière/avant et saisie multi-caractères.
+
+4. **Enregistrer un article désactivé le réactive silencieusement.** `submitStockDrawer` force toujours `{ unit: "piece", active: true }` pour un article, création comme édition (`app.js:70`). Une simple modification de nom/notes remet donc `active` à vrai sans choix ni confirmation, contrairement à l'annulation logique et au flow explicite de désactivation (`docs/ux-rental-stock.md:145-156`). Ne fournir `active: true` qu'à la création ; en édition préserver la valeur canonique et exposer une commande de désactivation/réactivation explicite, versionnée et confirmée. Les emplacements n'ont également aucun écran permettant leur modification/désactivation malgré le contrat PATCH.
+
+5. **Les invalidations SSE et conflits optimistes ne préservent pas le contexte d'édition.** Deux `EventSource` sont ouverts sur le même endpoint (`app.js:33`, `:36`) : le listener générique lance une hydratation complète pour chaque événement Stock pendant que le listener Stock relit déjà les collections ciblées. Le second appelle ensuite `render()`, ce qui vole le focus dans les filtres/tables. Si un drawer est ouvert, les tableaux sont remplacés mais `activeStockEditor` conserve l'ancien objet sans bannière ; après `VERSION_CONFLICT`, `loadStockData()` recharge les listes sans mettre à jour l'objet/version du formulaire, de sorte qu'un nouvel envoi répète la même version obsolète (`:70`). Unifier le flux SSE, conserver focus/scroll, signaler la version récente sans écraser les champs et obliger une reprise explicite du formulaire (`docs/ux-rental-stock.md:33`, `:344-346`, `:509`).
+
+6. **Le frontend Stock n'est pas utilisable au clavier/modal ni atteignable sur mobile.** Le drawer déclaré `aria-modal="true"` (`index.html:69-73`) place le focus initial et le restitue à la fermeture, mais n'isole pas l'arrière-plan, ne piège pas Tab, et Échap ferme même un formulaire modifié sans confirmation (`app.js:69`, `:76`). Sous `900px`, la sidebar est déplacée hors écran, mais `menuButton` n'a aucun gestionnaire dans `app.js`; les destinations Stock deviennent donc inaccessibles par la navigation mobile. Implémenter piège de focus/inert, gestion des changements non sauvegardés, première erreur focalisée et ouverture/fermeture de la sidebar responsive ; vérifier au clavier et lecteur d'écran.
+
+### P2 — Importants
+
+1. **L'idempotence UI ne survit pas à une réponse perdue.** Chaque tentative d'allocation/release génère une nouvelle clé avec `uid(...)` (`app.js:71-72`). Après commit serveur suivi d'une coupure réseau, le retry utilisateur n'est pas un replay et peut créer une seconde allocation si le stock le permet. Conserver une clé par intention jusqu'à réception/résolution canonique ; la même règle vaut pour les formulaires créateurs de mouvement.
+
+2. **Le filtre Site est visuellement trompeur sur le journal.** `stockPage` filtre les soldes par site, mais `movements` uniquement par recherche (`app.js:66`) ; choisir Paris continue donc d'afficher les mouvements des autres sites autorisés. Envoyer `siteId` à l'API ou filtrer via les legs/emplacements connus et annoncer clairement le périmètre.
+
+3. **Les permissions de navigation sont agrégées au lieu d'être appliquées par destination.** Quand une seule permission de lecture Stock est disponible, les trois liens sont affichés puis certaines pages répondent localement « Accès refusé » (`app.js:18`). Cacher chaque destination selon sa permission précise et refléter l'identité/role réel plutôt que le bloc utilisateur statique « Fernando — Administrateur » (`index.html:32`).
+
+4. **Chargements partiels et pagination ne sont pas gérés.** `loadStockData` agrège six requêtes dans un seul état d'erreur et `listItems` ignore toute page au-delà des 100 premiers résultats (`app.js:28`, `:35`). Une erreur Maintenance masque donc aussi Parc/Stock, et un parc supérieur à 100 entités est tronqué silencieusement. Distinguer les états par collection et implémenter la pagination serveur.
+
+5. **Le niveau de détail reste inférieur au contrat UX.** Le journal ne montre ni origine/destination, dossier, acteur, corrélation ni legs ; le solde n'annonce aucune fenêtre de disponibilité ; la maintenance ne permet pas de choisir/afficher l'emplacement final ; recherche Maintenance et filtre site des articles sont incomplets (`app.js:64-69`). Ces écarts ne créent pas seuls de corruption, mais doivent être planifiés avant validation produit.
+
+6. **Les contrôles de focus visibles ne suivent pas le design system.** Aucun style global `:focus-visible` n'établit le focus 2px avec offset attendu ; la visibilité dépend du navigateur. Ajouter un style commun AA et vérifier les boutons/icônes, liens de navigation, tabs, tables scrollables et champs du drawer.
+
+### P3 — Améliorations
+
+1. Remplacer les fonctions monolignes et les surcharges runtime `render/openStockDrawer/bind` (`app.js:17-20`, `:73`) par des modules ou fonctions nommées afin de réduire le risque d'écrasement involontaire des features RC1.
+2. Persister les filtres/onglets dans l'URL et restaurer scroll/sélection, conformément aux URLs cibles de l'UX.
+3. Afficher des libellés métier français pour les types de mouvement au lieu des valeurs techniques (`maintenanceIn`, `quarantineOut`, etc.).
+
+### Points conformes vérifiés
+
+- Les routes CRUD article/exemplaire/emplacement et maintenance utilisées par les drawers correspondent aux routes et DTO actuels de `server.js`; les mutations portent `version`, CSRF via `api()` et une `Idempotency-Key` lorsqu'elle est fournie.
+- Les actions de création sont masquées selon `equipment.manage`, celles de maintenance selon `maintenance.manage`, et les affectations selon `stock.move`; un lecteur ouvre les drawers en lecture seule.
+- Les données métier interpolées dans le HTML passent généralement par `esc()` ou `textContent`; aucun XSS exploitable n'a été identifié sur les DTO validés par le serveur. Les erreurs sont rendues par `textContent`.
+- Statut et condition sont affichés avec texte en plus de la couleur. La table est scrollable horizontalement, le drawer devient pleine largeur sous 700px et `prefers-reduced-motion` supprime son animation.
+- Aucun écran ou appel pour kits, transferts métier, inventaires, impression QR ou caméra n'a été ajouté.
+- Le frontend ne bascule pas silencieusement en prototype après une erreur API/auth : ce mode reste limité au protocole fichier ou au paramètre explicite déjà prévu.
+- `node --check app.js` réussit. `npm test` hors sandbox passe **47/47**, dont les tests backend Stock récemment ajoutés, mais aucune assertion n'exerce les nouveaux parcours DOM/frontend.
+
+### Tests frontend manquants
+
+1. Allocation depuis une réservation canonique : UTC/offset/DST, site, article quantité, exemplaires sérialisés et même fenêtre envoyée au serveur.
+2. Sélection métier sans identifiants opaques, release depuis une allocation visible et retry avec la même clé idempotente.
+3. Saisie de recherche multi-caractères, onglets indépendants, navigation hash/arrière, filtres site et pagination.
+4. Édition d'une entité inactive sans réactivation, version obsolète avec reprise, SSE pendant formulaire sale et absence de double abonnement.
+5. Matrice admin/planner/viewer sur liens, boutons, drawers readonly et appels directs refusés.
+6. Clavier complet : ouverture, ordre Tab, focus trap, Échap avec/sans changement, retour du focus, erreur focalisée et annonce live.
+7. Responsive à 390/700/900px : ouverture sidebar, accès aux trois destinations, drawer, tables et cibles tactiles.
+8. Fixtures XSS dans noms/SKU/série/motif/erreur, avec vérification qu'aucun HTML/attribut n'est exécuté.
+
+### Limite de preuve visuelle
+
+Le serveur local a démarré correctement sur une base temporaire puis a été arrêté sans artefact restant. Aucun navigateur contrôlable n'était disponible dans cette session ; les constats d'interaction/responsive reposent donc sur l'analyse exécutable du DOM, des handlers et des media queries et doivent être confirmés par QA/E2E dans un navigateur réel.
+
+### Conditions de re-review
+
+1. Corriger les six P1 et ajouter des tests frontend ciblés couvrant leurs régressions.
+2. Rejouer `node --check app.js`, `npm test`, puis les parcours navigateur admin/planner/viewer aux largeurs desktop et mobile.
+3. Revalider spécialement la coexistence Planning/Stock, le nombre de connexions SSE, la conservation du focus et les DTO exacts capturés côté serveur.
+4. Faire synchroniser `docs/project-status.md` par l'intégrateur après verdict ; cette tâche reste limitée au rapport de revue.
+
+### Re-review ciblée des six P1 frontend — 2026-08-14
+
+#### Verdict final Frontend Stock 07a
+
+**APPROVED**
+
+Aucun P0/P1 ne reste ouvert dans le périmètre frontend Stock 07a revu. Les six corrections sont présentes sur l'état courant et leurs contrats correspondent au backend réellement livré. Cette approbation REVIEW ne remplace pas les parcours QA/E2E dans un navigateur réel.
+
+#### Statut des six P1
+
+| P1 précédent | Statut | Preuve de re-review |
+|---|---|---|
+| Fenêtre temporelle d'allocation altérée | **CORRIGÉ** | `fromApiReservation()` conserve désormais `startsAt` et `endsAt` canoniques, et `submitAllocationDrawer()` les transmet sans reconstruction ni offset fixe dans `window` (`app.js:30`, `:74`). Le DTO correspond à la comparaison canonique imposée par `allocateStock` (`server.js:335-340`). |
+| Identifiants opaques pour affecter/libérer | **CORRIGÉ** | Le drawer expose des sélecteurs libellés pour réservation, article, emplacement et exemplaires sérialisés ; la libération propose les allocations actives reconstruites depuis le journal, avec réservation/article/exemplaire visibles (`app.js:72-74`). La sélection est fonctionnelle : `FormData.getAll('assetIds')` alimente `equipmentAssetIds` et `assetVersions`, tandis que la quantité et l'emplacement choisis alimentent la ligne envoyée. |
+| Recherche et onglets instables | **CORRIGÉ** | Les états d'onglet sont séparés en `equipmentTab` et `stockTab` (`app.js:15-16`). La recherche remplace le rerender par un filtrage différé des lignes, ce qui conserve le champ et le focus pendant une saisie multi-caractères (`:79`). |
+| Réactivation silencieuse et emplacement non éditable | **CORRIGÉ** | L'état actif de l'article est un contrôle explicite initialisé depuis l'entité et envoyé tel quel (`app.js:21`, `:71`). Le gestionnaire d'emplacements ouvre un formulaire d'édition et envoie un `PATCH` versionné (`:21`, `:71`, `:79`). Le backend possède réellement `patchStockLocation()` avec version, unicité, interdiction de désactiver un emplacement non vide, audit et SSE (`server.js:374`), ainsi que la route `PATCH /api/v1/stock/locations/:id` sous permission `equipment.manage` (`:391-401`). |
+| Double SSE et reprise de conflit | **CORRIGÉ** | Stock ajoute son listener à l'unique `eventStream` au lieu d'ouvrir un second `EventSource`; la session ferme et réinitialise ce flux (`app.js:27`, `:34`, `:37`). Un drawer ouvert n'est plus rerendu par l'invalidation ; une entité concurrente ou un `409` propose un rechargement explicite avant réédition (`:37`, `:71`). |
+| Dialogue clavier et navigation mobile | **CORRIGÉ** | Le drawer piège Tab, gère Échap avec confirmation si le formulaire est sale et restitue le focus à l'élément déclencheur (`app.js:81`). Le bouton mobile ouvre/ferme la sidebar et maintient `aria-expanded`; un clic de navigation la referme (`:81`). Les contrôles Stock ont un focus visible renforcé et le drawer reste pleine largeur sous 700 px (`planning.css:3-4`). |
+
+#### Points P2 restant ouverts
+
+1. **Les choix d'allocation ne sont pas encore filtrés en cascade.** Le drawer permet une sélection valide et le serveur refuse toute incohérence, mais il affiche simultanément tous les emplacements actifs et tous les exemplaires disponibles autorisés, sans les réduire au site de la réservation, à l'article et à l'emplacement sélectionnés (`app.js:73-74`). Filtrer dynamiquement ces options améliorerait le feedback et éviterait des réponses `SITE_MISMATCH`/`NOT_FOUND` prévisibles.
+2. **La libération dépend de la page de mouvements chargée.** `activeAllocationChoices()` reconstruit les soldes depuis `stock.movements`, alors que `listItems()` ne charge que la première page serveur (`app.js:29`, `:36`, `:72`). Au-delà de 100 mouvements, une allocation ancienne peut disparaître ou être reconstruite incomplètement. Un endpoint d'allocations actives ou une pagination exhaustive est requis avant montée en volume.
+3. **Accessibilité perfectible hors blocage.** Le focus est piégé et `aria-modal` est présent, mais l'arrière-plan n'est pas marqué `inert` et une erreur de soumission est annoncée par `role="alert"` sans déplacement explicite du focus. À confirmer et durcir lors du gate E2E accessibilité.
+4. Les P2 de la revue initiale concernant permissions de navigation par destination, identité statique, pagination générale et niveau de détail UX restent hors de cette correction ciblée.
+
+#### Vérifications fraîches
+
+- `node --check app.js` : réussi.
+- `node --check server.js` : réussi.
+- `npm test` hors sandbox le 2026-08-14, Node.js compatible avec le contrat `>=20` : **47 tests réussis, 0 échec**, durée environ 2,9 s.
+- La première exécution dans la sandbox a échoué sur les seuls appels `listen` avec `EPERM`; la même suite exécutée avec ouverture de ports locaux autorisée est entièrement verte.
+- Inspection statique du chemin UI complet : sélection visible → `FormData` → DTO canonique → routes allocation/release, et formulaire emplacement → `PATCH` serveur réel.
+
+#### Tests frontend encore manquants
+
+1. Test DOM du drawer d'allocation quantité et sérialisée, incluant changement de réservation/article/emplacement, versions d'exemplaires et payload exact.
+2. Test de libération avec plusieurs allocations, pagination de mouvements et replay de la même clé idempotente après réponse réseau perdue.
+3. Test navigateur du focus trap, Échap sale/propre, retour du focus, annonce d'erreur et navigation sidebar à 390/700/900 px.
+4. Test SSE dans un drawer sale et test de reprise d'un `VERSION_CONFLICT` jusqu'à succès avec la version fraîche.
+
+#### Limite et handoff
+
+Aucun navigateur contrôlable n'était disponible dans cette re-review ; l'approbation repose sur l'analyse des handlers/DTO, la syntaxe et la suite Node complète. QA/E2E doit encore exécuter les parcours admin/planner/viewer dans un navigateur. Conformément au périmètre demandé, seul `docs/code-review.md` a été modifié ; la synchronisation de `docs/project-status.md` reste à l'intégrateur.
+
+---
+
+## Gate final INTEGRATION REVIEW — Stock 07a
+
+Date : 2026-08-14  
+Périmètre final : `server.js`, `app.js`, `index.html`, `planning.css`, `tests/stock.test.js`, rapports QA/Sécurité/Performance et consommateurs Stock 07a  
+Nature : revue indépendante d'intégration après correctifs sécurité ; aucun code ni test modifié
+
+### Verdict final Stock 07a
+
+**APPROVED**
+
+Aucun P0/P1 n'est ouvert sur l'état candidat Stock 07a contrôlé. Les corrections backend, sécurité, tests et frontend sont cohérentes entre elles ; les gates QA, Sécurité et Performance portent chacun un verdict `APPROVED` dans le périmètre qui leur appartient.
+
+### P0 — Critiques
+
+Aucun.
+
+### P1 — Bloquants intégration/release
+
+Aucun.
+
+### Preuves finales
+
+- Les empreintes du rapport QA correspondent exactement aux fichiers courants : `server.js` `0c5ca5e8…02f4`, `app.js` `03561141…6815` et `tests/stock.test.js` `418a32ef…b5b`.
+- QA rend **APPROVED**, avec **51 tests réussis sur 51**, zéro échec et zéro test ignoré. Les scénarios Stock incluent ledger, isolation site, source/période canonique, idempotence, maintenance, migration/backup, RBAC, audit et SSE.
+- Les régressions de sécurité finales couvrent l'Origin hostile/loopback, le rejeu idempotent après perte de site ou révocation d'acteur, ainsi que la fermeture SSE après logout et révocation persistée. L'inspection du serveur confirme les contrôles d'origine avant mutation/authentification, la revalidation d'autorité avant restitution d'un résultat idempotent et la revalidation périodique des clients SSE.
+- Le rapport Sécurité rend **APPROVED**, sans vulnérabilité critique/élevée ouverte. Le rapport Performance rend **APPROVED** dans la limite contractuelle du MVP local mono-processus.
+- Le frontend Stock approuvé consomme les routes réelles : sélection d'allocation lisible, instants de réservation canoniques, versions d'exemplaires, libération idempotente, `PATCH` emplacement réel, permissions visibles, flux SSE unique et reprise explicite des conflits.
+- `node --check server.js` : réussi sur l'état final.
+- `node --check app.js` : réussi sur l'état final.
+- La présente passe n'a pas relancé un serveur après la preuve QA 51/51 déjà fraîche et liée par empreintes au même candidat.
+
+### Conclusion d'intégration
+
+Le lot Stock 07a satisfait le Gate final CODE/INTEGRATION REVIEW : **APPROVED, zéro P0/P1**. Ce verdict couvre le socle 07a uniquement ; il n'étend pas le périmètre aux workflows Location 06a, au lot Stock avancé, ni au Gate Release global.
+
+---
+
+## Gate SPEC REVIEW — Fondations 01 / 02 / 04 → 03
+
+Date : 2026-08-14  
+Périmètre : décision PO, `AGENTS.md`, `docs/target-architecture-v1.md`, `docs/architecture-roadmap.md`, `docs/spec-organization-01.md`, `docs/spec-resources-02.md`, `docs/spec-project-planning-sequence.md` et état opérationnel du dépôt  
+Nature : revue indépendante de spécifications ; aucune spec ni fichier applicatif modifié
+
+### Verdict
+
+**CHANGES REQUIRED**
+
+La direction produit est correctement capturée : ordre séquentiel, organisations isolées, structure juridique et opérationnelle, salles à forte volumétrie, équipement sélectionné par exemplaire sérialisé du Parc, projet obligatoire et planning projeté en cellules salle × jour sur des périodes jour/semaine/mois. Toutefois, neuf P1 laissent encore des autorités ou modèles incompatibles entre les trois lots. Le DEV des fondations ne doit pas démarrer avant leur fermeture.
+
+### P0 — Critiques
+
+Aucun P0 identifié.
+
+### P1 — Bloquants avant DEV
+
+1. **L'architecture directrice contredit encore l'ordre PO obligatoire.** La roadmap place correctement `01 Organisation → 02 Ressources → 04 Projets → 03 Planning` (`docs/architecture-roadmap.md:50-58`) et les nouvelles specs rendent le projet obligatoire. Mais le catalogue cible continue d'indiquer que 04 est une dépendance « facultative » de Planning (`docs/target-architecture-v1.md:70`). Il attribue en outre les clients à la fois au socle 01 et au module 04 (`:68`, `:71`). L'autorité directrice doit être mise à jour : 04 devient un prérequis obligatoire de toute nouvelle planification et un owner unique doit être désigné pour le client.
+
+2. **La chaîne de migrations et le nom canonique du tenant ne sont pas composables.** Organisation impose `organizationId` aux nouvelles entités (`docs/spec-organization-01.md:67`, `:77`) mais laisse le choix entre conserver `companyId` ou renommer toutes les collections (`:314-325`). Projets/Planning continue d'imposer `companyId` (`docs/spec-project-planning-sequence.md:74`, `:95`, `:278`) et réserve pourtant à lui seul `schemaVersion 2 → 3` (`:349-351`), alors que les lots Organisation puis Ressources doivent être intégrés auparavant. Définir une décision unique `companyId`/`organizationId`, les alias transitoires autorisés, une suite de versions/migration IDs ordonnée pour 01 → 02 → 04/03, le writer de chaque bascule, les entrées/sorties de comptage et un rollback sans perte. Le rollback avec écritures nouvelles doit explicitement requérir l'autorité PO prévue par `AGENTS.md`, pas seulement un « opérateur » non défini.
+
+3. **Les gates Organisation → Ressources utilisent des champs incompatibles.** Ressources exige un « nom d'usage » et une « activité principale » (`docs/spec-resources-02.md:31-38`), alors que `tradeName` est facultatif et qu'Organisation ne modélise qu'un ensemble `activities`, sans activité principale (`docs/spec-organization-01.md:81-104`). Organisation publie `organizationUnitId` pour le rattachement d'une ressource (`:191-200`) ; Ressources persiste un `serviceId` non typé (`docs/spec-resources-02.md:82-90`) alors que le socle distingue précisément unité interne et `serviceOffering` (`docs/spec-organization-01.md:129-139`). Sans alignement, une organisation valide peut être indéfiniment refusée par R2 et deux implémentations peuvent choisir des références de service différentes.
+
+4. **Le client obligatoire n'a aucun contrat de lot exécutable.** Les trois specs exigent `client → projet/émission → planning` et l'E2E nominal crée un client (`docs/spec-organization-01.md:14-22`, `docs/spec-project-planning-sequence.md:338`), mais aucune ne définit le modèle canonique du client, ses routes, permissions, états, validation organisation/site, migration ni critères d'acceptation. Le catalogue cible partage en plus implicitement cette responsabilité entre 01 et 04. Publier le contrat client et son owner avant le contrat Projet ; sinon la première étape obligatoire du lot 04 ne peut pas être développée ni testée.
+
+5. **Le vocabulaire Projet/Émission diverge au niveau d'un enum faisant autorité.** Le gate P1 d'Organisation exige `projectType: "program"` pour une émission (`docs/spec-organization-01.md:201-204`), tandis que la spec 04 impose `kind: "emission"` et n'autorise que cette valeur (`docs/spec-project-planning-sequence.md:72-91`). Choisir un champ et une valeur canoniques, documenter l'adaptateur/migration éventuel et faire utiliser le même DTO par le gate Organisation, l'API Projet et Planning.
+
+6. **Ressources 02 contourne potentiellement l'autorité physique Stock 07a.** La spec crée `equipmentUnitId` et `/equipment-units/search` (`docs/spec-resources-02.md:121-136`, `:224`) alors que le Parc intégré publie des articles et `equipmentAsset` ; elle demande aussi à l'affectation de salle d'écrire un « mouvement de localisation » dans sa mutation (`:249-257`). Or l'architecture et la spec Stock ont désigné Stock 07a comme writer unique de l'état/localisation physique. Définir le contrat partagé exact (`equipmentAssetId`, version, site, emplacement), la commande/port appelée par Ressources, la représentation d'une salle comme emplacement éventuel, l'atomicité intermodule et le handoff Stock. Ressources peut posséder l'historique d'installation, mais ne doit pas créer un second journal physique.
+
+7. **Le DTO Planning ne peut pas représenter le matériel qu'il prétend réserver.** Ressources précise que le matériel n'est pas une `resource` (`docs/spec-resources-02.md:72-77`), mais Planning encode toutes les allocations complémentaires par `{ resourceId, quantity }` (`docs/spec-project-planning-sequence.md:95-105`, `:230-244`) tout en promettant du matériel quantitatif et sérialisé (`:188-198`). Il manque un discriminant et les références/versions Stock nécessaires. Définir une union fermée, par exemple personne `resourceId`, article quantitatif `stockItemId + locationId + quantity`, exemplaire `equipmentAssetId + version`, ainsi que la portée série/cellule, le contrôle sur chaque date et le résultat atomique de réservation/libération.
+
+8. **Les owners techniques et handoffs ne sont pas désignés.** Les en-têtes nomment seulement des owners Product/Domain pour 01 et 02, et la spec 04/03 n'a pas d'owner (`docs/spec-organization-01.md:6`, `docs/spec-resources-02.md:6`, `docs/spec-project-planning-sequence.md:1-7`). Aucun tableau ne distribue migrations partagées, contexte tenant, clients/projets, ressources, Planning, Stock port, frontend, tests, sécurité, performance et intégration, ni ne définit le critère de remise entre `01 → 02 → 04 → 03`. Cela ne satisfait pas l'ownership transversal et le writer unique exigés par `AGENTS.md`. Ajouter une matrice owner/handoff et préciser quels gates aval doivent être rejoués après chaque contrat partagé.
+
+9. **Le modèle Ressource humaine est contradictoire sur les sites.** Le modèle commun impose exactement un `siteId` (`docs/spec-resources-02.md:82-90`), tandis que la personne possède plusieurs « sites d'intervention » et services secondaires (`:113-118`) sans collection ni entité d'affectation correspondante. Choisir un site principal plus une relation bornée versionnée, ou limiter réellement la personne à un site dans ce lot ; préciser ensuite comment Planning valide une cellule sur chacun des sites autorisés.
+
+### P2 — Importants, non bloquants une fois contractualisés
+
+1. **Deux mécanismes Organisation sont cités sans modèle ni commande.** O2 autorise `nonApplicable` avec motif pour des prestations post-production (`docs/spec-organization-01.md:181`) sans champ/entité/API associé. La désactivation d'un site dépend d'un « site actif de remplacement » (`:119-127`) sans `replacementSiteId` ni commande de réaffectation. Les rendre explicites ou retirer ces branches.
+2. **L'autorisation multi-site d'un projet est indéfinie.** Planning accepte un projet dont `primarySiteId` égale le site courant « ou [qui est] explicitement autorisé » (`docs/spec-project-planning-sequence.md:134`), mais le modèle Projet ne contient ni `allowedSiteIds` ni relation d'autorisation. Fermer cette règle avant les tests d'isolation.
+3. **La surcharge d'indisponibilité structurelle n'est pas harmonisée.** Ressources permet conceptuellement un override Planning d'une salle non disponible (`docs/spec-resources-02.md:145-155`), tandis que Planning décrit surtout l'override de conflit et l'interdiction absolue des états physiques indisponibles (`docs/spec-project-planning-sequence.md:148-152`, `:188-198`). Établir une matrice raison de disponibilité → surchargeable/non surchargeable → permission/audit.
+4. **La sémantique `following` doit être définie pour les séries multi-salles et les exceptions.** Préciser l'ordre par `localDate`, si toutes les salles d'une même date suivent, et le traitement des cellules déjà déplacées/annulées ; le simple libellé « occurrence et suivantes » (`docs/spec-project-planning-sequence.md:58-64`, `:172-186`) n'est pas suffisant pour une mutation atomique déterministe.
+5. **La limite de 500 cellules mérite une règle UX explicite face aux 120 salles.** Elle est saine pour borner les écritures, mais une semaine sur 120 salles produit déjà 840 cellules. Indiquer si cette sélection est interdite avec estimation préalable, fractionnée en séries indépendantes, ou traitée par une commande administrative dédiée, sans promettre d'atomicité globale non disponible.
+6. **La validation juridique doit être versionnée par pays.** Le modèle couvre correctement identité, siège, contact, immatriculation, TVA, devise et locale, mais les règles de normalisation/contrôle des identifiants hors France et la gestion d'une forme `other` restent implicites. Publier une policy versionnée et distinguer validation de format de vérification officielle, déjà exclue du lot.
+
+### P3 — Améliorations
+
+1. Ajouter un glossaire transversal unique pour `organization/company/société`, `service/unité/prestation`, `resource/person/equipmentAsset` et `project/program/emission`.
+2. Ajouter une matrice `gate amont → port publié → erreur stable → owner consommateur → test de contrat` pour rendre la stricte séquence vérifiable mécaniquement.
+3. Normaliser les enums (`temporarily_unavailable` vs conventions camelCase) et préfixer uniformément toutes les routes par `/api/v1` dans les tableaux Projet/Planning.
+4. Ajouter aux migrations un manifeste commun avec version source/cible, checksum, totaux par tenant, issues, date, writer et preuve de restauration.
+
+### Points conformes et complets
+
+- Le mandat PO le plus récent est explicitement déclaré prioritaire sur le MVP : aucune nouvelle réservation sans projet validé et aucun contournement du parcours séquentiel.
+- Organisation 01 décrit un véritable tenant multi-organisations avec contexte de session opaque, scopes site/service, non-divulgation inter-tenant, audit borné et SSE revalidé.
+- Le profil organisationnel couvre identité juridique, siège, contacts, activités, fuseau, devise, langue, sites, unités, prestations, membres, rôles et activation progressive sans dépendance SaaS.
+- Ressources 02 couvre les types de salles attendus, l'historique d'affectation sérialisée, la prévention de double affectation, les ressources humaines minimales, la pagination et un benchmark de 500 ressources dont au moins 120 salles de montage.
+- La saisie libre d'un numéro de série est interdite : l'utilisateur doit sélectionner un exemplaire canonique du même tenant/site et le serveur doit le relire.
+- Planning formalise correctement la cellule `salle × jour civil`, les vues jour/semaine/mois sur le même modèle, les intervalles semi-ouverts, les journées DST de 23/25 h, les séries bornées, les previews, l'atomicité, les scopes de déplacement et les réservations historiques horaires.
+- Les trois specs prévoient isolation, RBAC, CSRF/Origin, version optimiste, idempotence, audit après validation, SSE après commit, migration sauvegardée, rollback, volumétrie, performance et scénarios E2E substantiels.
+
+### Conditions pour APPROVED
+
+1. Aligner l'architecture cible et tous les DTO sur l'ordre obligatoire `01 → 02 → 04 → 03`, avec client et projet obligatoires.
+2. Fermer les contrats tenant/service/projet et publier une séquence unique de migrations JSON, versions et rollback.
+3. Publier les ports Stock/Ressources/Planning pour les exemplaires et articles, sans second writer physique.
+4. Compléter le modèle des ressources humaines et des allocations complémentaires Planning.
+5. Nommer les owners techniques, writers et handoffs de chaque lot puis repasser cette revue SPEC avant DEV.
+
+---
+
+## Re-review SPEC finale — Fondations 01 / 02 / 04 → 03
+
+Date : 2026-08-14  
+Périmètre : `docs/target-architecture-v1.md`, `docs/architecture-roadmap.md`, `docs/spec-organization-01.md`, `docs/spec-resources-02.md`, `docs/spec-project-planning-sequence.md`  
+Nature : re-review indépendante ciblée des neuf P1 et des P2 structurants ; aucune spec ni application modifiée
+
+### Verdict final SPEC
+
+**CHANGES REQUIRED**
+
+Les corrections ont fermé cinq des neuf P1 initiaux et cinq des six P2 structurants. La direction d'architecture, l'ordre métier, les ports Stock, l'union d'allocations, le modèle humain multi-site et les bornes Planning sont désormais nettement mieux contractualisés. Le gate ne peut toutefois pas être approuvé : quatre contrats transverses restent incompatibles et la chaîne de migrations publiée par Planning n'est pas celle annoncée par Organisation/Ressources.
+
+### P0 — Critiques
+
+Aucun.
+
+### P1 — Bloquants avant DEV
+
+1. **La chaîne de versions et ses owners restent contradictoires.** La chaîne normative la plus complète annonce `Organisation v2→v3`, `Ressources v3→v4`, `Clients/Projets v4→v5`, `Planning v5→v6` (`docs/spec-project-planning-sequence.md:471-480`). Organisation annonce au contraire Clients/Projets en v4 puis « Ressources 03 » en v5, et son rollback s'arrête à `v5→v4→v3` (`docs/spec-organization-01.md:340`, `:357`). Sa matrice mélange également modules et rôles : l'étape 02 devient « Frontend 02 », Ressources est appelée 03 et Planning n'a pas de handoff (`:442-449`). Enfin, la spec Ressources ne déclare ni entrée v3, ni sortie v4, ni identifiant immuable/digest/handoff (`docs/spec-resources-02.md:410-421`). Publier exactement la même chaîne v2→v6 et les mêmes owners/writers dans les trois specs ; réserver les numéros 02/03/04 aux modules ou aux migrations de façon non ambiguë.
+
+2. **Le tenant canonique n'est toujours pas uniforme.** La cible interdit explicitement `organizationId` comme champ alternatif et impose `companyId`/`company_id` (`docs/target-architecture-v1.md:111-119`). Ressources persiste encore `organizationId`, le publie dans son handoff Stock et le dérive de la session (`docs/spec-resources-02.md:83`, `:215`, `:238`). Projets/Planning qualifie aussi `organizationId` d'« interface amont éventuelle » (`docs/spec-project-planning-sequence.md:69`), alors que la cible et Organisation disent qu'aucun alias n'est accepté. Remplacer ce champ dans Ressources et supprimer ou circonscrire l'adaptateur non autorisé ; aucun port, DTO, audit ou persistance validé ne doit mélanger les deux clés.
+
+3. **Deux contrats Client et Projet se déclarent canoniques mais ne décrivent pas les mêmes entités.** Organisation rend `primaryContact` obligatoire, ajoute `kind`, données légales et état `onHold`, et expose `hold/resume` (`docs/spec-organization-01.md:179-187`). La spec owner 04 exige à la place `displayName`, `activity`, `allowedSiteIds`, rend le contact facultatif et n'autorise que `draft|active|archived` (`docs/spec-project-planning-sequence.md:73-92`). Pour Projet, Organisation autorise six `kind`, un brouillon et `onHold` (`docs/spec-organization-01.md:189-193`), tandis que 04 n'autorise que `kind="emission"`, utilise `on_hold`, `planningReadiness` et `allowedSiteIds` (`docs/spec-project-planning-sequence.md:94-117`). Puisque 04 est l'owner unique, Organisation doit référencer un contrat publié unique ou reprendre exactement ses champs, états, transitions, routes, permissions et règles de site.
+
+4. **La stratégie des réservations historiques sans projet est mutuellement exclusive.** La roadmap exige un Projet technique visible « Non affecté — reprise RC1 » avant activation du writer Planning (`docs/architecture-roadmap.md:91-103`). Organisation interdit d'affecter un faux projet (`docs/spec-organization-01.md:352`) et Planning conserve au contraire `legacyUnassigned=true`, modifiable seulement par rattachement/annulation (`docs/spec-project-planning-sequence.md:503-504`). La cible exige pourtant qu'aucune réservation active n'arrive au handoff Planning sans projet (`docs/target-architecture-v1.md:87-88`). Une seule règle produit doit être choisie et propagée avec son effet sur statut actif, visibilité, migration, compatibilité `/api/v1`, comptages et condition de handoff.
+
+### Statut des neuf P1 initiaux
+
+| P1 initial | Statut | Résultat de la re-review |
+|---|---|---|
+| 1. Ordre architecture / owner client | **CORRIGÉ** | La cible rend 04 obligatoire pour Planning, fixe `01→02→04→03` et attribue Client/Projet exclusivement à 04 (`docs/target-architecture-v1.md:70-88`). |
+| 2. Tenant + chaîne de migrations | **OUVERT** | `companyId` est fixé dans la cible/Organisation, mais Ressources conserve `organizationId` et les versions v4/v5/v6 ne concordent pas. Voir P1 1–2 ci-dessus. |
+| 3. Gates Organisation → Ressources | **CORRIGÉ** | `primaryActivity`, exigences d'activité et `organizationUnitId` sont maintenant modélisés ; `serviceId` n'est plus l'autorité de rattachement d'une ressource. |
+| 4. Contrat Client absent | **PARTIEL** | Modèles/routes/permissions existent, mais deux variantes incompatibles se disent canoniques. Voir P1 3. |
+| 5. Enum Projet/Émission | **PARTIEL** | `program` est correctement adapté vers `emission`, mais les enums `kind` et états divergent encore entre Organisation et 04. Voir P1 3. |
+| 6. Autorité physique Stock 07a | **CORRIGÉ** | Stock est writer unique ; Ressources appelle des ports assign/unassign versionnés et ne tient pas de second ledger (`docs/spec-resources-02.md:125-147`). |
+| 7. DTO allocations Planning | **CORRIGÉ** | L'union fermée personne/quantité Stock/exemplaire sérialisé et le port atomique Stock sont définis (`docs/spec-project-planning-sequence.md:150-174`, `:279-287`). |
+| 8. Owners et handoffs | **PARTIEL** | Des matrices existent, mais Organisation attribue encore les mauvais numéros/versions et omet le handoff Planning ; Ressources n'annonce pas sa migration v3→v4. Voir P1 1. |
+| 9. Ressource humaine multi-site | **CORRIGÉ** | `primarySiteId`, `personSiteAssignments` et `personOrganizationUnitAssignments` versionnés couvrent le multi-site (`docs/spec-resources-02.md:105-119`). |
+
+### P2 structurants
+
+1. **Override d'indisponibilité calendaire encore incohérent — OUVERT.** Ressources autorise une indisponibilité calendaire manuelle avec `planning.override_unavailability` (`docs/spec-resources-02.md:169-180`, `:231`), mais Planning ne publie pas cette permission et affirme que seul un conflit de capacité temporelle est surchargeable (`docs/spec-project-planning-sequence.md:264-277`, `:389`). Aligner matrice, permission, code d'erreur et audit dans les deux modules.
+2. **`nonApplicable` et `replacementSiteId` — CORRIGÉ.** Les décisions, motifs, audit et réaffectation explicite sont modélisés dans Organisation.
+3. **Périmètre multi-site Client/Projet — CORRIGÉ.** `allowedSiteIds`, intersection de scopes et contraintes client→projet sont définis (`docs/spec-project-planning-sequence.md:80-117`).
+4. **Sémantique `following` — CORRIGÉ.** Ordre, lane, exceptions et mapping de salles sont explicités (`docs/spec-project-planning-sequence.md:236-244`).
+5. **Plafond 500 cellules / 120+ salles — CORRIGÉ.** L'estimation préalable avertit à 480 cellules et refuse 600 sans fractionnement implicite (`docs/spec-project-planning-sequence.md:200-210`).
+6. **Policy juridique pays — CORRIGÉ.** Version, validations de forme et absence de vérification officielle sont explicitement distinguées dans Organisation.
+
+### P3 — Améliorations restantes
+
+1. Le scénario E2E « ordre 01→04 » est ambigu (`docs/spec-project-planning-sequence.md:467`) : écrire soit les quatre modules `01→02→04→03`, soit les quatre identifiants de migration `foundation-01…foundation-04`.
+2. Dans Planning, « writers 03 et 04 » désigne l'ordre des migrations, alors que les modules fonctionnels sont 04 puis 03 (`docs/spec-project-planning-sequence.md:480-501`). Utiliser systématiquement les identifiants immuables pour éviter l'inversion.
+3. Le glossaire cible inclut équipement/licence dans Ressources 02 tandis que la spec Ressources limite sa catégorie à `room|person|other` (`docs/target-architecture-v1.md:115`, `docs/spec-resources-02.md:83-91`). Distinguer explicitement capacité logique planifiable et `equipmentAsset` physique Stock.
+
+### Conditions de revalidation
+
+Le prochain contrôle peut être ciblé sur quatre preuves documentaires : chaîne unique v2→v6 avec owners/handoffs complets ; `companyId` exclusif ; modèle/API Client et Projet uniques sous autorité 04 ; décision unique de reprise des réservations sans projet. Le P2 d'override doit également être aligné avant que les contrats Resources/Planning soient implémentables sans interprétation.
+
+Conformément au périmètre demandé, seul `docs/code-review.md` a été modifié. La mise à jour de `docs/project-status.md` reste au responsable d'intégration.
+
+---
+
+## Re-review SPEC stricte après handoffs Owners
+
+Date : 2026-08-14  
+Périmètre : quatre P1 et P2 `planning.override_unavailability` de la re-review précédente, sur les trois specs de fondation et les deux documents d'architecture  
+Nature : revue indépendante finale des documents publiés par les quatre owners ; seul ce rapport est modifié
+
+### Verdict
+
+**CHANGES REQUIRED**
+
+Les handoffs ferment le double contrat Client/Projet. Ils corrigent aussi l'ordre des owners et les versions numériques `v2→v3→v4→v5→v6`. En revanche, trois P1 restent ouverts : les identifiants déclarés immuables ne concordent pas, un alias tenant reste explicitement admis par la spec owner 04, et la représentation du Projet technique de reprise diverge encore entre architecture, Organisation et Planning. Le P2 d'override n'est pas fermé.
+
+### Statut des quatre P1
+
+| P1 contrôlé | Statut | Preuve |
+|---|---|---|
+| Chaîne migrations / owners | **PARTIEL — OUVERT** | Les versions et owners sont désormais ordonnés partout : ORG-01 v2→v3, RES-02 v3→v4, PROJ-04 v4→v5, PLAN-03 v5→v6. Mais Organisation déclare les identifiants immuables `foundation-01-organization-v2-to-v3` … `foundation-04-planning-v5-to-v6` (`docs/spec-organization-01.md:330-339`) et Ressources reprend `foundation-02-resources-v3-to-v4` (`docs/spec-resources-02.md:412-429`), tandis que Planning exige exclusivement `ORG-01-v2-to-v3` → `RES-02-v3-to-v4` → `PROJ-04-v4-to-v5` → `PLAN-03-v5-to-v6` (`docs/spec-project-planning-sequence.md:423`, `:475-484`). Un fichier migré conformément à l'une des specs est donc refusé par l'autre. |
+| Tenant canonique | **PARTIEL — OUVERT** | Ressources a bien remplacé ses DTO, ports et handoffs par `companyId` (`docs/spec-resources-02.md:42`, `:85`, `:217`, `:240`). La spec owner 04 continue néanmoins d'autoriser `organizationId` comme « nom d'interface amont éventuel » traduit par un adaptateur (`docs/spec-project-planning-sequence.md:69`), alors que la cible dit qu'il n'est pas un champ alternatif et impose exclusivement `companyId`/`company_id` dans contrats et persistance (`docs/target-architecture-v1.md:126-134`). Les mentions servant à rejeter un champ entrant sont conformes ; cette autorisation d'interface amont ne l'est pas. |
+| Contrat Client/Projet unique | **CORRIGÉ** | Organisation ne redéfinit plus le modèle ni l'API et référence explicitement les sections de la spec owner 04 (`docs/spec-organization-01.md:179-183`, `:219`). Les champs, états, `allowedSiteIds`, `planningReadiness` et `kind="emission"` ont maintenant une autorité unique. |
+| Reprise des réservations sans projet | **PARTIEL — OUVERT** | Tous les documents choisissent désormais un vrai Client/Projet technique et interdisent `legacyUnassigned`. Cependant le contrat exact diverge : la cible impose Client `MIGRATION-RC1`, Projet `MIGRATION-RC1-<siteId>`, `systemManaged`, `migrationPurpose`, `scopeSiteId` et audit `reservation.project.backfilled` (`docs/target-architecture-v1.md:93-104`) ; Planning persiste `RC1-TECHNICAL`, `RC1-NON-AFFECTE-<suffixe>`, seulement `technicalPurpose` et audit `reservation.projectBackfilled` (`docs/spec-project-planning-sequence.md:495-522`). Organisation décrit encore par endroits un Projet « par organisation » (`docs/spec-organization-01.md:356`, `:417`, `:451`) alors que l'architecture et Planning exigent un Projet par couple société/site. Ces objets, filtres et audits ne sont pas interopérables sans choix implicite. |
+
+### P2 — Override d'indisponibilité
+
+**OUVERT.** Ressources distingue deux permissions : `planning.override_unavailability` uniquement pour l'indisponibilité calendaire manuelle, mais conserve `planning.override_conflict` pour conflit temporel Stock et dépassement de capacité (`docs/spec-resources-02.md:171-182`, `:233-236`). Planning déclare au contraire `planning.override_conflict` ancien et supprimé, emploie `planning.override_unavailability` pour les conflits de capacité salle/personne, et ne contient pas la ligne normative d'indisponibilité calendaire manuelle (`docs/spec-project-planning-sequence.md:264-277`, `:386-389`, `:522`). Choisir soit deux permissions aux périmètres fermés, soit une permission unique avec une matrice identique ; aligner ensuite migration de rôles, codes d'erreur, preview, audit et cas négatifs.
+
+### Corrections vérifiées
+
+- Les owners/writers fonctionnels et les handoffs sont maintenant nommés dans l'ordre requis, sans attribuer le numéro 02 au frontend Organisation.
+- Ressources publie une vraie migration v3→v4 avec sauvegarde, digest, comptages, idempotence, rollback et handoff v4.
+- Organisation délègue correctement Client/Projet à l'owner 04 au lieu de publier une seconde machine d'états.
+- La stratégie `legacyUnassigned` est supprimée au profit d'entités techniques visibles et d'un `projectId` non nul après PLAN-03 ; le désaccord restant porte sur leur DTO canonique et leur cardinalité, pas sur le principe.
+
+### Conditions d'approbation
+
+1. Employer les quatre mêmes identifiants immuables de migration dans les cinq documents.
+2. Retirer de la spec 04 l'autorisation d'un champ/interface amont `organizationId`, ou modifier explicitement la cible si cet adaptateur est réellement voulu.
+3. Publier un seul DTO Client/Projet technique de reprise, une cardinalité par `companyId/siteId`, un seul événement d'audit et les mêmes codes déterministes.
+4. Aligner exactement la matrice et le catalogue de permissions d'override entre Ressources et Planning.
+
+Conformément au périmètre demandé, aucun document de spec, fichier d'architecture, code ou test n'a été modifié ; seule cette section a été ajoutée à `docs/code-review.md`.
+
+---
+
+## Ultime re-review SPEC — canons littéraux
+
+Date : 2026-08-14  
+Périmètre : `docs/target-architecture-v1.md`, `docs/architecture-roadmap.md`, `docs/spec-organization-01.md`, `docs/spec-resources-02.md`, `docs/spec-project-planning-sequence.md`  
+Nature : comparaison stricte des littéraux, DTO, cardinalités, audits/événements et permissions ; aucune modification hors du présent rapport
+
+### Verdict SPEC
+
+**CHANGES REQUIRED**
+
+Les identifiants de migration, le tenant canonique et la matrice des deux overrides sont maintenant alignés. La cardinalité de reprise est également commune : un Client technique par `companyId`, un Projet technique par couple `companyId`/`siteId`. Un P1 subsiste cependant dans le contrat propriétaire PROJ-04 : ses DTO et événements de création ne recopient pas le canon déclaré « exact » par l'architecture.
+
+### P0
+
+Aucun.
+
+### P1 — Bloquant restant
+
+1. **Le DTO et les audits/événements de reprise PROJ-04 divergent encore du canon exact.** La cible et la roadmap imposent pour le Client technique les champs exacts `id`, `companyId`, `name`, `code`, `active`, `systemManaged`, `migrationPurpose`, `version`, `createdAt`, `updatedAt`, et pour le Projet `id`, `companyId`, `siteId`, `clientId`, `name`, `code`, `status`, `color`, `systemManaged`, `migrationPurpose`, `version`, `createdAt`, `updatedAt`; elles interdisent explicitement le champ supplémentaire `scopeSiteId` (`docs/target-architecture-v1.md:97-144`, `docs/architecture-roadmap.md:104-110`). La spec PROJ-04 décrit au contraire le Client avec `legalName`, `displayName`, `activity`, `allowedSiteIds`, `status`, sans `name`, `active`, `systemManaged` ni `migrationPurpose` (`docs/spec-project-planning-sequence.md:503`), et le Projet avec `kind`, `primarySiteId`, `allowedSiteIds`, `planningReadiness`, `scopeSiteId`, sans le `siteId` canonique ni `color` (`:515-532`). Elle emploie en outre `client.created`/`project.created` et `client.updated.v1`/`project.updated.v1` (`:547`) quand l'architecture et Organisation exigent exactement `client.recovery.created`/`project.recovery.created` et `client.recovery.created.v1`/`project.recovery.created.v1` (`docs/target-architecture-v1.md:136-144`, `docs/spec-organization-01.md:356-358`). Un writer ne peut satisfaire simultanément ces contrats.
+
+### Axes désormais conformes
+
+| Axe | Statut | Preuve |
+|---|---|---|
+| Identifiants immuables | **CORRIGÉ** | Les cinq documents utilisent la chaîne littérale `foundation-01-organization-v2-to-v3` → `foundation-02-resources-v3-to-v4` → `foundation-04-projects-v4-to-v5` → `foundation-03-planning-v5-to-v6`, sans alias court. |
+| Tenant | **CORRIGÉ** | `companyId` est exclusif dans DTO/API/événements ; les occurrences de `organizationId` décrivent seulement son rejet explicite `400 FIELD_NOT_ALLOWED` (`docs/spec-project-planning-sequence.md:69`, `:313`; `docs/spec-organization-01.md:15`). |
+| Cardinalité de reprise | **CORRIGÉE** | Tous les documents prescrivent un Client technique par société concernée et un Projet technique par société/site, puis 100 % des réservations rattachées avant le handoff Planning. |
+| Audit/événement du rattachement | **CORRIGÉ** | Le rattachement utilise partout `reservation.project.backfilled` puis `reservation.project.backfilled.v1`, avec `migrationId="foundation-03-planning-v5-to-v6"`. |
+| Deux overrides | **CORRIGÉ** | `planning.override_conflict` couvre capacité/conflit de réservation ou Stock surchargeable ; `planning.override_unavailability` couvre uniquement le calendrier manuel. Les deux sont distincts, cumulés si les deux causes existent, et possèdent motifs/audits séparés (`docs/target-architecture-v1.md:252-261`, `docs/spec-resources-02.md:171-186`, `docs/spec-project-planning-sequence.md:269-286`, `:393-397`). |
+
+### Condition unique d'approbation
+
+Faire recopier par `docs/spec-project-planning-sequence.md` les deux DTO techniques exacts de l'architecture, sans `scopeSiteId` ni champs alternatifs, et remplacer ses audits/événements de création par les quatre noms `*.recovery.created[.v1]` canoniques. Une dernière vérification littérale ciblée suffira ensuite.
+
+Conformément au mandat, seul `docs/code-review.md` a été modifié.
+
+---
+
+## Revue indépendante finale runtime — Organisation 01 / 01b fiscal
+
+Date : 2026-08-14  
+État revu : `server.js` SHA-256 `9058ba9fa49175a6876544f17234cbf78f2b2db197855339043518a96ca620a3`, `app.js` SHA-256 `46a21e1e8c8cff0fa006d7493491f36e9b41ccbf057edf12aa926f5cfd9236c2`, `index.html` SHA-256 `12e47ebf352face70fda1cc83307df1eb40ca62474d0715a7c86448fd6cf46fd`, `planning.css` SHA-256 `ed3613392c652c185a69f584235509dbaf167127e06d2ba8094476354e06aeff`  
+Références : `docs/spec-organization-01.md`, `docs/ux-organization-01.md`, constats P1 runtime antérieurs du présent rapport  
+Indépendance : le reviewer n'a écrit ni `server.js`, ni `app.js`, ni `index.html`, ni `planning.css`; cette passe n'apporte aucune correction applicative ou de test
+
+### Verdict REVIEW final
+
+**CHANGES REQUIRED — 0 P0, 5 P1.**
+
+Les sept constats P1 Organisation historiques sont fermés sur le code courant, mais cinq écarts du parcours fiscal/activité empêchent encore le candidat d'entrer au gate QA final puis en intégration.
+
+### P1 — Bloquants
+
+1. **Une organisation nouvellement créée ne peut pas franchir la sous-étape fiscale 2.** La création laisse légitimement `taxIdentifiers=[]`, `defaultVatRateId` absent et ne crée aucun taux (`server.js:711`). Or le formulaire Territoire envoie seulement `taxCountry`, `vatStatus` et les versions (`app.js:140`), tandis que `PATCH /fiscal-profile` revalide immédiatement le profil entier et exige déjà les identifiants FR ainsi qu'un taux actif/applicable (`server.js:742-757`). Le catalogue de taux et les identifiants ne sont accessibles qu'aux sous-étapes 3 et 4, encore verrouillées (`app.js:127-135`). Le premier clic « Enregistrer et continuer » retourne donc `422` sans chemin UI permettant de satisfaire les champs demandés. Il faut un contrat serveur/UI cohérent de brouillon validé par sous-étape, ou une commande atomique complète rendue éditable avant validation, sans contourner l'ordre O1.
+
+2. **La revalidation fiscale et le focus d'erreur ne respectent pas le parcours fermé approuvé.** Modifier `taxCountry` ou `vatStatus` ne recharge pas la policy, ne retire/ajoute pas dynamiquement l'exigence TVA et ne purge pas explicitement les identifiants/taux incompatibles; le listener ne fait que réduire des compteurs locaux (`app.js:144-147`). Lors d'un `missingFields` fiscal, `showOrgError` se limite au résumé de l'écran courant et tente une correspondance sur le dernier segment du chemin (`app.js:143`) : `fiscalProfile.taxIdentifiers.businessRegistration` ne correspond à aucun contrôle, et la première sous-étape fautive n'est pas rouverte. Cela contredit le retour automatique et le focus exact exigés par `docs/ux-organization-01.md:174,221-223`.
+
+3. **La validation fiscale explicite est enregistrée trop tôt.** Chaque `PATCH /fiscal-profile` réussi, y compris une sauvegarde intermédiaire des sous-étapes 2 à 4, écrit immédiatement `fiscalValidatedAt` et `fiscalValidatedBy` (`server.js:758-760`). La migration et le contrat O1 imposent au contraire que ces métadonnées restent absentes jusqu'à la confirmation humaine de la sous-étape 5 (`docs/spec-organization-01.md:114,436`). Le runtime confond donc mutation de brouillon et validation explicite, ce qui fausse la complétude et la traçabilité de l'approbation fiscale.
+
+4. **Une modification des activités peut rendre O1 impossible à corriger depuis l'interface.** Le formulaire autorise de changer `activities`, mais réutilise les anciennes `activityRequirements` dès qu'elles ne sont pas vides (`app.js:139`). Le serveur refuse ensuite toute exigence liée à une activité retirée et exige toutes les catégories Post-production/Laboratoire nouvellement choisies (`server.js:602-617`). L'UI ne présente aucun contrôle de décision `enabled/nonApplicable` ni ne recalcule les exigences à partir du nouvel ensemble : par exemple passer de Location à Post-production produit `422 activityRequirements` sans correction possible. Il faut reconstruire/faire éditer les exigences conformément aux activités courantes, y compris les motifs `nonApplicable`.
+
+5. **Le rejeu de la migration 01b n'en vérifie pas l'intégrité avant de l'accepter.** Dès que le marqueur existe, `migrateOrganizationFiscalV3` retourne la base sans comparer digest, versions de policy, comptages ni contenu attendu (`server.js:247-250`). La SPEC impose au contraire qu'un marqueur présent ne soit accepté que si ces preuves sont conformes et que toute divergence arrête la migration (`docs/spec-organization-01.md:440`). Dans l'état actuel, une base v3 marquée mais altérée peut être considérée prête pour RES-02; le test ne couvre que l'absence de duplication au rejeu. Il faut valider le handoff publié et ajouter un cas de marqueur/contenu divergent refusé.
+
+### Fermetures vérifiées des sept P1 antérieurs
+
+- Les permissions effectives proviennent de `membershipRoles` et `roles.permissions`; login, `/auth/me`, changement de contexte et revalidation SSE reconstruisent ce contexte. Une révocation devient effective à la requête suivante (`server.js:324-347`, `:381`, `:678-699`).
+- Les listes et mutations d'unités, prestations et memberships appliquent les scopes site/unité et restent non révélatrices; les champs tenant fournis par le client sont rejetés.
+- La migration v2→v3 conserve les rôles legacy sans promotion générale et les trois organisations de démonstration ne sont injectées que pour `makeSeed`/`resetData` reconnu (`server.js:156-166`, `:221-245`).
+- Les exigences Post-production/Laboratoire et les gates aval sont contrôlés côté serveur; suspend/archive, rôles, scopes et remplacement de site sont présents avec versions et dépendances.
+- L'idempotence Organisation contrôle clé, cible, acteur/autorité et empreinte; audit et SSE restent rattachés au tenant courant avec `requestId` et enveloppes fiscales sans identifiants.
+
+### Autres observations non bloquantes
+
+- **P2 — résidu de scalaires fiscaux dans l'aperçu :** la page Organisation affiche encore `registrationNumber` (`app.js:99`), champ supprimé par 01b et explicitement interdit dans l'UX fiscale. Le rendu est échappé, mais produit aujourd'hui une valeur vide/`undefined` et entretient deux sources d'autorité.
+- L'inspection XSS n'a trouvé aucune interpolation utilisateur non échappée sur le parcours fiscal courant : texte et attributs libres passent par `esc`/`inputValue`; les résumés d'erreur sont échappés. Les fieldsets/legends, labels, textes de statut, `focus-visible`, reflow mobile et réduction d'animation sont présents. Les défauts de focus sémantique précis sont couverts par le P1 n°2.
+
+### Condition de re-review
+
+Corriger les cinq P1, ajouter les régressions de création O1 fraîche, changement territoire/statut, validation explicite, changement d'activités et divergence du marqueur 01b, puis rejouer REVIEW et tous les gates aval affectés. Le vert automatisé éventuel ne remplace pas ces scénarios UI/contrat actuellement absents.
+
+---
+
+## Revue indépendante SPEC — extension fiscale Organisation 01 et fondation Devis
+
+Date : 2026-08-14  
+Périmètre : `docs/spec-organization-01.md`, cohérence avec `docs/target-architecture-v1.md`, `docs/architecture-roadmap.md`, `docs/spec-finance-analytics.md`, `docs/ux-organization-01.md` et l'état de fondation publié  
+Nature : revue documentaire indépendante ; aucune modification de la SPEC ni du code
+
+### Verdict
+
+**CHANGES REQUIRED — 0 P0, 4 P1.**
+
+L'extension est saine sur plusieurs invariants structurants : pays fiscal et devise sont explicites ; les identifiants sont structurés et policy-versionnés ; les taux utilisent des points de base entiers ; le taux français proposé à `2000` est modifiable et non codé comme vérité légale ; O1 exige un taux actif/applicable ; les DTO refusent les champs tenant et les flottants ; permissions fiscales, isolation, contrôle optimiste, audit masqué et SSE après commit sont définis ; le seed est multi-tenant et fictif. La fondation Devis impose également HT/TVA/TTC en unités mineures, arrondi `roundHalfUp` par ligne, total par somme des lignes, snapshot immuable et override limité à un `vatRateId` configuré avec permission dédiée (`docs/spec-organization-01.md:121-131`, `:184-196`, `:204-212`, `:279-367`, `:407-421`).
+
+Ces qualités ne suffisent toutefois pas à rendre la SPEC développable sans ambiguïté sur les quatre points bloquants suivants.
+
+### P1 — Bloquants avant DEV
+
+1. **L'extension réécrit sémantiquement une migration déclarée immuable et déjà publiée.** La SPEC ajoute profil fiscal, `fiscalProfileVersion` et `vatRates` à `foundation-01-organization-v2-to-v3` (`docs/spec-organization-01.md:369-393`), alors que `docs/project-status.md:38` fige déjà cette chaîne et que le runtime/tests connaissent déjà cet identifiant et le schéma v3. Une base ayant exécuté la première forme de v2→v3 ne rejouera pas légitimement le même identifiant et restera dépourvue des nouveaux champs ; changer le contenu sous le même ID invaliderait digest, rollback et preuve d'idempotence. La SPEC doit publier une migration additive distincte depuis chaque état réellement supporté, ou définir avant DEV une nouvelle baseline/version de schéma et une matrice de compatibilité/rollback qui ne modifie jamais l'historique de `foundation-01-organization-v2-to-v3`.
+
+2. **Le contrat UX O1 contredit le nouveau modèle fiscal et rend le gate impossible à implémenter fidèlement.** La SPEC canonique exige `taxCountry`, `vatStatus`, `taxIdentifiers`, `defaultVatRateId` et, sous `FR@1`, SIREN/SIRET plus TVA conditionnelle (`docs/spec-organization-01.md:121-131`, `:218-222`, `:330-349`). L'UX expose encore les scalaires `registrationNumber`, `establishmentNumber`, `vatNumber`, marque SIRET/TVA non requis et affirme que la TVA ne bloque jamais O1 (`docs/ux-organization-01.md:158-176`, `:465-473`). Il faut aligner le parcours, les champs, les erreurs/focus, le choix du taux et les états registered/exempt/notApplicable avant DEV ; le plan QA doit ensuite couvrir ce contrat au lieu de l'« identifiant légal » générique actuel (`docs/qa-plan-foundations-0.3.md:51`).
+
+3. **La frontière et l'owner du futur Devis ne sont pas contractuellement raccordés à l'architecture Finance/Commercial.** L'architecture place les devis dans le module 08 Commercial, dépendant de 09 (`docs/target-architecture-v1.md:75-76`), tandis que la roadmap reporte fiscalité et facturation à des incréments 09 postérieurs (`docs/architecture-roadmap.md:177-190`) et que Finance 09a exclut explicitement TVA et pièce fiscale (`docs/spec-finance-analytics.md:7-16`). Organisation 01 parle seulement d'un « futur owner Devis » et publie des permissions futures (`docs/spec-organization-01.md:204-212`) sans désigner le writer, le port versionné, la dépendance 08↔09 fiscal ni le handoff. La SPEC/architecture doit nommer l'autorité : module 08 pour le devis commercial et module 09 fiscal pour règles/calculs, ou une autre décision explicite ; elle doit confirmer que Finance 09a reste inchangé et positionner la migration/activation correspondante dans la roadmap.
+
+4. **La fondation monétaire et le snapshot Devis ne sont pas encore déterministes pour toutes les devises/taux autorisés.** `currency` accepte tout ISO 4217 (`docs/spec-organization-01.md:102`, `:131`), mais « unité mineure » ne publie ni exposant versionné de devise ni règle pour les devises à 0 ou 3 décimales ; la borne d'entier sûr est reportée au futur (`:210`). Le snapshot emploie en outre « adresse applicable », « identifiants nécessaires » et « date fiscale » sans DTO, ordre de sélection, fuseau/date civile ni règle multi-taux (`:208-212`). Le contrat publié doit au minimum figer `currencyMinorUnitExponent`/version de catalogue, les bornes d'entiers, `taxDate` et sa zone d'interprétation, les champs exacts de l'adresse et des identifiants snapshotés, et préciser si `vatRateId/rateBps` est porté par chaque ligne. Sans cela, deux writers conformes peuvent produire des montants ou snapshots différents.
+
+### Conditions de re-review
+
+- conserver l'identifiant v2→v3 immuable et publier une trajectoire additive depuis le v3 déjà exécuté ;
+- aligner l'UX O1 et le plan QA sur le DTO fiscal structuré et le taux par défaut ;
+- attribuer explicitement le contrat Devis aux modules 08/09 avec port, dépendances et ordre de livraison ;
+- rendre déterministes l'exposant monétaire, les bornes, la date fiscale, le DTO snapshot et la granularité du taux.
+
+Après ces corrections documentaires, rejouer REVIEW SPEC. Aucun développement fiscal ou Devis ne doit commencer avec ces P1 ouverts. Ce verdict ne remet pas en cause le taux FR proposé à 20 % modifiable, les points de base, le modèle d'autorisation/isolation/audit ni l'exclusion de l'implémentation Devis du lot Organisation.
+
+Conformément au mandat, seul `docs/code-review.md` a été modifié ; la mise à jour de `docs/project-status.md` reste à la charge de l'intégrateur.
+
+---
+
+## Gate CODE REVIEW — Organisation 01
+
+Date : 2026-08-14  
+Périmètre : `server.js`, `tests/organization.test.js`, consommateurs backend existants, `docs/spec-organization-01.md`, architecture cible/roadmap et `docs/ux-organization-01.md`  
+Nature : revue indépendante après handoff backend ; aucun code ni test modifié
+
+### Verdict
+
+**CHANGES REQUIRED**
+
+Le candidat corrige bien l'enchaînement v1→v2→v3 et le tenant SSE d'une Company, et la suite annoncée par l'intégrateur atteint 62/62. Ce résultat ne couvre toutefois pas plusieurs invariants bloquants. L'implémentation ne peut pas être approuvée tant que RBAC/scopes, gates O1–O3 et aval, migration, transitions et audit ne correspondent pas au contrat.
+
+### P0
+
+Aucun P0 identifié.
+
+### P1 — Bloquants
+
+1. **Les rôles Organisation persistés ne font pas autorité.** `getSession()` charge membership et scope, mais `has()` consulte uniquement `permissions[auth.user.role]`, le rôle legacy de `users` (`server.js:246-260`). Les mutations de `/memberships/:id/roles` modifient `membershipRoles` sans changer les permissions effectives (`:633-634`). Une révocation ne retire donc pas les droits d'un legacy admin et l'attribution d'un rôle Organisation à un autre profil ne les accorde pas. Les lectures `companies`/Company ne contrôlent même pas `organization.read` (`:597-615`). C'est un contournement direct du RBAC contractuel.
+
+2. **Les scopes site/unité ne protègent pas les nouveaux référentiels.** Les listes génériques filtrent les sites, mais pas `organizationUnits`, `serviceOfferings`, adresses ou contacts (`server.js:623-624`). Les créations/modifications relisent seulement le tenant dans `validateChild`, sans `siteAllowed(auth, …)` ni vérification qu'une unité sélectionnée appartient aux sites autorisés (`:562-568`, `:625-627`). `/memberships` retourne tous les membres du tenant (`:629`) et la mise à jour des scopes accepte une unité d'un site absent de `siteIds` (`:635-636`). Un responsable borné à un site peut donc lire ou viser des données d'un autre site dès qu'un rôle lui donne la permission correspondante.
+
+3. **La migration élève les privilèges et injecte des données de démonstration.** Pour chaque utilisateur historique, `migrateOrganizationV2ToV3()` lie sans distinction le rôle `organizationAdmin` (`server.js:191-197`), au lieu de préserver le rôle et les scopes. Elle ajoute aussi systématiquement Eliote Props Prod, Eliote Location et FAV Location à toute base v2 et rattache le platform admin à ces tenants (`:167-173`, `:189-200`). La spec sépare migration additive des données existantes et seed de démonstration ; une migration de production ne doit ni créer des tenants de démo ni promouvoir les lecteurs/planificateurs.
+
+4. **O2 est contournable et les gates Organisation ne protègent pas les modules aval.** `validateCompanyFields()` valide seulement les entrées présentes dans `activityRequirements`; il n'exige jamais les décisions Montage/Étalonnage/Mixage/PAD pour `postProduction` ni Laboratoire pour `laboratory` (`server.js:510-527`). `organizationCompleteness()` boucle ensuite sur cette liste éventuellement vide (`:529-545`), ce qui permet de valider O2 sans les décisions obligatoires. Surtout, les créations Ressource, Client, Projet et Réservation ne relisent ni `company.status === active`, ni `onboardingStage === ready`, ni le service de préconditions Organisation (`:657-666`, `:681-684`). Le parcours séquentiel exigé reste donc contournable par API.
+
+5. **Des commandes et transitions obligatoires ne sont pas implémentées.** Les routes `POST /companies/:id/suspend`, `POST /companies/:id/archive`, `POST /roles` et `PATCH /roles/:id` annoncées par la spec sont absentes ; seul `GET /roles` existe (`server.js:637`). Le PATCH générique d'un site autorise `active=false` sans rechercher ressources/réservations futures et sans exiger `replacementSiteId`/stratégie (`:627`). Les transitions `active↔suspended`, archivage terminal et protection des données référencées ne peuvent pas être testées ni garanties.
+
+6. **L'idempotence annoncée n'existe pas pour les créations Organisation.** Les tests envoient des clés sur Company, Site, Unité et Prestation (`tests/organization.test.js:163-166`, `:239-266`), mais aucune de ces routes ne lit `idempotency-key` (`server.js:601-605`, `:623-625`). Un rejeu retourne au mieux un conflit de doublon, et peut produire une seconde écriture lorsque les contraintes ne suffisent pas. Cela ne satisfait pas la création idempotente ni la reprise après réponse réseau perdue.
+
+7. **L'audit Organisation est incomplet et parfois rattaché au mauvais tenant.** `audit()` prend toujours `companyId` depuis l'ancien contexte `auth.user.companyId` et ne reçoit `requestId` que si chaque appel le remet dans `details` (`server.js:289`). Les appels Organisation ne le transmettent pas. Lors de la création d'une Company, l'audit est donc écrit sous le tenant précédemment actif, avant que la session bascule sur la nouvelle Company (`:601-605`), et tous les audits du lot perdent leur `requestId`. Cela casse isolation, traçabilité et contrat d'audit.
+
+### P2 — Importants
+
+1. La limitation de débit prévue pour création d'organisation, invitation et changement de contexte n'est pas présente ; seul le login utilise `loginAttempts` (`server.js:40-42`, `:573-580`).
+2. Le PATCH d'une membership ne revalide pas `defaultSiteId` dans le tenant alors que POST le fait (`server.js:630-632`), ce qui permet une référence incohérente même si elle ne confère pas directement un droit.
+3. La validation d'O3 vérifie l'existence d'un administrateur global, mais aucun test ne démontre la couverture explicite/héritée de chaque site, les rôles effectifs ou la révocation du dernier administrateur.
+
+### Couverture et preuves
+
+- Handoff intégrateur : `node --check server.js` réussi et `npm test` annoncé **62/62** après correction de la chaîne v1→v2→v3 et de l'émission SSE Company.
+- La QA préparatoire avait d'abord observé 55/62 et localisé ces deux défauts ; ils sont corrigés dans l'état inspecté.
+- `tests/organization.test.js` couvre migration/backup de base, seed, création, rejet d'alias, O1 incomplet, création Site/Unité/Prestation, lecteur legacy, version, Origin, contexte, audit/SSE.
+- Manquent des régressions automatisées pour chacun des P1 ci-dessus : rôle attribué/révoqué réellement effectif, scopes négatifs par relation, migration d'un viewer sans promotion ni seed, O2 post-production/laboratoire, gates aval, suspend/archive, remplacement de site, rejeu idempotent et audit du nouveau tenant avec `requestId`.
+- Aucun handoff QA final daté n'était encore écrit dans `docs/qa-report.md` au moment du verdict ; le vert annoncé ne compense pas les cas contractuels absents.
+- L'UX frontend, le focus, le responsive, la purge visuelle du contexte et les E2E navigateur restent hors du code backend livré et devront être revus dans leurs lots dédiés.
+
+### Conditions de re-review
+
+Corriger les sept P1, ajouter les tests négatifs correspondants, puis rejouer REVIEW et QA sur le même état. `APPROVED` exige zéro P0/P1 ; 62 tests verts avec ces chemins non couverts ne suffit pas.
+
+Conformément au mandat, seul `docs/code-review.md` a été modifié.
+
+---
+
+## Vérification littérale finale — DTO techniques et événements recovery
+
+Date : 2026-08-14  
+Périmètre : dernier P1 de l'ultime re-review, limité aux DTO Client/Projet techniques et aux quatre noms de création recovery  
+Nature : contrôle indépendant ciblé ; seul le présent rapport est modifié
+
+### Verdict final SPEC
+
+**APPROVED**
+
+Aucun P0/P1 ne reste ouvert dans le périmètre SPEC Fondations 01 → 02 → 04 → 03.
+
+### Preuves de fermeture du dernier P1
+
+- Le Client technique de `docs/spec-project-planning-sequence.md:498-515` contient exactement `id`, `companyId`, `name`, `code`, `active`, `systemManaged`, `migrationPurpose`, `version`, `createdAt`, `updatedAt`, avec les valeurs canoniques `Reprise RC1`, `MIGRATION-RC1`, `true` et `rc1_project_backfill`. Il correspond champ pour champ à `docs/target-architecture-v1.md:97-112`.
+- Le Projet technique de `docs/spec-project-planning-sequence.md:527-547` contient exactement `id`, `companyId`, `siteId`, `clientId`, `name`, `code`, `status`, `color`, `systemManaged`, `migrationPurpose`, `version`, `createdAt`, `updatedAt`, avec les valeurs canoniques. Aucun `scopeSiteId`, `technicalPurpose` ou autre champ de périmètre alternatif ne subsiste dans ce DTO.
+- La cardinalité est explicite : un Client technique par `companyId` concerné et un Projet technique par couple `companyId`/`siteId`; le rattachement relit désormais `companyId` et `siteId` exacts (`docs/spec-project-planning-sequence.md:498`, `:527`, `:552`).
+- Les créations emploient exclusivement les audits `client.recovery.created` et `project.recovery.created`, puis après commit les événements `client.recovery.created.v1` et `project.recovery.created.v1`, avec les payloads canoniques et `migrationId="foundation-04-projects-v4-to-v5"` (`docs/spec-project-planning-sequence.md:562-586`). Les anciens noms concurrents ne figurent plus dans le chemin de reprise.
+
+### Conclusion
+
+Le dernier P1 est fermé. Les cinq documents sont cohérents sur les identifiants immuables, `companyId`, les DTO/cardinalités de reprise, les audits/événements recovery et les deux permissions d'override. Le Gate REVIEW de la SPEC Fondations est **APPROVED** ; ce verdict autorise le passage au gate DEV selon l'ordre et les handoffs documentés, sans préjuger des gates code, QA, sécurité, performance, intégration ou release futurs.
+
+Conformément au mandat, seul `docs/code-review.md` a été modifié.
+
+---
+
+## Statut contrôlant — extension fiscale postérieure
+
+Le verdict `APPROVED` ci-dessus porte sur la baseline Fondations antérieure à l'extension fiscale. La revue indépendante postérieure intitulée **« Revue indépendante SPEC — extension fiscale Organisation 01 et fondation Devis »** dans le présent document contrôle cette extension : **CHANGES REQUIRED — 0 P0, 4 P1**. Aucun DEV fiscal ou Devis n'est autorisé avant fermeture et re-review de ces quatre constats.
+
+---
+
+## Re-review indépendante SPEC — extension fiscale corrigée
+
+Date : 2026-08-14  
+Périmètre revu : corrections apportées à `docs/spec-organization-01.md` pour migration fiscale, frontière Commercial/Finance et déterminisme monétaire/Devis  
+Exclusion d'indépendance : `docs/ux-organization-01.md` n'est pas jugé dans cette passe, car le présent reviewer a rédigé sa correction
+
+### Verdict SPEC fiscal corrigé
+
+**APPROVED — 0 P0, 0 P1 dans le périmètre indépendamment revu.**
+
+Les trois P1 de SPEC éligibles à cette re-review sont fermés. Le quatrième constat antérieur, relatif au contrat UX O1, exige une revue indépendante par un autre reviewer avant le DEV frontend ; il ne devient pas implicitement approuvé ici.
+
+### Fermeture des constats
+
+1. **Migration additive : FERMÉ.** `foundation-01-organization-v2-to-v3` est désormais déclaré historique, déjà exécuté et strictement immuable ; aucun champ fiscal, taux ou port n'y est rétro-injecté (`docs/spec-organization-01.md:421-425`). L'extension utilise le nouvel identifiant littéral `foundation-01b-organization-fiscal-v3`, avec préconditions sur schéma 3 et digest 01, absence des writers aval, sauvegarde, mutation atomique, audit de migration masqué, digest/comptages, idempotence et rollback dédiés tout en conservant `schemaVersion=3` (`:405-440`, `:448-450`). RES-02 exige explicitement le marqueur 01b (`:409-419`, `:554-560`). Ce contrat évite le rejeu ou la mutation sémantique de la migration historique.
+
+2. **Owner et port Devis : FERMÉ.** Commercial 08 est nommé owner/writer des devis ; Finance 09a reste limité à la valorisation interne et n'est ni writer du snapshot ni autorité du taux fiscal (`docs/spec-organization-01.md:206-210`). `CompanyFiscalProfilePort.v1` publie une commande précise, un contexte d'autorité, une date fiscale civile, un fuseau résolu serveur, la sélection du taux par défaut ou l'override autorisé, puis un DTO de snapshot fermé (`:210-238`). Le handoff vers Commercial 08, ses erreurs et ses fixtures/tests sont explicites (`:246`, `:552-560`) et restent compatibles avec la responsabilité Devis du module 08 dans `docs/target-architecture-v1.md:75` et l'exclusion fiscale de Finance 09a dans `docs/spec-finance-analytics.md:15`.
+
+3. **Déterminisme monétaire et fiscal : FERMÉ.** Le snapshot fixe adresse, identifiants ordonnés, `taxDate`, `taxTimezone`, version de profil, devise, exposant et version de catalogue, ainsi qu'un taux document unique ; les taux mixtes sont explicitement interdits dans ce premier lot (`docs/spec-organization-01.md:212-240`). Les exposants autorisés sont fermés à 0/2/3 ; les montants int64 non négatifs sont sérialisés en chaînes décimales, calculés en entier exact, contrôlés à chaque étape et refusés sur overflow (`:242-244`). La formule `floor((lineNetHt × rateBps + 5000) / 10000)` fixe l'arrondi half-up par ligne, puis les totaux sont la somme des lignes avec invariant TTC = HT + TVA. Les critères exigent exposants, demi-unité, somme multi-lignes, maximum int64 et overflow (`:497-503`). Deux writers conformes ne disposent plus de choix divergent sur ces points.
+
+### Dépendances hors verdict
+
+- La SPEC consigne encore que `docs/architecture-roadmap.md` doit intégrer le marqueur 01b avant intégration (`docs/spec-organization-01.md:419`). Cette mise à jour appartient à l'owner Architecture ; elle ne rouvre pas la décision de migration désormais non ambiguë, mais reste une condition d'intégration documentaire.
+- La correction d'UX O1 et du plan QA doit recevoir un verdict indépendant. La présente re-review ne couvre ni leur qualité, ni le code, ni les migrations exécutées, ni les gates QA/sécurité/performance.
+
+### Statut contrôlant
+
+Le précédent statut **CHANGES REQUIRED — 0 P0, 4 P1** est remplacé, pour la SPEC fiscale corrigée et le périmètre ci-dessus, par **APPROVED — 0 P0, 0 P1**. Le DEV backend fiscal peut entrer au gate DEV selon le workflow ; le DEV frontend reste conditionné à la re-review UX indépendante.
+
+Conformément au mandat, seul `docs/code-review.md` a été modifié ; `docs/project-status.md` reste à mettre à jour par l'intégrateur.
+
+---
+
+## Re-review indépendante UX — extension fiscale Organisation 01
+
+Date : 2026-08-14  
+Périmètre : `docs/ux-organization-01.md`, limité au parcours O1 fiscal, catalogue TVA, permissions/isolation, concurrence, audit/SSE, erreurs, accessibilité et aperçu fiscal du futur Devis  
+Référence normative : `docs/spec-organization-01.md` dans son état fiscal **APPROVED**  
+Indépendance : le reviewer n'a pas rédigé `docs/ux-organization-01.md` et n'a modifié ni cette UX ni la SPEC
+
+### Verdict UX fiscal
+
+**CHANGES REQUIRED — 0 P0, 2 P1.**
+
+Le contrat UX ne doit pas entrer au DEV frontend tant que les deux divergences ci-dessous ne sont pas corrigées puis revues indépendamment.
+
+### P1 — Bloquants avant DEV frontend
+
+1. **Le sous-parcours O1 fiscal fermé n'est pas aligné sur l'ordre normatif.** La SPEC impose exactement `Identité légale` → `Territoire et statut fiscal` → `Identifiants structurés` → `Devise et taux par défaut` → `Validation`, avec `Suivant` piloté par la complétude serveur (`docs/spec-organization-01.md:252-256`, `:479`). L'UX décrit une page O1 par sections, puis regroupe tout le fiscal dans une seule section dont l'ordre est territoire → devise → statut → identifiants → taux (`docs/ux-organization-01.md:160-185`). Elle ne définit donc ni les cinq sous-étapes, ni leur verrouillage/progression, et place la devise avant les identifiants. Deux implémentations conformes au document UX pourraient contourner la séquence fermée exigée. Il faut décrire explicitement ces cinq sous-étapes dans cet ordre, leur action **Suivant**, leur restitution des `missingFields` et la conservation du brouillon entre sous-étapes.
+
+2. **L'adresse publiée dans l'aperçu Devis possède une source alternative interdite par le snapshot canonique.** L'UX annonce « adresse légale ou de facturation retenue » (`docs/ux-organization-01.md:241-245`), alors que `CompanyFiscalProfilePort.v1` retourne exactement l'adresse légale principale `registeredOfficeAddress` et exclut toute source implicite (`docs/spec-organization-01.md:212-238`). Cette alternative peut faire prévisualiser une donnée qui ne sera pas figée par Commercial 08. L'aperçu doit nommer et afficher uniquement le siège légal principal validé ; il peut rester partiel et en lecture seule, mais ne doit proposer ou suggérer aucune adresse de facturation distincte.
+
+### Contrôles conformes sans P0/P1 supplémentaire
+
+- **Champs O1 :** `taxCountry`, `currency`, `vatStatus`, `taxIdentifiers[]` structurés et `defaultVatRateId` sont présents ; SIREN/SIRET et TVA conditionnelle sous `FR@1` sont explicités, les anciens scalaires ne sont ni affichés ni envoyés (`docs/ux-organization-01.md:164-195`).
+- **Catalogue TVA :** code, libellé, `rateBps`, période semi-ouverte, état, version, chevauchement, remplacement atomique du défaut et création d'une nouvelle période sont couverts. Le taux français à 20 % est une proposition clairement modifiable, jamais une constante (`:195`, `:226-239`).
+- **Permissions et isolation :** les quatre permissions fiscales restent indépendantes de `organization.manage`; listes, relations, changement de contexte et refus inter-tenant sont non révélateurs (`:228-239`, `:493-505`).
+- **Versions, audit et SSE :** `version` et `fiscalProfileVersion`, comparaison sans fusion automatique, audits masqués et invalidations fiscales après succès sont décrits. Les événements d'un autre `companyId` sont ignorés et ne deviennent pas une autorité de données (`:247-260`, `:475-491`).
+- **Erreurs et accessibilité :** erreurs reliées aux champs, résumé avec focus, refus neutres, conservation de saisie, clavier, reflow, contrastes, annonces et masquage accessible sont spécifiés (`:247-258`, `:475-489`, `:507-544`).
+- **Aperçu Devis :** hors écart d'adresse ci-dessus, le panneau exige `fiscalProfile.read`, reste en lecture seule et n'offre ni lignes, ni calcul HT/TVA/TTC, ni override ; l'immuabilité future est expliquée (`:241-245`, `:505`, `:559`).
+
+### Condition de re-review
+
+Corriger uniquement le séquencement explicite des cinq sous-étapes O1 et la source `registeredOffice` de l'aperçu, puis refaire une passe indépendante ciblée. Aucun test runtime n'a été exécuté : il s'agit d'une revue documentaire UX/SPEC. Conformément au mandat, seul `docs/code-review.md` a été modifié ; `docs/project-status.md` reste à mettre à jour par l'intégrateur.
+
+---
+
+## Re-review UX fiscale ciblée — fermeture des deux P1
+
+Date : 2026-08-14  
+Périmètre : corrections de `docs/ux-organization-01.md` relatives au stepper interne O1 et à l'adresse du snapshot Devis  
+Nature : revue documentaire indépendante ; le reviewer n'a modifié ni l'UX, ni la SPEC, ni le code applicatif
+
+### Verdict UX final
+
+**APPROVED — 0 P0, 0 P1.**
+
+Les deux P1 de la revue UX fiscale précédente sont fermés. Aucun nouveau constat bloquant n'est relevé dans le périmètre ciblé.
+
+### Preuves de fermeture
+
+1. **Stepper O1 exact et fermé : CORRIGÉ.** Le document définit explicitement un stepper interne distinct contenant exactement cinq sous-étapes dans l'ordre normatif `Identité légale` → `Territoire et statut fiscal` → `Identifiants structurés` → `Devise et taux par défaut` → `Validation` (`docs/ux-organization-01.md:162-172`). Une seule sous-étape est modifiable ; la suivante reste visible et verrouillée jusqu'à validation serveur. Une erreur bloque la progression, le retour sur une étape validée est permis, mais toute modification la repasse à valider et reverrouille toutes les suivantes (`:174`).
+
+2. **Ordre de la devise : CORRIGÉ.** La devise appartient exclusivement à la sous-étape 4, après acceptation serveur des identifiants structurés en sous-étape 3 (`docs/ux-organization-01.md:201-217`). La règle responsive conserve ce même ordre et interdit explicitement de déplacer Devise avant Identifiants (`:510`).
+
+3. **Validation et verrouillage aval : CONFORMES.** La sous-étape 5 est une synthèse ; seul le succès de la complétude serveur termine O1 et déverrouille O2. Les `missingFields` rouvrent la première sous-étape concernée, reverrouillent les suivantes et replacent le focus sur l'erreur (`docs/ux-organization-01.md:221-223`). Les critères UI reprennent exactement ces comportements, y compris l'interdiction d'un accès direct de contournement (`:548-551`).
+
+4. **Source d'adresse du snapshot : CORRIGÉ.** L'aperçu du futur Devis utilise exclusivement l'adresse `registeredOffice` principale validée. Il exclut explicitement toute substitution par une adresse de facturation, opérationnelle ou secondaire (`docs/ux-organization-01.md:240-244`). Le critère UI et le scénario E2E exigent la même source, y compris lorsqu'une adresse de facturation distincte existe (`:558`, `:586`).
+
+### Conclusion contrôlante
+
+Le statut précédent **CHANGES REQUIRED — 0 P0, 2 P1** est remplacé, pour le périmètre UX fiscal ciblé, par **APPROVED — 0 P0, 0 P1**. Le contrat UX O1 peut entrer au gate DEV frontend sous réserve des autres gates et handoffs du dépôt. Aucun test runtime n'a été exécuté, la présente passe portant exclusivement sur la cohérence documentaire.
+
+Conformément au mandat, seul `docs/code-review.md` a été modifié.
+
+---
+
+## Statut contrôlant — revue runtime Organisation 01 / 01b
+
+La re-review UX documentaire ci-dessus approuve le contrat, pas son implémentation. Le verdict runtime postérieur consigné dans la section **« Revue indépendante finale runtime — Organisation 01 / 01b fiscal »** (`server.js` `9058ba9f…`, `app.js` `46a21e1e…`) contrôle le candidat courant : **CHANGES REQUIRED — 0 P0, 5 P1**. Les tests automatisés verts ne ferment pas ces constats. Une nouvelle re-review du code est requise après correction et couverture des cinq P1.
+
+---
+
+## Re-review indépendante finale runtime — fermeture Organisation 01 / 01b
+
+Date : 2026-08-14  
+Périmètre : `server.js`, `app.js`, `index.html`, `planning.css` et régressions Organisation 01/01b  
+Empreintes : `server.js` `5e72c97cbaa42efc3d2fd805e76e2d21307cb4d5b81729b09b7f63d78e2ac82e`, `app.js` `bc7cff11e527652846a162d6fc048cde184b17f3db54f079c1f222f0d58ad1f9`, `index.html` `12e47ebf352face70fda1cc83307df1eb40ca62474d0715a7c86448fd6cf46fd`, `planning.css` `ed3613392c652c185a69f584235509dbaf167127e06d2ba8094476354e06aeff`  
+Indépendance : le reviewer n'a modifié ni `server.js`, ni `app.js`, ni les actifs frontend revus
+
+### Verdict runtime final
+
+**APPROVED — 0 P0, 0 P1.**
+
+Les cinq P1 runtime précédents sont fermés sur les empreintes ci-dessus. Ce verdict remplace le statut contrôlant `CHANGES REQUIRED — 0 P0, 5 P1` immédiatement antérieur uniquement pour ce candidat.
+
+### Fermeture des cinq P1
+
+1. **PATCH fiscal progressif : FERMÉ.** La mutation du profil ne requiert plus les identifiants ou le taux d'une sous-étape ultérieure lorsque seuls territoire et statut sont fournis. La régression d'une organisation fraîche valide ce contrat sans contourner la version ni la permission.
+
+2. **Invalidation de policy et restitution UI : FERMÉ.** Un changement de pays/policy invalide les identifiants incompatibles, le taux par défaut et la validation fiscale (`server.js:789`). Le client recharge la complétude serveur, rattache les `missingFields` à la première sous-étape concernée et y replace le parcours (`app.js:88-89`, `app.js:142`, `app.js:149`).
+
+3. **Autorité de validation fiscale : FERMÉ.** Toute modification fiscale remet `fiscalValidatedAt` et `fiscalValidatedBy` à `null`; seule la validation explicite de l'étape identité les renseigne et écrit l'audit `company.fiscalProfile.validated` (`server.js:746-747`, `server.js:789`).
+
+4. **Exigences d'activité : FERMÉ.** Le consommateur actif de l'identité régénère `activityRequirements` à partir des activités soumises (`app.js:109`, `app.js:140`), sans réutiliser la collection devenue obsolète.
+
+5. **Intégrité du marqueur 01b : FERMÉ.** Le marqueur porte un `integrityDigest` SHA-256 déterministe couvrant digest de sortie, policies et comptages ; le rejeu exige aussi la sauvegarde et le digest source (`server.js:247-273`, `server.js:302`). La falsification d'un `outputDigest` pourtant syntaxiquement valide est refusée avec `MIGRATION_MARKER_CONFLICT`.
+
+### Contrôles transverses
+
+- Les permissions effectives du login et du changement de société restent dérivées des memberships/rôles ; les permissions fiscales administrateur sont présentes et absentes du viewer.
+- Les routes fiscales conservent RBAC, isolation non révélatrice, contrôle de version, audit attribué au tenant et invalidations SSE sans identifiants fiscaux.
+- Les écritures DOM du parcours restent échappées par les helpers existants ; le stepper expose état courant/verrouillage, erreurs reliées et reprise de focus. Aucun nouveau défaut XSS ou accessibilité P0/P1 n'a été identifié.
+- Du code frontend historique non actif conserve encore quelques anciens champs scalaires et une logique d'exigences antérieure. Il ne contrôle pas le binding runtime actuel ; son retrait ciblé est recommandé en **P2** afin de réduire le risque de réactivation accidentelle.
+
+### Preuves exécutées
+
+- `npm test -- tests/organization.test.js` : **30 réussis, 0 échec, 0 ignoré**, 6 035,07 ms.
+- `npm test` : **81 réussis, 0 échec, 0 ignoré**, 6 069,39 ms.
+- `node --check server.js`, `node --check app.js`, `node --check tests/organization.test.js` et `git diff --check` : succès.
+- Environnement : Node v26.6.0, Darwin 25.5.0 arm64.
+
+### Conclusion contrôlante
+
+Le gate REVIEW runtime Organisation 01/01b est **APPROVED** sur les empreintes publiées, sans P0/P1 ouvert. Le P2 de nettoyage n'est pas bloquant et ne vaut pas approbation des gates Security, Performance, Integration, E2E ou Release, qui conservent leurs preuves propres. `docs/project-status.md` reste à actualiser par l'intégrateur conformément à la limite de fichiers de ce mandat.
+
+---
+
+## Re-review sécurité des DTO Organisation — fermeture du P1 fiscal
+
+Date : 2026-08-14  
+Candidat : `server.js` `a5807cf8a3a64d1b28959f78dde741cad453fca79b076746a4ec59b9d00e7d7c`, `tests/organization.test.js` `c6b3a53e8c3d59246dd24909daed9dd17b2b4d5dd5866c3c6af48279a045ba6f`  
+Verdict : **APPROVED — 0 P0, 0 P1.**
+
+Le DTO générique `companyDto` retire les identifiants et métadonnées fiscales ; les listes et détails société l'appliquent même lorsque l'appelant possède `fiscalProfile.read`. La route dédiée `/companies/:id/fiscal-profile` demeure l'unique surface de restitution et conserve son contrôle RBAC et son isolation. La régression exerce ce cas avec un viewer auquel seule la permission de lecture fiscale nécessaire est accordée.
+
+Les erreurs optimistes ne réintroduisent pas cette fuite : PATCH, validation, activation, suspension et archivage passent désormais `companyDto` à `requireVersion`, de sorte que `409 VERSION_CONFLICT.details.current` reste filtré (`server.js:689`, `server.js:751-757`). Les réponses de succès de ces mutations sont également sérialisées par le DTO public.
+
+Preuve disponible sur ce candidat : `npm test` exécuté indépendamment au gate Security, **82 réussis sur 82, 0 échec**, code 0. La tentative ciblée du présent reviewer a été bloquée par l'interdiction sandbox d'écouter sur loopback puis interrompue au niveau de l'autorisation ; elle n'est pas comptée comme preuve verte supplémentaire. Le contrôle syntaxique de `tests/organization.test.js` et `git diff --check` réussissent.
+
+Ce verdict ferme le P1 de divulgation fiscale sur les DTO génériques et les détails de conflit. Il ne modifie pas les limites Performance, Integration, E2E et Release.
+
+---
+
+## Gate REVIEW indépendant — Commercial 08 / Projet, Budget, Devis et Planning
+
+Date : 2026-08-16  
+Candidat : `server.js` `cb3aea8d3b7c06f20b7dd38037bc4647ff076f208b49ade1be6afbd250206c1b`, `app.js` `adadb12811959fa2da5f07412909d8713bdea4a0284491ec452037b091a59f16`, `planning.css` `39dd4614c30b500c284f1c12b06a2662524e6b2d82e1c4dd173fbd4346c0ff01`, `tests/quotes.test.js` `9079cba3e0d09e7f906111aa6a51ba21d42a9385900f0803bdecb2fac9444bad`  
+Références : prompt maître Commercial 08 complet, `AGENTS.md`, `docs/spec-quotes-postproduction.md`  
+Indépendance : aucun fichier applicatif ou test n'a été modifié par le reviewer
+
+### Verdict
+
+**CHANGES REQUIRED — 0 P0, 9 P1.**
+
+La suite verte confirme l'absence de régression déjà couverte, mais plusieurs exigences centrales peuvent être contournées ou ne sont pas implémentées. Le lot ne peut pas passer au gate QA tant que ces P1 ne sont pas corrigés et couverts.
+
+### P1 — Bloquants release
+
+1. **Le rattachement direct d'une réservation contourne la protection contre la double facturation.** `linkBookingsToQuoteLine` ne recherche les doublons que dans le document courant (`server.js:920-921`) et la route `POST /quotes/:id/lines/:lineId/bookings` l'appelle sans prévisualisation ni confirmation inter-document (`server.js:1216-1217`). Reproduction : importer une réservation dans un premier devis, créer un second devis du même projet, puis appeler cette route sur une ligne du second ; la liaison réussit sans `COMMERCIAL_DOUBLE_BILLING_CONFIRMATION_REQUIRED` ni trace `duplicateConfirmed`. Le contrôle existe uniquement sur `/import-reservations` (`server.js:1212-1214`). Le test direct `tests/quotes.test.js:110-113` ne couvre pas le cas inter-document.
+
+2. **La priorité tarifaire `projet > client > catalogue` n'est pas respectée.** `rateForSource` fait un simple `.find()` parmi les taux projet ou globaux et ne comporte aucun niveau client (`server.js:898`). L'ordre du tableau peut donc faire gagner un taux catalogue sur un taux projet ; un tarif client ne peut jamais être choisi. `quoteLineFromInput` consomme directement ce résultat (`server.js:912-915`). Les tests vérifient seulement qu'un tarif catalogue existe (`tests/quotes.test.js:171-177`), sans matrice de priorité.
+
+3. **La conversion Budget → Devis est absente.** Il n'existe ni route, ni commande UI, ni test de conversion ; Budget et Devis sont seulement stockés dans deux collections. Le workflow obligatoire doit créer un nouveau Devis à partir d'un Budget sans détruire ni transformer le Budget source, avec snapshot et lien de traçabilité. Une recherche des commandes de conversion dans `server.js`, `app.js` et `tests/quotes.test.js` ne retourne aucune implémentation.
+
+4. **Les remises commerciales ne sont pas modélisées ni calculées.** La liste fermée des champs d'une ligne omet tout champ de remise (`server.js:907-915`), les calculs et totaux n'en tiennent pas compte (`server.js:917`), et l'espace de travail ne permet ni saisie ni restitution de remise (`app.js:345`). Cela empêche les remises par ligne/section demandées et rend impossible un PDF client conforme sur ce point.
+
+5. **L'historique de versions n'est ni numéroté correctement ni consultable.** `captureCommercialVersion` réutilise le maximum existant au lieu de l'incrémenter : après la première capture, tous les enregistrements gardent le même `versionNumber` (`server.js:897`). En outre, l'unique endpoint d'historique retire systématiquement `snapshot` et aucun endpoint de détail ne permet de relire une version antérieure (`server.js:1225-1226`). Le test actuel entérine même `snapshot === undefined` sans vérifier la séquence (`tests/quotes.test.js:171-177`). Les V1/V2/V3 et avenants ne sont donc pas auditables comme documents immuables.
+
+6. **Le PDF client n'est pas une restitution fidèle et immuable du document.** Il relit le nom du projet et du client dans les collections vivantes au lieu d'utiliser un snapshot commercial (`server.js:932`) : une modification ultérieure change le PDF régénéré d'un devis envoyé/accepté. Il tronque aussi silencieusement à 32 lignes (`server.js:933`) alors que l'API en autorise 500 (`server.js:1223`) ; les totaux portent alors sur plus de lignes que le détail affiché. Les remises, conditions, zone de validité/signature et sous-totaux attendus ne sont pas produits. Le test PDF ne contrôle que l'en-tête, `TOTAL HT` et l'absence de coûts/marges (`tests/quotes.test.js:193-196`).
+
+7. **Des données commerciales et internes sont exposées sans permission `quote.read`.** Le résolveur RBAC ne classe comme commercial que `/quotes*` et `/quote-catalog` (`server.js:1002-1004`). Par conséquent `/rate-cards` retourne notamment `costUnitMinor` sans permission Devis (`server.js:1188`), `/projects/:id/dashboard` retourne coûts et marges (`server.js:1233`), et `/reservations/:id/commercial-links` est autorisé par `planning.read` puis révèle numéros/statuts de documents (`server.js:1239`). Un rôle personnalisé authentifié, dans le tenant mais privé de `quote.read`, peut consulter ces informations. Aucun test négatif de permission ne couvre ces trois routes.
+
+8. **La sélection commerciale par en-tête de jour inclut des réservations invisibles.** Le gestionnaire sélectionne toutes les réservations de `state.bookings` contenant la date, sans appliquer le projet, le site, le statut ni les filtres de la matrice visible (`app.js:331`). Un clic sur une colonne affichée peut donc préparer/importer des réservations masquées, potentiellement d'un autre projet ; l'erreur n'apparaît qu'à la prévisualisation serveur. La sélection par ressource s'appuie, elle, sur les cellules DOM visibles. Ce décalage rend la sélection jour dangereuse et non conforme au principe « ce qui est sélectionné visuellement est importé ».
+
+9. **Le cycle bidirectionnel et les contrôles UI restent incomplets.** Aucune commande API/UI ne délie une réservation d'une ligne ; l'acceptation d'un devis lié ne propose pas la confirmation explicite des réservations prévue ; l'espace ligne fixe toujours le détail sur `quote.lines[0]` et ne rend pas les autres lignes sélectionnables (`app.js:345`). Enfin les boutons Nouveau Budget/Devis des onglets et les actions statut/version/avenant sont injectés sans garde `quote.manage` (`app.js:342`, `app.js:360`, `app.js:366`), contrairement aux cartes projet (`app.js:341`). Le serveur refuse les mutations non autorisées, mais l'interface ne respecte pas les permissions visibles ni le parcours clavier attendu.
+
+### Contrôles conformes dans l'état inspecté
+
+- Budget et Devis sont bien des types/collections distincts ; créer un document ne crée pas de réservation.
+- Les mutations de ligne et de statut utilisent le contrôle optimiste `version`; la création de document possède une clé d'idempotence liée à l'acteur et au tenant.
+- Les statuts `sent` et `accepted` bloquent les mutations de contenu, et les successeurs sont de nouveaux brouillons avec identifiants distincts.
+- Le snapshot fiscal vérifie organisation/site, permission d'override TVA, applicabilité du taux et copie les données légales (`server.js:881-892`). Les calculs monétaires utilisent `BigInt`, bornes int64 et arrondi half-up (`server.js:868-879`); coût et marge restent absents du PDF.
+- Les routes principales Devis appliquent auth, CSRF/Origin, `quote.read`/`quote.manage`, isolation société/site, audit puis SSE après écriture. Les événements SSE ne transportent pas le détail monétaire.
+- Les trois modes d'import et la prévisualisation inter-document existent sur `/import-reservations`; les écarts Devis/Planning sont calculés sans synchronisation silencieuse.
+- La sélection Booking, le clic droit et `Maj+F10` existent. Aucun P0/P1 statique supplémentaire n'est relevé sur l'alignement des lignes, le fond week-end, le cadre Aujourd'hui ou le login. Leur comportement visuel réel reste à démontrer en E2E navigateur.
+
+### Preuves exécutées
+
+- `node --check server.js` : succès.
+- `node --check app.js` : succès.
+- `node --test tests/quotes.test.js` : **25 réussis, 0 échec, 0 ignoré**, environ 531 ms.
+- `npm test` : **122 réussis, 0 échec, 0 ignoré**, 6 437,68 ms.
+- `git diff --check` : succès.
+- Environnement : Node v26.6.0, Darwin arm64.
+
+### Tests manquants avant re-review
+
+- double liaison inter-document via la route `/lines/:lineId/bookings`, avec refus puis confirmation traçable ; déliaison et absence de suppression du Planning ;
+- priorité de taux projet/client/catalogue, override manuel, taux inactif et isolation client ;
+- conversion Budget → Devis, conservation du Budget, snapshots/versionNumbers successifs et relecture exacte de chaque version ;
+- remises ligne/section, arrondis/overflow après remise, marge et totaux PDF ;
+- PDF de plus de 32 lignes, données projet/client modifiées après envoi, conditions/validité/signature et absence de toute donnée interne ;
+- rôles personnalisés sans `quote.read` sur rate cards, dashboard et liens commerciaux ; références client/site inter-tenant lors du PATCH Projet ;
+- sélection jour avec filtres projet/site/statut, sélection d'une ligne autre que la première, visibilité des actions en lecture seule et parcours clavier/focus ;
+- acceptation avec réservations liées et confirmation explicite, audit/SSE/idempotence des nouvelles commandes ;
+- E2E navigateur sur login, alignement ressource/cellule, week-ends, cadre Aujourd'hui, clic droit clavier/souris, responsive et persistance après rechargement.
+
+### Condition de re-review
+
+Corriger les neuf P1 et ajouter les cas négatifs correspondants, puis rejouer REVIEW et tous les gates aval impactés sur la même empreinte. Le vert **122/122** ne vaut pas approbation de comportements absents ou non exercés. Conformément au mandat, seul `docs/code-review.md` a été modifié ; `docs/project-status.md` reste à actualiser par l'intégrateur.
+
+---
+
+## Re-REVIEW indépendante Commercial 08 — fermeture des neuf P1
+
+Date : 2026-08-16  
+Candidat : `server.js` `b948492386cb4eb835bde53877d2346136996893fe58d5bbc4724a8e702559e4`, `app.js` `77696c3bdc2e4e9fc40d71152b6685d7c96bda77f86cd08efb536385e5d07ce2`, `planning.css` `3f1dc03e58e83dfbbea00a47c57a188e96428fd12ab0fa31f9b9d771831f81be`, `tests/quotes.test.js` `1b950f3cc1b2ff3abdb55d4705acae817ced8e5a57ea775ef8e683de095aa1ef`  
+Références : prompt maître Commercial 08, `AGENTS.md`, `docs/spec-quotes-postproduction.md` et constats du gate REVIEW précédent  
+Indépendance : aucun code, actif frontend, test ou spécification n'a été modifié par le reviewer
+
+### Verdict final REVIEW
+
+**APPROVED — 0 P0, 0 P1.**
+
+Les neuf P1 du verdict précédent sont fermés sur les empreintes ci-dessus. Deux observations P2 d'accessibilité/présentation restent à traiter sans bloquer le passage au gate QA ; l'E2E navigateur demeure un gate aval distinct.
+
+### Statut des neuf P1
+
+1. **Liaison directe et double facturation : FERMÉ.** La liaison directe recherche désormais les liens des autres documents, exige `confirmDuplicateBookingIds` et retourne `COMMERCIAL_DOUBLE_BILLING_CONFIRMATION_REQUIRED` en son absence (`server.js:937-940`, `server.js:1236-1237`). La décision est conservée dans `line.linkTrace` et l'audit. La déliaison dédiée recalcule l'état de la ligne sans modifier la réservation (`server.js:1238-1239`). Le test `tests/quotes.test.js:261-267` démontre refus, confirmation, audit et Planning inchangé.
+
+2. **Priorité tarifaire et override manuel : FERMÉ.** `rateForSource` ordonne explicitement projet, client puis catalogue et départage par version (`server.js:915`). La route de création de tarif valide tenant, source, projet/client exclusifs, montants et permissions (`server.js:1206`). Une saisie de prix explicite devient `priceOrigin="manual"` avec acteur/date/origine antérieure (`server.js:929-932`). Les tests `:270-278` exercent les trois niveaux, le taux inactif, l'override et une référence client invalide.
+
+3. **Conversion Budget → Devis : FERMÉ.** `POST /quotes/:budgetId/convert-to-quote` exige version, permission, CSRF et clé d'idempotence ; il crée une nouvelle identité dans `quotes`, conserve le Budget, copie ses snapshots et lignes, inscrit `sourceBudgetId`, version initiale, audit et SSE (`server.js:1221-1222`). Le test `:281-285` vérifie conservation et rejeu idempotent.
+
+4. **Remises exactes : FERMÉ.** La remise de ligne en points de base est calculée en `BigInt`, half-up avant TVA (`server.js:889-895`), stockée avec son motif et intégrée à la marge (`server.js:924-932`). La remise document, son montant TVA séparé et les totaux sont recalculés sans flottants (`server.js:934`). Les routes et l'UI couvrent remise ligne/document, conditions et validité (`server.js:1212-1216`, `server.js:1252`, `app.js:369-373`). Les tests incluent demi-unité et résultat multi-lignes (`tests/quotes.test.js:61-63`, `:281-289`).
+
+5. **Versions et snapshots accessibles : FERMÉ.** `captureCommercialVersion` incrémente strictement le maximum (`server.js:914`), la migration renumérote les historiques de façon déterministe (`server.js:251-262`) et la route de détail retourne le snapshot seulement après contrôle du document, du tenant et de l'identifiant de version (`server.js:1247-1250`). L'UI Historique charge la liste puis le détail échappé (`app.js:372`). Le test obtient `[1, 2]` et relit le contenu complet de V1 (`tests/quotes.test.js:286-287`).
+
+6. **PDF multipage, fidèle au snapshot et sans données internes : FERMÉ.** Le PDF refuse un document sans snapshot commercial, utilise uniquement `fiscalSnapshot`, `commercialSnapshot` et les champs figés du document, parcourt toutes les lignes, pagine, puis restitue remises, HT/TVA/TTC, conditions, validité et signature (`server.js:948-952`). Il ne sérialise aucun coût ou champ de marge. Les tests vérifient plus de 32 lignes, pagination, projet live modifié non repris, contenu commercial et absence de coûts/marges (`tests/quotes.test.js:193-200`, `:281-289`).
+
+7. **RBAC et isolation des surfaces adjacentes : FERMÉ.** `/rate-cards`, `/projects/:id/dashboard` et `/reservations/:id/commercial-links` exigent maintenant `quote.read`; `/rates` exige `quote.manage` en écriture (`server.js:1019-1021`). Les filtres société/site restent appliqués par les handlers. Un rôle personnalisé limité à `planning.read` reçoit 403 sur les trois lectures (`tests/quotes.test.js:300-304`), et les références client/site étrangères d'un projet sont rejetées.
+
+8. **Sélection Planning visible : FERMÉ.** Le handler d'en-tête de jour reconstruit la sélection à partir des seuls `[data-select-booking]` présents dans les cellules DOM visibles de cette date (`app.js:377-378`), comme la sélection ressource. Les filtres et le projet actif ne peuvent plus introduire silencieusement des bookings masqués.
+
+9. **Cycle bidirectionnel, acceptation, panneau et permissions UI : FERMÉ pour P0/P1.** La déliaison est exposée dans le panneau sélectionné et préserve le Planning (`app.js:374`). L'acceptation liée demande puis transmet la liste exacte des bookings, tandis que le serveur bloque toute liste incomplète et audite la confirmation (`app.js:363`, `server.js:1223-1224`). Les lignes deviennent sélectionnables au clic, à Entrée et Espace et pilotent le panneau (`app.js:374-376`). Les contrôles de mutation sont retirés sans `quote.manage`, y compris dans les onglets Projet (`app.js:376`, `app.js:379-380`); le serveur reste l'autorité.
+
+### P2 — Importants non bloquants
+
+1. **Ligne sélectionnée visuellement ambiguë.** La règle historique `.quote-lines-panel tbody tr:first-child` continue de surligner systématiquement la première ligne (`planning.css:55`) tandis que `.is-selected` surligne la ligne réellement choisie (`planning.css:63`). Après sélection d'une autre ligne, deux lignes paraissent actives. Remplacer la règle `:first-child` par le seul état `.is-selected`.
+
+2. **Focus clavier incomplet sur les lignes et le menu contextuel.** Les lignes reçoivent `tabIndex=0`, mais la règle de focus Commercial ne couvre que boutons, liens et champs (`planning.css:46`) : le focus du `<tr>` n'est pas explicitement visible. En outre, `Échap` ferme le menu Planning sans restaurer le focus à l'élément déclencheur (`app.js:324-326`). Ajouter un style `tr[data-quote-line-row]:focus-visible` et mémoriser/restaurer le déclencheur du menu.
+
+### Preuves exécutées
+
+- `node --check server.js` : succès.
+- `node --check app.js` : succès.
+- `node --test tests/quotes.test.js` : **32 réussis, 0 échec, 0 ignoré**, 835,20 ms.
+- `npm test` : **129 réussis, 0 échec, 0 ignoré**, 6 367,77 ms.
+- `git diff --check` : succès.
+- Environnement : Node v26.6.0, Darwin arm64.
+- Tentative de contrôle UI avec le skill navigateur local : aucun navigateur n'était connecté/disponible. Aucun résultat visuel ou E2E n'est donc revendiqué ; les observations UI de cette revue reposent sur l'inspection des handlers, du DOM produit et des styles. Le smoke navigateur reste explicitement dû au gate E2E.
+
+### Conclusion contrôlante
+
+Le statut précédent **CHANGES REQUIRED — 0 P0, 9 P1** est remplacé, pour ce candidat et ces empreintes, par **APPROVED — 0 P0, 0 P1**. Toute modification ultérieure de `server.js`, `app.js`, `planning.css` ou des contrats Commercial invalide cette approbation jusqu'à revalidation. Conformément au mandat, seul `docs/code-review.md` a été modifié ; la mise à jour de `docs/project-status.md` appartient à l'intégrateur.
+
+---
+
+## Re-review ciblée — finition des deux P2 UI Commercial 08
+
+Date : 2026-08-17  
+Candidat : `server.js` `d2b8860e00fbb62759cba7398c2a785c618b7bbcb478f1368a8d58162a2c7753`, `app.js` `3d1aa2eec1a227f866de70d8d6cced7bace11b7b2797be4d7151360b06558c17`, `planning.css` `10d881ae348f1ae6052a4c82cc905b0fe5296a996fa0fef7b8c1973c137ea2df`, `tests/quotes.test.js` `d6fb8bd2fe8603d4e4be2b2612ac2fe3f519741df3feafb408b4342611101bb9`  
+Périmètre : état neutre et sélection explicite des lignes Devis ; focus clavier et menu contextuel Planning ; non-régression Planning/login/Devis  
+Indépendance : aucun code, style ou test modifié
+
+### Verdict
+
+**CHANGES REQUIRED — 0 P0, 1 P1.**
+
+La finition introduit une exception bloquante à l'ouverture d'un document sans sélection explicite. Le P2 de surlignage implicite reste également ouvert. Les suites Node vertes ne couvrent pas l'exécution DOM de ce chemin.
+
+### P1 — Régression bloquante
+
+1. **L'état neutre fait échouer le binding de l'espace Devis.** Dans `bindCommercial` (`app.js:376`), la branche sans ligne sélectionnée contient `else quotesModule.selectedLineId=nulldocument.querySelectorAll(...)`. `nulldocument` est un identifiant inexistant. Le nouveau wrapper (`app.js:382`) initialise précisément `selectedLineId` à `null` lorsqu'aucun choix explicite n'existe, puis appelle ce binding : l'ouverture initiale d'un devis avec des lignes lève donc `ReferenceError: nulldocument is not defined` avant l'installation des handlers de lignes. Le panneau neutre est produit dans le HTML, mais l'écran n'est pas fonctionnel et aucune ligne ne peut ensuite être sélectionnée.
+
+   Correction attendue : séparer explicitement l'affectation `quotesModule.selectedLineId = null;` de `document.querySelectorAll(...)`, puis ajouter un test DOM/comportemental qui ouvre un devis sans sélection, constate le panneau neutre, sélectionne une ligne au clic et au clavier, et vérifie l'absence d'exception.
+
+### Statut des deux P2
+
+1. **Première ligne sélectionnée implicitement : OUVERT.** Le nouvel état mémorisé par document, le panneau neutre et les attributs `aria-selected="false"/"true"` vont dans le bon sens. Cependant l'ancienne règle `.quote-lines-panel tbody tr:first-child` subsiste dans `planning.css:55` et applique toujours fond et barre violette à la première ligne, indépendamment de `.is-selected`. La première ligne paraît donc active avant tout choix et deux lignes peuvent paraître actives après sélection d'une autre. La règle `.is-selected` de `planning.css:63` ne neutralise pas ce style historique.
+
+2. **Focus clavier et restauration du menu : PARTIELLEMENT FERMÉ.** `tr[data-quote-line-row]:focus-visible` fournit désormais un contour explicite. Le menu mémorise le déclencheur exact pour clic droit via la capture `contextmenu`, et pour `Maj+F10` via l'élément actif ; `closePlanningContextMenu()` restaure ce déclencheur avec `focus({ preventScroll: true })` après Échap ou clic extérieur tant qu'il reste connecté. Les handlers d'action passent également par cette fermeture, mais certaines actions enchaînent immédiatement un changement de route, un `render()` ou l'ouverture du drawer qui déconnecte le déclencheur ou déplace volontairement le focus. Un test DOM doit fixer le comportement attendu pour chaque sortie, particulièrement « Effacer la sélection » et les actions de navigation. Ce point reste P2 et n'est pas la cause du verdict bloquant.
+
+### Régressions et couverture
+
+- Aucun nouveau P0/P1 backend, Planning métier ou login n'a été trouvé dans l'inspection ciblée ; les tests existants restent verts.
+- Le test UI de `tests/quotes.test.js:351-365` est uniquement textuel (`assert.match`). Il confirme la présence de symboles/styles mais n'exécute ni `bindCommercial`, ni la sélection, ni la restitution réelle du focus. Il laisse donc passer le `ReferenceError` et la règle `:first-child` contradictoire.
+- Tests manquants : ouverture réelle d'un Devis avec zéro sélection ; état visuel initial sans classe ni style implicite ; clic/Entrée/Espace sur une autre ligne avec unicité de `.is-selected` et `aria-selected`; focus visible ; retour exact après Échap, clic extérieur et chaque action du menu ; smoke login → planning → devis.
+
+### Preuves fraîches
+
+- `node --check server.js` : succès.
+- `node --check app.js` : succès ; cette commande valide la grammaire mais ne résout pas les identifiants au runtime.
+- `node --test tests/quotes.test.js` : **34 réussis, 0 échec, 0 ignoré**, 2 403,62 ms.
+- `npm test` : **131 réussis, 0 échec, 0 ignoré**, 6 522,88 ms.
+- `git diff --check` : succès.
+- Environnement : Node v26.6.0.
+
+### Condition de re-review
+
+Corriger le `ReferenceError`, supprimer le style `:first-child` implicite et ajouter une preuve DOM ciblée des états/focus. Le gate REVIEW ne peut revenir à **APPROVED** qu'après revalidation sur les nouvelles empreintes. Seul `docs/code-review.md` a été modifié ; l'intégrateur reste owner de `docs/project-status.md`.
+
+---
+
+## Re-review finale — correctif UI Commercial 08
+
+Date : 2026-08-17  
+Candidat : `server.js` `d2b8860e00fbb62759cba7398c2a785c618b7bbcb478f1368a8d58162a2c7753`, `app.js` `51a60fa544995ed39bdb6a8d30b25dfc1a49479f612360bf1fb46c2441e148e0`, `planning.css` `2cd4c6a5ed1b109dc33aeb0780e13b2eef8ab6e68fbc43c15402a294ee1aaeb6`, `tests/quotes.test.js` `d322de70e36288f854ac0a70b86610029a90a4a7a36e51e3e2ba89b57d3d710f`  
+Indépendance : aucun code, style ou test modifié
+
+### Verdict final contrôlant
+
+**APPROVED — 0 P0, 0 P1. Les deux P2 UI sont fermés.**
+
+- **Binding sans sélection et panneau neutre : FERMÉ.** `app.js:376` sépare maintenant correctement `quotesModule.selectedLineId = null;` de l'itération DOM. Il n'existe plus aucune occurrence de `nulldocument`. Le wrapper explicite initialise l'état à `null`, conserve le panneau « Sélectionnez une ligne », retire toute classe active et pose `aria-selected="false"`; clic, Entrée ou Espace enregistrent ensuite le choix par document, appliquent l'unique `.is-selected`, mettent à jour `aria-selected` et rendent le détail.
+- **Surlignage implicite : FERMÉ.** La règle historique `.quote-lines-panel tbody tr:first-child` a disparu de `planning.css`. Le fond et la barre violette ne sont produits que par `tr[data-quote-line-row].is-selected` (`planning.css:63`).
+- **Focus clavier et menu Planning : FERMÉ.** Les lignes ont un `:focus-visible` explicite. Le déclencheur du menu est mémorisé depuis l'événement capturé pour le clic droit ou depuis l'élément actif pour `Maj+F10`; la fermeture par Échap, clic extérieur ou handler d'action passe par `closePlanningContextMenu()` et restaure ce déclencheur exact avec `focus({ preventScroll: true })` lorsqu'il est encore connecté. Les actions ouvrant un drawer ou changeant de route transfèrent ensuite légitimement le focus vers la nouvelle vue.
+- **Régressions : aucune P0/P1 nouvelle trouvée.** Les chemins Planning, login et Devis couverts par la suite restent verts. La preuve UI ajoutée verrouille aussi l'absence littérale de `nulldocument` et de la règle `:first-child`, ainsi que la présence des états et du focus.
+
+### Preuves fraîches
+
+- `node --check server.js` : succès.
+- `node --check app.js` : succès.
+- `node --test tests/quotes.test.js` : **34 réussis, 0 échec, 0 ignoré**, 2 444,52 ms.
+- `npm test` : **131 réussis, 0 échec, 0 ignoré**, 6 893,69 ms.
+- `git diff --check` : succès.
+- Environnement : Node v26.6.0.
+
+Ce verdict remplace le **CHANGES REQUIRED — 0 P0, 1 P1** de la re-review immédiatement précédente pour les seules empreintes ci-dessus. Le smoke navigateur complet reste du ressort du gate E2E ; aucun défaut P0/P1 n'est ouvert au gate REVIEW. Seul `docs/code-review.md` a été modifié, conformément au mandat.
+
+---
+
+## Gate REVIEW indépendant — Clients 05
+
+Date : 2026-08-17  
+Candidat : `server.js` `f10765451609ba8001ffc17911391ebc0d71afa0e227a5f03d0d445e64693cc9`, `app.js` `eca9729ce84607d3a58b2b7abfae14b92cb2958c4f90151f7d3473de82c9e0a5`, `planning.css` `44022c414a04498d706dbe0e33eaff986ab93e8ce0f878109f69898f72f47004`, `tests/clients.test.js` `a7247ad96cadf2279e8295dbc8175e28490bcedb7cbe2c16ff953eb75ed42a22`, spécification `317bd38489f454eeed59d11bcc9410ac03c3ca95f55bab68ad5302b5acafef1d`  
+Périmètre : comptes/contacts, grille XLSX, tarification, consommateurs Devis/snapshot/PDF, UI Clients et non-régression générale  
+Indépendance : aucun code, style ou test modifié
+
+### Verdict
+
+**CHANGES REQUIRED — 0 P0, 3 P1.**
+
+La suite est verte, mais trois critères explicites restent enfreints et ne sont pas couverts par les tests Clients.
+
+### P1 — bloquants release
+
+1. **La création d'un contact n'est pas réellement idempotente.** Dans `server.js:1588`, `requireVersion({ version: input.clientVersion }, client)` est exécuté avant `clientCommandMarker(...)`. La première création incrémente la version du client ; le rejeu strict de la même requête et de la même `Idempotency-Key`, avec le même corps, échoue donc en `409 VERSION_CONFLICT` avant de consulter le marqueur, au lieu de restituer le contact créé sans duplication. Le contrat impose l'idempotence des créations. Déplacer la détection/restitution du marqueur avant le contrôle de version, tout en conservant le conflit si la clé porte un corps différent, et ajouter le rejeu exact au test.
+
+2. **Un prix manuel catalogue ou sans tarif contourne `quote.overridePrice`.** `quoteLineFromInput` (`server.js:1113`) ne refuse un prix modifié que si `protectedRate = rate && (rate.projectId || rate.clientId)` est vrai. Un planificateur sans permission peut donc remplacer un tarif catalogue, ou saisir librement un prix lorsqu'aucun tarif n'existe. `docs/spec-clients-05.md:16` qualifie toute saisie manuelle d'override réservé à `quote.overridePrice`. Le test actuel (`tests/clients.test.js:29`) ne couvre que le remplacement d'un tarif client. La permission et la trace doivent s'appliquer à toute valeur manuelle différente du prix résolu, quelle que soit son origine.
+
+3. **Les téléphones démesurés sont acceptés par troncature silencieuse.** `clientInput` (`server.js:1183-1188`) et `clientContactInput` (`server.js:1190-1193`) passent l'entrée dans `cleanString(..., 40)` avant toute validation de longueur ; aucune erreur n'est ajoutée pour une source dépassant 40 caractères. Une valeur surdimensionnée est donc enregistrée tronquée alors que le critère d'acceptation 2 exige son refus. Ajouter une validation sur l'entrée non tronquée et des cas compte/contact qui attendent `422 VALIDATION_ERROR` avec le champ `phone`.
+
+### P2 — importants non bloquants après correction des P1
+
+1. **Le fichier confirmé est écrit avant la mutation sérialisée.** Dans `server.js:1594`, `storeClientPlanningFile(preview._file)` précède `mutate(...)`. Une version devenue obsolète dans la file d'écriture, ou un échec de persistance JSON, laisse un fichier privé orphelin sans `clientRateImport`, grille, audit ni mécanisme de nettoyage. Le fichier reste non public et en mode `0600`, ce qui limite l'impact, mais la confirmation devrait coordonner fichier et enregistrement ou supprimer le fichier nouvellement créé en cas d'échec.
+
+2. **La couverture UI Clients reste textuelle.** `tests/clients.test.js:22` cherche des chaînes dans `app.js` sans exécuter le DOM. Elle ne prouve pas le focus initial du drawer, le parcours clavier de la liste/preview, la confirmation de suppression ni le rendu XSS. L'inspection montre l'emploi cohérent de `esc`/`inputValue`, des libellés accessibles, une confirmation explicite et des règles `:focus-visible`, sans P0/P1 statique identifié ; une preuve navigateur demeure néanmoins requise au gate E2E.
+
+3. **L'ajout asynchrone des contacts au drawer Devis n'est pas rattaché au projet initial.** `app.js:494` vérifie seulement que l'éditeur actif est encore de type `quoteCreate`. Si un second drawer Devis est ouvert avant la résolution du premier `GET`, la réponse ancienne peut alimenter la liste du nouveau projet. Le serveur refuse ensuite un contact hors client, donc il n'y a pas de corruption, mais l'UI peut proposer un contact incohérent. Capturer l'identifiant projet/client et l'instance d'éditeur avant injection.
+
+### Contrôles conformes observés
+
+- Isolation société par `companyId` de session et `404` inter-tenant ; mutations protégées par CSRF/origine, `client.manage`, versions, audit, puis SSE après succès.
+- CRUD comptes/contacts, suppression logique et conservation des snapshots historiques ; sélection de contact contrôlée contre le client du projet.
+- Prévisualisation XLSX sans écriture persistante, validation des lignes retenues au commit, stockage opaque privé (`0700`/`0600`) et rejeu idempotent de l'import sans duplication.
+- Résolution tarifaire `projet > client > catalogue`, snapshot contact profondément copié dans les versions commerciales, et consommateur PDF basé sur le snapshot plutôt que sur le contact vivant.
+- Données Clients échappées dans les principaux rendus ; aucune régression P0/P1 Planning, login ou PlanyBot détectée par l'inspection et la suite complète.
+
+### Tests manquants déterminants
+
+- rejeu exact de création contact avec même clé/corps/version initiale, puis conflit même clé/corps différent ;
+- refus `422` d'un téléphone de plus de 40 caractères sur compte et contact ;
+- refus d'un prix manuel catalogue et d'un prix manuel sans tarif pour un rôle sans `quote.overridePrice`, avec trace/audit pour le rôle autorisé ;
+- échec concurrent/versionné du commit XLSX sans fichier orphelin ;
+- assertions audit/SSE Clients, isolation des contacts et import, et rendu PDF contenant le snapshot contact ancien après modification/suppression ;
+- smoke DOM clavier/XSS du module Clients et sélection contact Devis.
+
+### Preuves fraîches
+
+- `node --check server.js` : succès.
+- `node --check app.js` : succès.
+- `node --test tests/clients.test.js` : **9 réussis, 0 échec, 0 ignoré**, 499,92 ms.
+- `node --test tests/quotes.test.js` : **40 réussis, 0 échec, 0 ignoré**, 2 798,78 ms.
+- `npm test` : **160 réussis, 0 échec, 0 ignoré**, 6 641,61 ms.
+- `git diff --check` : succès.
+- Environnement : Node v26.6.0, Darwin arm64.
+
+Ce verdict porte uniquement sur les empreintes ci-dessus. Toute correction revient en DEV puis exige une re-review ciblée et les gates aval. Conformément au mandat, seul `docs/code-review.md` est modifié ; l'intégrateur reste owner de `docs/project-status.md`.
+
+---
+
+## Re-review indépendante — correctifs Clients 05
+
+Date : 2026-08-18  
+Candidat : `server.js` `20848828f3d67b7bc693cc45cd5fa1f2d740c64972ca9c2cfa00ac253a72618e`, `app.js` `eca9729ce84607d3a58b2b7abfae14b92cb2958c4f90151f7d3473de82c9e0a5`, `planning.css` `44022c414a04498d706dbe0e33eaff986ab93e8ce0f878109f69898f72f47004`, `tests/clients.test.js` `81c8d19694cb8dd59fcfcbeb3cf57e53446dd694693bd53b02431df5b5810e3e`, `tests/quotes.test.js` `34836dc5101349de86bc4588e88e6b46f346524625d4b64c7979ca4e6d2c2046`, spécification `7f798893ad959b6b0a7eace3e5bd4dc57d696a32d3c1b5af91188e0bdf497f1d`  
+Indépendance : aucun code, style ni test modifié
+
+### Verdict contrôlant
+
+**CHANGES REQUIRED — 0 P0, 2 P1.**
+
+Les P1 contact et téléphone sont fermés. La protection serveur des prix couvre maintenant toutes les origines, mais le contrat du motif reste permissif et l'interface actuelle n'est pas compatible avec cette protection. Les suites vertes n'exécutent pas les handlers DOM concernés.
+
+### Statut exact des trois P1 précédents
+
+1. **Replay POST contact : FERMÉ.** Dans `server.js:1588`, le marqueur est recherché sous la mutation sérialisée avant `requireVersion`. Un rejeu exact revalide le tenant, le client et l'entité enregistrée, renvoie `200`, n'émet pas de nouvel événement et ne modifie ni le nombre de contacts ni la version du client. Une même clé avec un autre corps reste refusée en `409`. `tests/clients.test.js:25` vérifie le `200`, l'identité, l'absence de doublon et l'absence de nouveau bump de version.
+
+2. **Permission d'override sur toutes les origines : PARTIELLEMENT FERMÉE.** `server.js:1113` applique désormais `quote.overridePrice` à toute valeur `unitPriceMinor` explicitement saisie lors d'une création, ainsi qu'à toute altération d'une ligne existante, y compris catalogue ou absence de grille ; l'omission du prix conserve correctement la résolution automatique `projet > client > catalogue`. Les traces et audits sont présents. Deux écarts P1 restent toutefois décrits ci-dessous.
+
+3. **Téléphone supérieur à 40 caractères : FERMÉ.** `clientInput` et `clientContactInput` contrôlent maintenant la longueur de l'entrée avant que la valeur tronquée puisse être acceptée et renvoient `422 VALIDATION_ERROR` avec `phone`. `tests/clients.test.js:24-25` couvre compte et contact, avec absence de mutation du contact.
+
+### P1 — bloquants release
+
+1. **Le serveur n'exige pas réellement le champ dédié `priceOverrideReason`.** `server.js:1113` calcule `priceOverrideReason = cleanString(input.priceOverrideReason, 200) || cleanString(input.discountReason, 200)`. Une requête peut donc altérer manuellement un prix en omettant `priceOverrideReason` et faire accepter le motif d'une remise comme justification de prix. Cela confond deux décisions commerciales distinctes et ne respecte pas la revalidation demandée « `quote.overridePrice` + `priceOverrideReason` pour toute saisie/altération manuelle ». Exiger le champ dédié pour `priceChanged`; conserver `discountReason` uniquement pour la remise. Ajouter un test négatif où seul `discountReason` est fourni avec un prix manuel.
+
+2. **Les parcours UI qui transmettent un prix ne fournissent pas le motif requis et certains forcent inutilement un override.** L'empreinte `app.js` n'a pas changé depuis la revue précédente :
+   - `submitPlanningCommercialPreview` (`app.js:341`) construit chaque `lineAdjustment` avec `unitPriceMinor`, initialisé à `0`, sans `priceOverrideReason` ;
+   - `submitQuoteImport` (`app.js:366`) transmet toujours le « prix provisoire » sans motif ;
+   - une ligne libre dans `submitQuoteLine` (`app.js:384`) transmet nécessairement `unitPriceMinor`, mais le drawer ne propose qu'un « Motif de remise », pas un motif d'override ; une modification de prix catalogue suit le même problème.
+
+   Avec le contrat serveur corrigé, un planificateur reçoit `403` et un administrateur `422 QUOTE_PRICE_OVERRIDE_REASON_REQUIRED`; les imports planning et l'ajout normal de lignes libres deviennent donc inutilisables. Pour les prix non modifiés, l'UI doit omettre `unitPriceMinor` afin de laisser le serveur résoudre automatiquement le tarif. Pour une saisie réellement manuelle, elle doit afficher un champ distinct, requis, transmettre `priceOverrideReason` et tenir compte de `quote.overridePrice`. Ajouter des tests DOM/API couvrant les trois parcours.
+
+### Compensation fichier import
+
+**FERMÉE statiquement.** `storeClientPlanningFile` retourne maintenant `created` et `destination`. Le stockage est déplacé dans la mutation après la seconde vérification de version (`server.js:1594`), puis le fichier nouvellement créé est supprimé si la mutation ou l'écriture atomique échoue. Un fichier préexistant de même digest n'est pas supprimé. Le test Clients vérifie qu'une version obsolète ne crée aucun fichier supplémentaire. Une injection d'échec d'`atomicWrite` reste souhaitable pour couvrir directement la branche de compensation, mais aucun P0/P1 résiduel n'est identifié sur ce point.
+
+### P2 restant — contacts asynchrones entre drawers
+
+**OUVERT.** `app.js:494` ne vérifie que `activeStockEditor?.kind === 'quoteCreate'` au retour du `GET /contacts`. Une réponse lente du premier projet peut donc injecter ses contacts dans un second drawer Devis ouvert entre-temps. Le serveur refuse finalement un contact qui n'appartient pas au client du second projet, empêchant la corruption ; l'utilisateur voit néanmoins une sélection erronée. Capturer et comparer l'instance d'éditeur ainsi que les identifiants projet/client avant l'injection.
+
+### Preuves fraîches
+
+- `node --check server.js` : succès.
+- `node --check app.js` : succès.
+- `node --test tests/clients.test.js` : **9 réussis, 0 échec, 0 ignoré**, 557,64 ms.
+- `node --test tests/quotes.test.js` hors sandbox après un essai sandbox refusé par `listen EPERM` : **40 réussis, 0 échec, 0 ignoré**, 2 617,20 ms.
+- `npm test` : **160 réussis, 0 échec, 0 ignoré**, 6 665,59 ms.
+- `git diff --check` : succès.
+- Environnement : Node v26.6.0, Darwin arm64.
+
+Ce verdict remplace le **CHANGES REQUIRED — 0 P0, 3 P1** précédent pour les empreintes ci-dessus. La correction des deux P1 revient en DEV puis exige une re-review ciblée et les gates aval. Seul `docs/code-review.md` a été modifié ; `docs/project-status.md` reste à la charge de l'intégrateur.
+
+---
+
+## Re-review finale — Clients 05
+
+Date : 2026-08-18  
+Candidat : `server.js` `375b30f87e9f926a330d722853661dce04b700e8f5fc0cabc224deb6a86bfbb3`, `app.js` `fe68c40f8262aa2028398ee15a5787a17de1fb6e614dcb6cf0335b2319953229`, `planning.css` `44022c414a04498d706dbe0e33eaff986ab93e8ce0f878109f69898f72f47004`, `tests/clients.test.js` `628222b8cb83fe920cc85ad4b4688f7d38c7886b648836ecae3e81a684015d99`, `tests/quotes.test.js` `8ad71ffa9e7d8b8a12009ac5fba6e24c4e65928d6ab7f23a5bec1b1fb1c2e593`, spécification `66257a659cd4356961e5491d6b94f725a1bf62b66671c87648de526f6da4346d`  
+Indépendance : aucun code, style ni test modifié
+
+### Verdict terminal
+
+**APPROVED — 0 P0, 0 P1.**
+
+Les deux P1 de la re-review précédente sont fermés sur les empreintes ci-dessus. Aucun nouveau P0/P1 n'a été identifié dans le périmètre Clients 05 et ses consommateurs Devis/Planning.
+
+### Fermeture des deux P1
+
+1. **Motif d'override dédié : FERMÉ.** `quoteLineFromInput` (`server.js:1113`) ne reprend plus `discountReason` comme solution de repli. Toute création portant explicitement `unitPriceMinor`, ou toute altération de la valeur existante, exige d'abord `quote.overridePrice`, puis un `priceOverrideReason` nettoyé d'au moins trois caractères. Le prix automatique reste obtenu en omettant le champ. La trace `manualPriceTrace` conserve acteur, date, origine précédente et motif ; les audits de création, ajout, modification et import reprennent le motif. Le test Clients vérifie aussi que `discountReason` seul reçoit `422 QUOTE_PRICE_OVERRIDE_REASON_REQUIRED`, tandis qu'un override autorisé est tracé.
+
+2. **Intégration UI des prix : FERMÉE.** Les trois parcours utilisent désormais `manualPriceOverridePayload` :
+   - la prévisualisation Planning → Commercial présente un prix vide « Tarif automatique » et n'ajoute `unitPriceMinor`/`priceOverrideReason` à un `lineAdjustment` qu'après une saisie manuelle motivée ;
+   - l'import Planning dans un Devis laisse également le prix vide par défaut et omet les deux champs ;
+   - l'éditeur de ligne mémorise le tarif résolu, omet le prix si la valeur affichée est inchangée, et exige le motif dédié pour une ligne libre ou un prix réellement différent.
+
+   Le motif de remise demeure un champ séparé et n'alimente jamais le motif d'override. Un contrôle direct du helper confirme : champ vide → `{}`, tarif résolu inchangé → `{}`, prix modifié sans motif → erreur, prix modifié motivé → `{ unitPriceMinor, priceOverrideReason }`.
+
+### Anti-race contacts
+
+**FERMÉ.** `app.js:495` capture l'objet éditeur, le projet et un `contactsRequestToken` unique. La réponse asynchrone n'est injectée que si l'éditeur est toujours le même objet, reste de type `quoteCreate`, porte le même token et concerne encore le même projet. La garde évite aussi une seconde insertion si `contactId` existe déjà. Une réponse tardive d'un premier drawer ne peut donc plus alimenter le suivant.
+
+### Limites non bloquantes
+
+- Les assertions UI dans `tests/clients.test.js` et `tests/quotes.test.js` restent majoritairement structurelles/textuelles. Le helper de payload a été exécuté directement pendant cette revue, mais un test DOM des trois soumissions et un test à promesses contrôlées de la course contacts renforceraient la non-régression.
+- Le smoke navigateur complet, le focus et le rendu visuel restent dus au gate E2E ; aucun défaut P0/P1 statique ou API n'est ouvert ici.
+
+### Preuves fraîches
+
+- `node --check server.js` : succès.
+- `node --check app.js` : succès.
+- `node --test tests/clients.test.js` : **9 réussis, 0 échec, 0 ignoré**, 715,71 ms.
+- `node --test tests/quotes.test.js` : **40 réussis, 0 échec, 0 ignoré**, 3 050,16 ms.
+- `npm test` : **160 réussis, 0 échec, 0 ignoré**, 7 349,77 ms.
+- Contrôle direct `manualPriceOverridePayload` : quatre cas conformes (vide, automatique inchangé, motif absent refusé, override motivé).
+- `git diff --check` : succès.
+- Environnement : Node v26.6.0, Darwin arm64.
+
+Ce verdict remplace le **CHANGES REQUIRED — 0 P0, 2 P1** immédiatement précédent pour les seules empreintes ci-dessus. Toute modification ultérieure du candidat invalide cette approbation jusqu'à revalidation. Conformément au mandat, seul `docs/code-review.md` a été modifié ; `docs/project-status.md` reste à la charge de l'intégrateur.
+
+---
+
+## Revue ciblée post-smoke — bouton de soumission Clients 05
+
+Date : 2026-08-18  
+Candidat : `server.js` `375b30f87e9f926a330d722853661dce04b700e8f5fc0cabc224deb6a86bfbb3`, `app.js` `98468a3bf0641ff824d093f60a6745c75425acc42088ea95faf267b1c0089a14`, `tests/clients.test.js` `bf15dee6d3600b02a97265c04aef165640159f1bd96f7a4b2a02ba19d95e3555`  
+Indépendance : aucun code ni test modifié
+
+### Verdict
+
+**APPROVED — 0 P0, 0 P1.**
+
+- `openClientAccountDrawer` et `openClientContactDrawer` réinitialisent explicitement `stockDrawerSubmit.disabled = false` avant d'afficher le formulaire. Un drawer d'import qui avait volontairement désactivé le bouton tant qu'aucun fichier n'était sélectionné ne peut donc plus rendre inopérants les drawers compte/contact suivants.
+- La réinitialisation est bornée à l'ouverture de ces deux formulaires et ne change ni route, payload, permission visible ou autorité serveur. Les handlers de soumission désactivent toujours le bouton pendant la requête et le réactivent en `finally`, ce qui préserve la protection ordinaire contre le double clic.
+- Sécurité : aucun contrôle n'est contourné ; les mutations restent soumises à l'authentification, `client.manage`, CSRF/origine, isolation société et versions côté serveur. Réactiver un contrôle UI n'accorde aucun droit.
+- Accessibilité : le bouton natif redevient atteignable et activable au clavier dans le nouveau contexte ; le focus initial demeure placé sur `name` ou `firstName`. Aucun changement de libellé, ordre de tabulation ou annonce d'erreur n'est introduit.
+- Le test source ajouté vérifie la présence de la réinitialisation dans chacune des deux fonctions. Une assertion DOM de la séquence import → compte/contact renforcerait encore la preuve, mais aucune régression P0/P1 n'est identifiée.
+
+### Preuves fraîches
+
+- `node --check app.js` : succès.
+- `node --check server.js` : succès.
+- `node --test tests/clients.test.js` : **9 réussis, 0 échec, 0 ignoré**, 657,63 ms.
+- `npm test` : **160 réussis, 0 échec, 0 ignoré**, 7 159,42 ms.
+- `git diff --check` : succès.
+- Environnement : Node v26.6.0, Darwin arm64.
+
+Ce verdict couvre le correctif post-smoke sur les empreintes ci-dessus et maintient l'approbation Clients 05. Toute modification ultérieure requiert une nouvelle revalidation. Seul `docs/code-review.md` a été modifié ; `docs/project-status.md` reste à la charge de l'intégrateur.
+
+---
+
+## Gate REVIEW G1 indépendant — Sprint 1 S1-A à S1-D
+
+Date : 2026-08-20  
+Reviewer : agent indépendant `g1_review`  
+Périmètre : spécification Sprint 1, migrations, référentiels, tarification, recherche universelle, analytics, OpenAPI, RBAC/scopes, erreurs, accessibilité, régressions et couverture de tests.  
+Indépendance : aucun code, test ou autre document modifié.
+
+### État candidat contrôlé
+
+- `server.js` : `0d4403f2b8dfd4974db1683f72d45dcf99ece4e8577603cce2255e3a0f2936c9`
+- `app.js` : `e7eabad40b1bb1c1cc574097652488cc7fcf56d7cfb1e25ad0dc5fc097a1013f`
+- `docs/api/openapi.yaml` : `ae7306d63e6c44b6c162d95e6bbc5272a0e8038ccf776f6efad3cdac02a4850a`
+- `tests/sprint1-data.test.js` : `5253e5d1727bdb29e3b707f180adca3ab616bae22254591fc256399592bee33d`
+- `packages/pricing/index.js` : `6e458205bbbc39258748975c10654446855640928ea6a94c2a61fb98ec764eb5`
+- `packages/auth/rbac.js` : `e6aa33135071ec694ca9d22141df3e508511505907419470425307eff70137ae`
+
+Les quatre empreintes contractuelles publiées dans `docs/project-status.md` correspondent aux fichiers relus. Le dépôt ne possède cependant aucun commit de référence et tous les fichiers apparaissent non suivis ; la revue a donc été figée par empreintes et non par diff Git reproductible.
+
+### Verdict
+
+**CHANGES REQUIRED — 0 P0, 6 P1.**
+
+Les tests exécutés sont verts, mais six écarts bloquants empêchent d'approuver les critères G1. Le candidat doit retourner en DEV, puis repasser REVIEW et tous les gates aval affectés sur de nouvelles empreintes.
+
+### Constats P1 — bloquants
+
+#### P1-1 — Le contrat Client canonique Sprint 1 n'est pas implémenté
+
+La spécification §4.1 / US-007 impose notamment `currency`, `paymentTermsDays`, `billingTerms` et une adresse de facturation canonique. Dans `server.js`, `clientInput` conserve uniquement les champs historiques d'adresse aplatis et `assertAllowedFields` rejette les nouveaux champs ; `paymentTermsDays` n'existe pas dans l'implémentation. Le schéma Client Sprint 1 correspondant est également absent de l'OpenAPI et les tests n'exercent ni création ni modification avec ce contrat.
+
+Impact : le référentiel Client G1 ne peut pas devenir la source de vérité attendue pour la devise et les conditions commerciales.
+
+Correction attendue : implémenter le contrat serveur et OpenAPI, la compatibilité/migration documentée, les validations et des tests positifs/négatifs incluant persistance et isolation.
+
+#### P1-2 — Les responsabilités obligatoires du Projet ne sont ni structurées ni validées
+
+La spécification §4.2 / US-008 exige `salesOwnerId`, `projectManagerId` et `planningOwnerId`, chacun désignant un membre actif de la même société, en plus de `clientId` et `siteId`. `server.js` accepte encore `salesOwner`, `projectManager` et `planningOwner` sous forme de chaînes libres ; aucune validation de membre actif ou de tenant n'est appliquée. Le test Sprint 1 crée volontairement un projet sans ces responsabilités et attend `201`. L'OpenAPI expose lui aussi le champ historique `planningOwner` plutôt que les trois identifiants.
+
+Impact : l'accountability G1 et l'isolation des références de responsabilité ne sont pas garanties.
+
+Correction attendue : introduire les identifiants canoniques, rejeter les membres absents/inactifs/étrangers et couvrir création, modification et erreurs stables.
+
+#### P1-3 — La hiérarchie Site → Catégorie → Ressource est absente
+
+La spécification §2.1, §4.3 / US-010 exige un référentiel de catégories de ressources. Aucun modèle, stockage, endpoint ou schéma OpenAPI `resourceCategories` n'existe. `compatibleResourceCategoryIds` accepte par ailleurs des chaînes qui ne sont pas résolues contre une catégorie existante de la même société.
+
+Impact : une brique référentielle obligatoire de G1 manque et des compatibilités pendantes ou inter-tenant peuvent être enregistrées.
+
+Correction attendue : fournir le référentiel catégoriel, ses scopes société/site, son archivage et ses contrôles de références, avec tests CRUD, multi-site, références étrangères et archivées.
+
+#### P1-4 — La résolution tarifaire runtime peut ignorer un tarif valide et le scope d'une grille peut être contourné
+
+Deux défauts touchent le cœur US-013/US-014 :
+
+1. Dans `rateForSource`, le runtime sélectionne d'abord le scope prioritaire, puis filtre l'unité demandée. Un tarif Projet d'une autre unité peut donc masquer un tarif Catalogue valide pour l'unité demandée et produire un tarif manquant. Le moteur `packages/pricing` filtre l'unité avant la priorité : les deux autorités divergent.
+2. `createRateCommand` vérifie que la grille est accessible, mais pas que son scope concorde avec `clientId`/`projectId`. Une grille Client peut ainsi recevoir un tarif sans `clientId`, ensuite interprété comme Catalogue par le résolveur runtime.
+
+Impact : prix absent/erroné et pollution possible du catalogue global par un tarif créé sous une grille restreinte.
+
+Correction attendue : conserver une autorité de résolution unique, filtrer date et unité avant la priorité, imposer la cohérence grille/scope/références et ajouter des tests de repli multi-unité et de mismatch de scope.
+
+#### P1-5 — La recherche universelle expose les Clients sans permission objet
+
+La spécification §6 et §8 exige l'application des permissions avant scoring. La famille Client de `universalSearch` vérifie le tenant et l'éligibilité de l'entité, mais pas `client.read`/`client.manage`, contrairement aux autres familles. Une preuve directe avec `effectivePermissions: []` retourne malgré tout le nom et le code d'un client. Le test actuel utilise principalement un administrateur et ne vérifie pas l'absence des clients pour un rôle sans permission Client.
+
+Impact : un utilisateur authentifié sans droit Client peut découvrir des métadonnées Client.
+
+Correction attendue : filtrer la famille avant scoring selon la permission serveur canonique et ajouter des tests de non-divulgation, y compris avec identifiants devinés et scopes site/société.
+
+#### P1-6 — Aucun rollback Sprint 1 sûr n'est fourni
+
+La spécification §9 et les critères G1 imposent backup, validation d'intégrité et rollback empêchant toute restauration destructive après des écritures post-migration. Les migrations produisent des sauvegardes et marqueurs, mais aucun mécanisme `rollbackSprint1...`, commande contrôlée, validation des digests courants ou garde contre les écritures ultérieures n'existe pour Sprint 1. Le rollback présent concerne un autre lot commercial.
+
+Impact : le contrat de migration/rollback G1 n'est pas démontrable et une restauration manuelle pourrait perdre des écritures réalisées après migration.
+
+Correction attendue : fournir un rollback explicite, local et audité avec contrôles d'intégrité/écritures postérieures, procédure documentée et tests de succès, refus et données altérées.
+
+### Constats P2 — importants non bloquants isolément
+
+1. **OpenAPI divergent des validations runtime.** `RateSurcharge.adjustmentBps` est documenté `0..10000` alors que le serveur accepte aussi les ajustements négatifs et une borne haute différente. `RateCreate.sourceType` documente `manual`/`freeLine`, non acceptés par le serveur, et omet `stockItem`, accepté par le serveur. Le Projet OpenAPI conserve les responsabilités historiques.
+2. **Accessibilité de la recherche incomplète.** Le dialogue modal ne piège pas la tabulation ; la sélection au clavier ne fournit ni identifiants d'option ni `aria-activedescendant`, ce qui limite l'annonce de l'option active par les technologies d'assistance.
+3. **Route morte dupliquée.** Un second bloc `POST /api/v1/rates`, inatteignable après le handler actif, reste dans `server.js` et augmente le risque de dérive du contrat.
+4. **Couverture insuffisante sur les risques ci-dessus.** Manquent notamment : contrat Client canonique, responsables étrangers/inactifs, catégories, fallback tarifaire multi-unité, mismatch grille/scope, recherche Client sans permission, rollback/tamper et cas temporels DST. Le contrôle annoncé des six familles de recherche n'en attend que cinq et omet une ressource non-personne.
+5. **Preuves de performance partielles.** Les benchmarks sont très largement sous les seuils, mais appellent les fonctions métier directement et ne mesurent pas la route HTTP avec auth/persistance. Le benchmark analytics utilise huit dimensions de regroupement et omet `resourceId`.
+6. **Traçabilité du candidat fragile.** Sans commit suivi, les empreintes permettent ce contrôle ponctuel mais pas une revue de diff ni une intégration/release reproductible. Cet état devra être corrigé avant la release.
+
+### Points conformes relevés
+
+- La migration existante est idempotente dans les scénarios couverts, conserve une sauvegarde et protège l'intégrité de l'artefact de backup.
+- Les instantanés tarifaires et l'état explicite de tarif manquant sont présents dans les parcours couverts.
+- Les agrégats analytics respectent le scope société/site dans les tests actuels.
+- Les suites ciblées et complète sont vertes sur les empreintes relues.
+- Les mesures directes de recherche et analytics sont très inférieures au budget de 300 ms sur les jeux de données fournis.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `npm run lint` : succès.
+- `npm run build` : succès, 5 actifs runtime contrôlés.
+- `node --test tests/sprint1-data.test.js` : **8 réussis, 0 échec, 0 ignoré**, 590,78 ms. Une première exécution dans le sandbox a produit 8 erreurs `listen EPERM` d'environnement ; la réexécution autorisée hors sandbox est intégralement verte.
+- `npm test` : **203 réussis, 0 échec, 0 ignoré**, 7 945 ms.
+- `npm run benchmark:search` : 250 ressources, 10 000 réservations, 40 projets, 500 itérations ; p50 0,271 ms, p95 0,377 ms, max 0,470 ms.
+- `npm run benchmark:analytics` : 1 000 budgets, 1 000 devis, 2 000 lignes, 8 dimensions, 220 itérations ; p50 11,505 ms, p95 12,357 ms, max 15,161 ms.
+- Preuve fonctionnelle directe : `universalSearch` avec `effectivePermissions: []` retourne un Client du tenant, confirmant P1-5.
+- Contrôle source : absence confirmée de `paymentTermsDays`, `projectManagerId`, `planningOwnerId`, collection `resourceCategories` et rollback Sprint 1.
+
+### Handoff
+
+Seul `docs/code-review.md` est modifié par cette revue. L'intégrateur doit faire refléter le verdict **Bloqué / retour DEV** dans `docs/project-status.md`. Après correction des P1, une nouvelle revue indépendante devra porter sur les nouvelles empreintes ; les anciens verdicts REVIEW ne couvriront pas le candidat corrigé.
+
+---
+
+## Re-REVIEW G1 indépendante — candidat post SEC-G1-02
+
+Date : 2026-08-20  
+Reviewer : agent indépendant `g1_review`  
+Indépendance : aucun code, test ou autre document modifié.  
+Candidat contrôlé :
+
+- `server.js` : `fe7e034b83cae5c78589f2c880f772877244a7b112c81cd56314107de8585923`
+- `app.js` : `10d2bae71697f94bd7e9c0373957e4f5e41e0f96a2c06099a93add5fa38acc82`
+- `docs/api/openapi-v1.yaml` : `b89516da6101806c96e9f4a2655b56e0d7ed2a3d9e55fa06b455f73c1d40966a`
+- `tests/sprint1-data.test.js` : `a9ac012e9e07e502ea2406b7a9f694aff102bceed27b3bd07725e3c65ed680e1`
+
+### Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 4 P1.**
+
+La correction SEC-G1-02 est conforme et les défauts tarifaires/recherche initiaux sont fermés. Quatre invariants contractuels restent cependant contournables par les consommateurs API/UI ou par le rollback. Le candidat ne peut donc pas recevoir `APPROVED` malgré ses 207 tests verts.
+
+### Fermetures confirmées
+
+1. **SEC-G1-02 — FERMÉ.** Le marqueur `sprint-1-contracts-v2` protège toujours son intégrité, son backup et son `outputDigest`, mais le rejeu contrôle désormais des invariants structurels avec `sprint1ContractsStateValid` au lieu de comparer les valeurs Client métier modifiables à leur projection d'origine. Le test modifie les conditions et l'adresse Client, confirme leur persistance, puis altère le digest du marqueur et obtient bien `MIGRATION_MARKER_CONFLICT`.
+2. **Tarifs — FERMÉ pour les deux P1 initiaux.** `rateForSource` filtre l'unité avant la priorité ; `createRateCommand` impose la concordance entre scope de grille et références Projet/Client. Les cas négatifs ciblés passent.
+3. **Recherche Client — FERMÉ.** La famille Client est désormais conditionnée par `client.read` ou `client.manage` avant scoring ; le test sans permission retourne zéro résultat.
+4. **Responsables Projet — FERMÉ sur le point initial.** Les trois identifiants sont persistés et validés contre un utilisateur et une adhésion actifs de la même société.
+
+### P1 — bloquants
+
+#### P1-1 — Le contrat Client ne respecte pas la devise par défaut de la société
+
+`clientInput` ne reçoit pas la société et utilise systématiquement `EUR` lorsque la devise est omise. L'UI de création sélectionne également `EUR` par défaut. Or §4.1 impose la devise de la société comme valeur par défaut et une devise prise en charge par son profil. Une organisation en GBP ou dans une autre devise peut donc créer un Client en EUR sans décision explicite. La validation accepte par ailleurs tout code connu globalement sans le confronter au profil de la société.
+
+Le runtime diverge aussi de son OpenAPI : `BillingAddress` y exige `line1`, `postalCode`, `city` et `country`, tandis que le serveur ne rend obligatoire que le pays.
+
+Impact : le référentiel Client peut porter une devise/une adresse différente du contrat canonique, puis alimenter incorrectement les futurs documents commerciaux.
+
+Correction attendue : résoudre le défaut depuis la société active côté serveur, valider la politique de devise, aligner l'UI et l'OpenAPI, et ajouter des tests multi-société ainsi qu'un cas d'adresse incomplète.
+
+#### P1-2 — Un Projet sans Site et les aliases de statut legacy restent acceptés
+
+§4.2 exige `siteId`. `validateProjectCommand` ne contrôle le Site que si `project.siteId` est truthy ; l'OpenAPI omet `siteId` de la liste `required` et le formulaire professionnel `openProjectCreateDrawer` ne propose aucun Site. Un Projet créé par cette interface est donc persisté sans Site. En parallèle, `projectFields` continue à accepter `status` et à le convertir via `canonicalProjectStatus`, alors que la spécification interdit tout nouvel alias legacy en écriture.
+
+Impact : le Projet, pivot des Budgets/Devis/Planning, peut être dépourvu du scope Site nécessaire à l'isolation et à l'affectation des ressources ; son cycle canonique peut encore être contourné par le contrat historique.
+
+Correction attendue : rendre `siteId` obligatoire serveur/OpenAPI/UI, rejeter les Sites inactifs/étrangers, n'accepter que `lifecycleStatus` pour les nouvelles écritures et couvrir les cas absents/legacy.
+
+#### P1-3 — La chaîne Site → ResourceCategory → Ressource n'est pas préservée après création
+
+La création d'une Ressource contrôle sa catégorie, mais les consommateurs de mise à jour rompent l'invariant :
+
+- `patchResource` ne prend pas `resourceCategoryId` dans le nouvel état et permet de modifier `type` ou `siteId` sans vérifier que la catégorie existante reste active, du même Site et du même type ;
+- la réaffectation automatique des Ressources lors du remplacement d'un Site modifie uniquement `resource.siteId`, sans recréer/résoudre une catégorie du Site cible ;
+- `validateChild(..., 'serviceOffering')` vérifie seulement que `compatibleResourceCategoryIds` est non vide, sans résoudre les identifiants contre des catégories actives de la société. Une valeur pendante ou étrangère satisfait donc la compatibilité.
+
+Impact : les écritures post-migration peuvent immédiatement rendre faux l'invariant que `sprint1ContractsStateValid` exige au démarrage suivant, provoquer un blocage `MIGRATION_MARKER_CONFLICT` et rendre les compatibilités Planning non fiables.
+
+Correction attendue : centraliser la validation catégorielle sur création, modification et remplacement de Site ; vérifier les catégories de Prestation ; ajouter des tests de changement Site/type, catégorie inactive/étrangère et réaffectation.
+
+#### P1-4 — Le rollback n'exige ni les quatre marqueurs présents ni toujours un export
+
+`rollbackSprint1Migrations` appelle les fonctions de migration avant de vérifier les marqueurs. Si `sprint-1-contracts-v2` est supprimé, la fonction le recrée en mémoire puis poursuit la restauration au lieu de refuser l'état altéré. Un probe temporaire a confirmé `accepted: true` avec un export après suppression de ce marqueur.
+
+La condition `if (!exportFile && options.allowDataLoss !== true)` fournit en outre un contournement non audité : le probe `rollbackSprint1Migrations({ allowDataLoss: true })` a restauré les données avec `exportFile: null`. Le README affirme pourtant que l'export est exigé et le statut DEV annonce un « export de reprise obligatoire ». Aucun artefact ne prouve une autorisation explicite du PO pour ce chemin destructif.
+
+Impact : un rollback peut masquer un marqueur manquant ou supprimer toutes les écritures post-migration sans export de reprise, contrairement à §9.
+
+Correction attendue : valider d'abord la présence et l'intégrité des quatre marqueurs sans appliquer de migration ; rendre l'export inconditionnel dans le chemin normal et isoler toute éventuelle procédure de perte sous une autorisation explicite, traçable et testée. Ajouter les tests marqueur absent, backup/digest altéré et absence d'export.
+
+### P2 — importants non bloquants isolément
+
+1. L'OpenAPI tarifaire reste divergent : `RateSurcharge.adjustmentBps` documente `0..10000` au lieu de `-10000..100000`, et `RateCreate.sourceType` documente `manual/freeLine` tout en omettant `stockItem`.
+2. Le référentiel `ResourceCategory` expose seulement lecture/création ; aucun parcours explicite de modification ou d'archivage logique n'est fourni malgré `active` et `version`.
+3. Le dialogue de recherche ne piège pas la tabulation et ne fournit pas `aria-activedescendant` pour l'option active.
+4. Les tests Sprint 1 ne couvrent pas les mutations qui produisent P1-1 à P1-3, ni les deux chemins rollback négatifs du P1-4. La recherche annoncée sur six familles continue de ne pas attendre explicitement une Ressource non-personne.
+5. Le dépôt reste sans commit de référence et entièrement non suivi ; les empreintes rendent cette relecture ponctuelle possible, mais pas une intégration/release reproductible.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `npm run lint` : succès.
+- `npm run build` : succès, 5 actifs runtime contrôlés.
+- `node --check server.js` et `node --check app.js` : succès.
+- `node --test tests/sprint1-data.test.js` : **12 réussis, 0 échec, 0 ignoré**, 689,88 ms.
+- `npm test` : **207 réussis, 0 échec, 0 ignoré**, 8 316,15 ms.
+- `git diff --check` : succès.
+- Probe rollback isolé dans `/private/tmp`, ensuite nettoyé : restauration acceptée sans export avec `allowDataLoss:true` ; restauration également acceptée après suppression de `sprint-1-contracts-v2` avec export.
+- Empreintes revérifiées après les tests : identiques au candidat déclaré.
+
+### Handoff
+
+Seul `docs/code-review.md` est modifié. Le candidat `fe7e034b…` doit retourner en DEV et `docs/project-status.md` doit être remis en état bloqué par l'intégrateur. Toute correction invalidera la présente re-REVIEW et exigera une nouvelle revue indépendante sur les nouvelles empreintes.
+
+---
+
+## Re-REVIEW G1 terminale — candidat post SEC-G1-04
+
+Date : 2026-08-20  
+Reviewer : agent indépendant `g1_qa`, intervenant ici exclusivement comme reviewer (aucun code ou test authored)  
+Périmètre : clôture des six P1 REVIEW historiques, SEC-G1-03/04, contrats S1-A à S1-D, consommateurs API/UI, migrations/rejeu/rollback, RBAC/scopes, OpenAPI et non-régression.  
+Indépendance : seul ce rapport a été modifié.
+
+### État candidat contrôlé
+
+- `server.js` : `326815740c7e698cf7279ffa73339232869bf05ba851cd9798ba6227e92a973e`
+- `app.js` : `ebd7ab4252c6aeea9463cfdb2da9525a1a1633be0bd2b843cf0840b95ba1d964`
+- `docs/api/openapi-v1.yaml` : `8a36107f150ebceafd6e17c3354f068916800dd2f6e5a3506c4399605b19f243`
+- `tests/sprint1-data.test.js` : `f5df2d985db9b34baa8a8a2a416ae9e0fac142c9e561755b2904e96c2671ba23`
+- `tests/api.test.js` : `5265b7a3857fb201a46fab2527f5431e47330c67b6dc6bdf43c360e45eb87871`
+
+Le dépôt ne fournit toujours pas de baseline Git suivie : les empreintes ci-dessus constituent donc la référence exacte de cette revue.
+
+### Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouverts.**
+
+Les six P1 REVIEW initiaux, les quatre P1 de la première relecture et les corrections de sécurité SEC-G1-03/04 sont fermés sur ce candidat. Deux écarts P2 documentaires/accessibilité demeurent et devront être traités avant la release finale, mais ils ne remettent pas en cause les invariants métier, l'autorisation ou l'intégrité des écritures de G1.
+
+### Fermeture des constats historiques
+
+1. **Contrat Client — FERMÉ.** La création impose une adresse complète, hérite de la devise de la société active et valide devise, conditions de paiement et adresse. L'OpenAPI expose le même contrat canonique.
+2. **Projet et responsabilités — FERMÉ.** `siteId`, `salesOwnerId`, `projectManagerId` et `planningOwnerId` sont obligatoires ; les responsables doivent être des utilisateurs et membres actifs de la société. L'alias d'écriture `status` est refusé et l'UI fournit les sélecteurs nécessaires.
+3. **Site → Catégorie → Ressource/Prestation — FERMÉ.** Le référentiel possède lecture, création, modification et archivage ; les références sont validées sur société, Site, type et activité. Le remplacement de Site remappe catégories, Ressources, unités et compatibilités de Prestations. Une catégorie référencée ne peut pas être désactivée ou archivée.
+4. **Tarification — FERMÉ.** Date et unité sont filtrées avant la priorité Projet → Client → Catalogue ; le scope de la grille et ses références sont cohérents ; les chevauchements sont refusés et les instantanés tarifaires restent figés dans les lignes commerciales.
+5. **Recherche/RBAC — FERMÉ.** La famille Client exige `client.read` ou `client.manage` avant scoring ; les six familles sont filtrées par permissions et scopes société/Site/projet/entité et les coordonnées de contact ne sont pas exposées.
+6. **Migration et rollback — FERMÉ.** Le rejeu vérifie les quatre marqueurs avant toute migration, leurs digests/backups et les invariants de sortie. Le rollback exige toujours un export distinct, vérifié et créé en mode `0600`, puis restaure exactement les octets de la sauvegarde.
+
+### SEC-G1-03 et SEC-G1-04
+
+- **SEC-G1-03 — FERMÉ.** Les champs Client légitimement modifiables restent modifiables et persistants. Une falsification de `outputDigest`, du Client référencé par un Projet ou d'un responsable canonique provoque `MIGRATION_MARKER_CONFLICT` au rejeu.
+- **SEC-G1-04 — FERMÉ.** La désactivation d'un Client référencé retourne `409 CLIENT_HAS_PROJECTS` avant toute affectation, audit, événement ou incrément de version. La suspension/réaffectation d'une adhésion portant une responsabilité Projet retourne `409 PROJECT_OWNER_REASSIGNMENT_REQUIRED` avant mutation ; le test relit la persistance et confirme que l'adhésion reste active. L'ordre des opérations dans les deux commandes garantit également l'absence de mutation Client sur le `409`.
+
+### S1-A à S1-D et consommateurs
+
+- **S1-A** : contrats Client/Projet/Catégorie/Prestation cohérents, cycle Projet séquentiel, références étrangères/inactives refusées et remplacement de Site sûr.
+- **S1-B** : tarifs versionnés et datés, unités/scope/priorités cohérents, majorations combinées, tarif manquant explicite et finalisation commerciale bloquée sans tarif.
+- **S1-C** : recherche bornée et paginée, permissions/scopes appliqués avant scoring, données de contact exclues.
+- **S1-D** : neuf dimensions analytics exposées et filtrables ; CA signé calculé sans double comptage et retiré lors d'un remplacement de version ; étapes futures explicitement indisponibles.
+- Les routes OpenAPI Client, Projet et `resource-categories` correspondent aux consommateurs runtime contrôlés ; les exemples Réservation restent exécutables dans la suite API.
+
+### P2 — importants, non bloquants pour G1
+
+1. **Contrat OpenAPI tarifaire encore divergent.** `RateSurcharge.adjustmentBps` documente `0..10000`, tandis que le runtime accepte `-10000..100000`. `RateCreate.sourceType` documente `manual`/`freeLine`, non acceptés par la commande serveur, et omet `stockItem`, accepté par le runtime. Le serveur reste cohérent et testé, mais le contrat public doit être aligné avant release.
+2. **Accessibilité de la recherche universelle incomplète.** Les résultats possèdent `role=option` et `aria-selected`, mais l'entrée de recherche n'expose ni identifiants d'options ni `aria-activedescendant`, et la modale ne contient pas la tabulation. La navigation clavier principale fonctionne ; l'annonce de l'option active et la rétention de focus doivent être renforcées.
+3. **Traçabilité d'intégration fragile.** Tous les fichiers apparaissent non suivis : cette revue est reproductible par empreintes, pas par diff Git. L'intégrateur doit figer une baseline avant INTEGRATION/RELEASE.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `npm run lint` : succès.
+- `npm run build` : succès, 5 actifs runtime vérifiés.
+- `node --test tests/sprint1-data.test.js` : **15 réussis, 0 échec, 0 ignoré** sur l'exécution fraîche du candidat ; une réexécution ultérieure sous sandbox a rencontré uniquement `listen EPERM`, limite d'environnement sans changement de fichier.
+- `node --test tests/api.test.js` : **27 réussis, 0 échec, 0 ignoré**, 840,41 ms.
+- `npm test` : **210 réussis, 0 échec, 0 ignoré**, 8 184,12 ms.
+- `git diff --check` : succès.
+- Contrôle source ciblé : chemins `CLIENT_HAS_PROJECTS`, `PROJECT_OWNER_REASSIGNMENT_REQUIRED`, rejeu avec références falsifiées, quatre marqueurs de rollback, export obligatoire, remappage catégoriel, résolution tarifaire et permission Client relus.
+- Empreintes revérifiées avant la rédaction : identiques au candidat déclaré.
+
+### Limites et handoff
+
+Cette approbation REVIEW porte uniquement sur les empreintes ci-dessus. Toute modification de code, tests ou OpenAPI invalide le verdict et exige une nouvelle relecture. `docs/project-status.md` reste à mettre à jour par l'intégrateur conformément à l'exception de tâche mono-fichier.

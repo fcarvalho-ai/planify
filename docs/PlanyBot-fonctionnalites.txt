@@ -1,0 +1,127 @@
+PLANYBOT — RÉSUMÉ DES FONCTIONNALITÉS
+Version : premier incrément fonctionnel — 17 août 2026
+
+1. RÔLE DE PLANYBOT
+
+PlanyBot est l’assistant conversationnel intégré au module Planning.
+Il aide le planificateur à rechercher des informations, comprendre le planning
+et préparer une réservation. Il ne remplace jamais la validation humaine.
+
+Principe permanent : « PlanyBot prépare, vous confirmez. »
+
+
+2. FONCTIONNALITÉS DISPONIBLES
+
+Recherche de salles disponibles
+- Recherche sur une date ou une période.
+- Reconnaissance des salles de montage AVID et postes Remote AVID.
+- Reconnaissance des studios de mixage Pro Tools.
+- Reconnaissance des salles d’étalonnage DaVinci Resolve.
+- Prise en compte des réservations existantes et des cellules déplacées.
+- Exclusion des réservations annulées.
+
+Résumé d’un projet
+- Utilise le projet sélectionné dans le Planning.
+- Indique le nombre de réservations.
+- Indique le nombre de jours planifiés.
+- Indique le nombre de ressources mobilisées.
+- Permet d’ouvrir la vue Planning filtrée sur ce projet.
+
+Détection des conflits
+- Recherche les chevauchements sur une même ressource.
+- Prend en compte les quantités et la capacité de la ressource.
+- Identifie les réservations concernées.
+- N’arbitre pas automatiquement le conflit.
+- Ne crée jamais d’override automatiquement.
+
+Préparation d’une réservation
+- Comprend le projet actif, le type de salle et les dates demandées.
+- Recherche une salle compatible et disponible.
+- Ouvre le formulaire normal de réservation.
+- Préremplit le projet, les dates, le titre et la salle proposée.
+- Laisse le bouton final « Créer la réservation » à l’utilisateur.
+- Ne crée aucune réservation en arrière-plan.
+
+Questions rapides disponibles
+- « Salles libres »
+- « Résumé projet »
+- « Conflits »
+
+Accompagnement d’un planning client
+- Intervient dès l’ouverture de la conversion d’un devis accepté.
+- Confirme la réception du fichier Excel, CSV ou PDF texte.
+- Explique ce qui est recherché pendant l’analyse.
+- Résume les correspondances trouvées, ambiguës et non reconnues.
+- Répond aux questions de l’utilisateur dans le tiroir d’import.
+- Explique les conflits ou indisponibilités détectés.
+- Rappelle les contrôles à effectuer avant la confirmation finale.
+- Ne sélectionne, ne corrige et ne crée aucune réservation automatiquement.
+
+
+3. EXEMPLES DE QUESTIONS
+
+- Quelles salles de mixage sont libres cette semaine ?
+- Quelles salles de montage sont disponibles du 19/08/2026 au 21/08/2026 ?
+- Résume le projet actif.
+- Y a-t-il des conflits dans le planning ?
+- Prépare une salle de mixage du 19/08/2026 au 20/08/2026.
+- Prépare une salle d’étalonnage pour ce projet demain.
+
+
+4. SÉCURITÉ ET DROITS
+
+- PlanyBot exige une session utilisateur authentifiée.
+- L’utilisateur doit posséder le droit planning.read.
+- Les données sont isolées par société.
+- Les restrictions de sites de l’utilisateur sont respectées.
+- Un projet ou une ressource inaccessible n’est jamais révélé.
+- Les messages sont privés pour l’utilisateur et sa société active.
+- Les messages ne sont pas diffusés dans les événements temps réel.
+- Le contenu libre des messages n’est pas copié dans les journaux d’audit.
+- Les requêtes sont protégées contre les doublons par une clé d’idempotence.
+
+
+5. CONTRÔLE HUMAIN
+
+PlanyBot ne peut pas :
+- créer une réservation automatiquement ;
+- déplacer une cellule automatiquement ;
+- modifier ou annuler une réservation ;
+- confirmer un conflit ou appliquer un override ;
+- convertir seul un devis en planning ;
+- envoyer des informations vers un service Internet externe.
+
+Toutes les créations et modifications restent soumises aux validations normales
+du Planning : projet obligatoire, disponibilité, capacité, conflits, droits,
+version et justification d’override lorsque celle-ci est autorisée.
+
+
+6. INTERFACE
+
+- Bouton flottant « PlanyBot — Assistant Planning ».
+- Panneau conversationnel accessible depuis le Planning.
+- Historique lisible des questions et réponses.
+- Messages annoncés aux technologies d’assistance.
+- Utilisation possible au clavier.
+- Fermeture par le bouton de fermeture ou la touche Échap.
+- Restauration du focus après fermeture.
+- Interface adaptée aux écrans mobiles sous forme de panneau inférieur.
+
+
+7. FONCTIONNEMENT TECHNIQUE ACTUEL
+
+- Moteur local intégré à Planify.
+- Aucun service SaaS, CDN ou modèle distant.
+- Conversations et messages persistés dans les données locales de l’application.
+- Limite de 800 caractères par message.
+- Limite de 50 messages par conversation.
+- Limite de 20 conversations par utilisateur et par société.
+- API technique conservée sous /api/v1/plany pour garantir la compatibilité.
+
+
+8. ÉTAT DE VALIDATION
+
+- Tests ciblés PlanyBot : 8/8 réussis.
+- Suite complète Planify : 150/150 réussie lors de l’intégration initiale.
+- Prévisualisation contrôlée dans le Planning ELIOTE.
+- Le lot reste soumis à une revue indépendante avant validation de release.

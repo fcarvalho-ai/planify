@@ -1,0 +1,79 @@
+# Planify — Planning Post Prod
+
+MVP autonome de gestion de planning pour studio de post-production.
+
+## Démarrer
+
+```bash
+npm test
+npm start
+```
+
+Puis ouvrir <http://localhost:8080>.
+
+## Version candidate V1 — 0.2.0-rc1
+
+Le développement V1 suit l'ordre et le backlog placés dans `docs/specifications/`. Les gates G0 à G5 ainsi que les parcours Integration/E2E sont franchis sur le candidat `0.2.0-rc1`. Le détail des preuves, limites P2 et empreintes est conservé dans `docs/project-status.md` et les rapports indépendants `docs/code-review.md`, `docs/qa-report.md`, `docs/security-review.md` et `docs/performance-report.md`.
+
+Le runtime RC1 reste local et autonome. Les contrats V1 sont introduits de façon additive dans `packages/` : erreurs/enveloppes, RBAC et scopes, idempotence, audit, événements, planning, pricing et consommation Devis/Planning. Les décisions structurantes sont dans `docs/adr/` et l'API candidate dans `docs/api/openapi-v1.yaml`.
+
+Commandes de vérification :
+
+```bash
+npm run lint
+npm run test:foundations
+npm test
+npm run build
+node scripts/generate-performance-dataset.js --output /tmp/planify-performance.json
+```
+
+État de référence de la candidate : `npm test` exécute 260 tests. Les fichiers `data/*.json`, `output/` et `tmp/` restent locaux et sont exclus de Git afin qu'aucune donnée de travail, export client ou artefact temporaire n'entre dans la release.
+
+Le générateur produit un jeu déterministe de 250 ressources et 10 000 réservations sur six mois. Il n'écrit jamais dans les données métier sans chemin `--output` explicite.
+
+Compte administrateur de démonstration :
+
+- e-mail : `admin@northlight.fr`
+- mot de passe : `demo2026`
+
+L'application ne requiert aucune dépendance npm externe. Le serveur fournit l’API et le frontend, et conserve les données localement dans `data/planify.json`. Si les fichiers statiques sont servis sans API, l’interface bascule explicitement en mode prototype avec stockage navigateur.
+
+## Parc matériel et salles
+
+Dans **Parc matériel**, choisissez **Article**, puis saisissez une marque, un modèle ou un besoin comme `cam`, `Lenovo`, `serveur montage`, `licence Adobe` ou `mail`. L’assistant comprend les synonymes et les fautes légères, propose des références documentées et préremplit fabricant, modèle, référence, suivi et caractéristiques. Ces données restent modifiables et doivent être validées par un responsable matériel.
+
+Après l’article, créez son exemplaire physique avec le numéro de série, le numéro interne éventuel, les coûts, le fournisseur et les dates d’achat ou de garantie. La devise est celle de la société active.
+
+Dans **Ressources**, ouvrez **Équiper la salle**. Seuls les exemplaires disponibles du même site peuvent être installés. L’installation et la dépose créent un mouvement Stock audité ; une salle équipée ne peut pas être supprimée avant la dépose du matériel.
+
+Le catalogue fourni est autonome et versionné : aucune donnée ni image n’est chargée depuis un SaaS ou un CDN à l’exécution. Les photos Lenovo, HP, Dell et Avid sont copiées localement depuis des pages ou documents fabricants ; leur URL source reste affichée. Les droits restent ceux de leurs détenteurs respectifs. Les futurs connecteurs fabricants devront utiliser des sources autorisées et conserver la validation humaine avant enregistrement.
+
+## Rollback de la migration Commercial Review
+
+La migration `commercial-08-review-p1-v3` crée automatiquement une sauvegarde immuable `0600` du fichier JSON avant sa première application. Pour revenir à cette source, arrêtez d’abord le serveur, conservez séparément le fichier courant si des écritures ont eu lieu depuis la migration, puis exécutez depuis le dépôt :
+
+```bash
+PLANIFY_DATA_FILE=/chemin/vers/planify.json node -e "console.log(require('./server.js').rollbackCommercialReviewMigration())"
+```
+
+Le rollback vérifie le marqueur, le digest de la sauvegarde et l’intégrité de la projection migrée avant restauration. Il restaure exactement l’état antérieur et supprime donc de l’état actif toute écriture réalisée après la sauvegarde. Il doit être accompagné du retour à la version applicative précédente, faute de quoi le code courant réappliquera la migration au prochain démarrage.
+
+### Rollback Sprint 1
+
+Le rollback des quatre migrations Sprint 1 exige un export de récupération distinct avant toute restauration. L’export contient l’état courant complet, est écrit avec des droits `0600`, puis vérifié avant que la sauvegarde antérieure à Sprint 1 soit restaurée octet pour octet :
+
+```bash
+PLANIFY_DATA_FILE=/chemin/vers/planify.json node -e "console.log(require('./server.js').rollbackSprint1Migrations({ exportFile: '/chemin/vers/recovery-sprint1.json' }))"
+```
+
+Le rollback refuse toute exécution sans export ou si l’un des quatre marqueurs Sprint 1 est absent. Après restauration, remettre en service la version applicative antérieure au Sprint 1 ; sinon le démarrage courant réappliquera les migrations. L’export permet une reprise contrôlée des écritures réalisées depuis le début du Sprint 1.
+
+### Rollback Sprint 5 — ressources avancées
+
+La migration additive Sprint 5 sauvegarde l’état précédent en `0600` avant d’activer les contrats double option et allocation générique. Son rollback exige également un export distinct de l’état courant :
+
+```bash
+PLANIFY_DATA_FILE=/chemin/vers/planify.json node -e "console.log(require('./server.js').rollbackSprint5AdvancedResources({ exportFile: '/chemin/vers/recovery-sprint5.json' }))"
+```
+
+La restauration retire les données Sprint 5 créées depuis la sauvegarde. Elle doit donc être suivie du retour à la version applicative précédente ; l’export est la source de récupération obligatoire des écritures postérieures.
