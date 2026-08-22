@@ -1,11 +1,13 @@
 # État du projet — Planning Post Prod
 
-Version : `0.2.0-rc2`
+Version : `0.3.0-dev`
 Date : 2026-08-22
 
 Organisation : gouvernance multi-agents formalisée dans `AGENTS.md`; dépôt Git initialisé sur `main`.
 
 Architecture cible : le synoptique global fourni par le Product Owner est adopté comme cible de développement. La migration reste incrémentale depuis la RC1, sans big bang.
+
+Décision SPEC Sprint 6 2026-08-22 : après la release locale `0.2.0-rc2`, le Sprint 6 « PlanyBot & import Excel » est lancé depuis les sept stories V1 exactes `US-057` à `US-060` et `US-062` à `US-064` (68 points). `US-061` reste V2. La spécification `docs/specifications/sprint-6-planybot-excel.md` fixe le cycle non contournable « l’IA propose, l’humain confirme, le moteur exécute », le classement explicable des ressources, les clarifications Excel versionnées, l’audit minimisé et l’absence de SaaS/réseau. L’implémentation PlanyBot existante est une base partielle à revalider, pas une preuve G6. Premier incrément : S6-A contrats, propositions confirmables, audit, OpenAPI, migration/rollback et tests négatifs. G6 reste bloqué jusqu’au parcours E2E preview → confirmation → exécution sans mutation silencieuse et aux gates indépendants.
 
 Décision release `0.2.0-rc2` 2026-08-22 : **APPROVED — 0 P0 / 0 P1**. Le P1 QA de la page Équipe est fermé par un annuaire opérationnel minimal séparé de la gouvernance des accès. Le contrôle navigateur réel avec le rôle Planificateur affiche Camille Martin et Alex Bernard, renseigne les deux sélecteurs Personne et masque « Gérer les accès ». REVIEW, QA, SECURITY et PERFORMANCE approuvent le candidat exact ; preuves fraîches : API 41/41, Organisation 34/34, Planning 43/43, suite complète 262/262, lint/build/diff-check PASS. La publication ou le déploiement distant ne sont pas demandés.
 
