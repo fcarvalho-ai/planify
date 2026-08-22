@@ -934,6 +934,19 @@ test('O1 fiscal : une organisation active mais non validée conserve le bouton d
   assert.equal(reviewSource.includes("${workflowAdvanced?'<a class=\"primary-button link-button\""), false);
 });
 
+test('navigation Équipe ouvre la gouvernance du personnel et active son entrée dédiée', () => {
+  const appSource = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  assert.match(appSource, /organizationRoutes=new Set\(\[[^\]]*'team'/);
+  assert.match(appSource, /route==='team'\?teamPage\(\):route==='organization-governance'\?governancePage\(\)/);
+  assert.match(appSource, /function teamPage\(\)/);
+  assert.match(appSource, /Membres, compétences et disponibilités utilisés par le planning/);
+  assert.match(appSource, /\/api\/v1\/personnel-directory\?pageSize=200/);
+  assert.match(appSource, /const members=personnelAdmin\.directory/);
+  assert.match(appSource, /can\('membership\.read'\)\?'<a class="secondary-button link-button" href="#organization-governance">Gérer les accès<\/a>':''/);
+  assert.match(appSource, /route==='team'\?'Équipe'/);
+  assert.match(appSource, /route==='team'\?'team':'organization'/);
+});
+
 test('01b taux TVA : points de base entiers, périodes, défaut modifiable et aucune seconde autorité décimale', async () => {
   await startReadyFixture();
   const rates = await request('/api/v1/vat-rates?active=true&pageSize=50', {}, admin);

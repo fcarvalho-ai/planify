@@ -1,3 +1,63 @@
+# Gate G5 — Re-REVIEW finale de la page Équipe autonome
+
+Date : 2026-08-22
+Reviewer : agent indépendant `g5_review`
+Périmètre : route `#team`, annuaire minimal Personnel, compétences et indisponibilités
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**APPROVED — Gate REVIEW G5 validé sur le candidat final `#team`**
+
+**0 P0, 0 P1 ouvert.** Le P1 constaté sur le premier candidat (annuaire vide pour un acteur planning dépourvu de `membership.read`) est fermé. La page utilise désormais une collection Personnel distincte, alimentée par un endpoint minimal autorisé par `planning.read` et cloisonné par société/site. Les formulaires utilisent cette même collection et le lien de gouvernance reste masqué sans `membership.read`.
+
+## Contrôles effectués
+
+- `GET /api/v1/personnel-directory` exige `planning.read`, impose la société issue de la session, applique `membershipAllowed()` et ne retourne que `id`, `displayName`, `jobTitle` et un `defaultSiteId` lui-même filtré par `siteAllowed()`.
+- `app.js` sépare `personnelAdmin.directory` de `organization.memberships`; l'annuaire, les libellés et les sélecteurs de compétences/indisponibilités utilisent tous la collection dédiée.
+- La route `#team` est reliée au routeur et rend une page autonome. Sans `planning.read`, elle affiche un refus explicite ; les mutations et leurs contrôles restent conditionnés par `planning.write` côté interface et côté serveur.
+- Le lien « Gérer les accès » n'est rendu qu'avec `membership.read`, ce qui évite d'exposer une action de gouvernance inaccessible au planificateur.
+- Les valeurs provenant de l'API sont échappées avant injection HTML. Les formulaires ont des libellés et champs requis, les suppressions ont un nom accessible, et l'état actif est aussi exprimé textuellement.
+- Le contrat OpenAPI et les tests API/organisation couvrent l'annuaire minimal, le cloisonnement et le parcours planificateur. Le contrôle navigateur transmis sur le candidat exact montre deux membres et des sélecteurs renseignés.
+
+## Preuves sur le candidat exact
+
+Environnement : macOS, 2026-08-22. Les preuves DEV/QA ci-dessous ont été transmises pour les mêmes empreintes ; REVIEW n'a pas relancé la suite longue.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --test tests/api.test.js` | **PASS, 41/41** (preuve DEV/QA transmise) |
+| `node --test tests/organization.test.js` | **PASS, 34/34** (preuve DEV/QA transmise) |
+| `npm test` | **PASS, 262/262** (preuve DEV/QA transmise) |
+| `node --check server.js` | PASS, preuve REVIEW fraîche |
+| `node --check app.js` | PASS, preuve REVIEW fraîche |
+| Contrôle navigateur avec acteur planificateur | PASS : 2 membres visibles, sélecteurs renseignés (preuve transmise) |
+| Inspection RBAC, cloisonnement, XSS et accessibilité | PASS, aucun P0/P1 |
+
+Hashes complets revus :
+
+```text
+server.js                         8b1e180f94c0101342e4ecda6258e23d5ddafd99c1e9caecdff5cbbd3c51063a
+app.js                            8a122679a279beedb6c0d6cd8f0bf9197a36124bc60c55bef25d35b93f9823b7
+index.html                        edada446944aa48c1782028dc52e8b35cf00589156a3016ab0a2cd1bf97504ae
+planning.css                      4016e6d89ac521cfc22eb42aad17ef16d54db5720e6e8df0bebf6c4739cc57d1
+tests/api.test.js                 f5c788f3cf74e1fb810b0730a8d18269922179eca7576eeec6ff02bbeb08d2f3
+tests/organization.test.js        665257902c792725f0978a5726238eafb5596b2b8059b164dd9169c93741fe16
+docs/api/openapi-v1.yaml          75a83115cbeb5712f237884cc9144726e8cfa5b9e0a455d98ab386c1048e2c1e
+```
+
+## P2 non bloquants
+
+- Le lien principal « Équipe » reste visible pour un rôle sans `planning.read`; la page échoue correctement et explicitement, mais masquer aussi le lien rendrait la navigation plus cohérente avec les permissions.
+- Les événements SSE `personSkill.updated.v1` et `personUnavailability.updated.v1` ne déclenchent pas encore de rafraîchissement de la page Équipe : une modification effectuée dans une autre session nécessite un rechargement. Cela n'altère ni l'autorité serveur ni la persistance.
+
+## Limites et handoff
+
+- `git diff --check` est actuellement rouge à cause d'un espace final déjà présent dans `docs/security-review.md`, fichier hors ownership de REVIEW ; aucun correctif étranger n'a été appliqué.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur avec `G5 REVIEW #team = APPROVED — 0 P0/P1`.
+
+---
+
 # Gate G5 — Re-REVIEW finale du cloisonnement Personnel
 
 Date : 2026-08-21  

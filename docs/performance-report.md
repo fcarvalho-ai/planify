@@ -1,59 +1,39 @@
-# Revue PERFORMANCE indépendante — Gate G5
+# Revue PERFORMANCE indépendante — correctif post-release `#team`
 
-Date : 2026-08-21  
-Reviewer : gate PERFORMANCE indépendant  
-Verdict : **APPROVED — 0 P0, 0 P1, 2 P2 de preuve**
+Date : 2026-08-22
+Verdict : **APPROVED — 0 P0, 0 P1, 1 P2 de preuve**
 
-## Candidat vérifié
+## Candidat
 
 | Fichier | SHA-256 |
 |---|---|
-| `server.js` | `b9b6294f5816ca8ed12d7be1789127e4a9bc1f19d7f2e25a12ef8a3db5c0d200` |
-| `app.js` | `04f7a5a9ce015e6d2ae00d1faa092f63023ded430c2c8dff11944f1e394f5054` |
-| `tests/api.test.js` | `1e581cec20a6f19e82d91dee9fa953ec3d20858803f11a53e9652229c2ec342b` |
-| `tests/sprint5-realtime.test.js` | `d8b17b3ac2f35b70d654552920387f4108f2ad18e0b7763d1e334db9f9320cf9` |
+| `server.js` | `8b1e180f94c0101342e4ecda6258e23d5ddafd99c1e9caecdff5cbbd3c51063a` |
+| `app.js` | `8a122679a279beedb6c0d6cd8f0bf9197a36124bc60c55bef25d35b93f9823b7` |
+| `tests/api.test.js` | `f5c788f3cf74e1fb810b0730a8d18269922179eca7576eeec6ff02bbeb08d2f3` |
+| `tests/organization.test.js` | `665257902c792725f0978a5726238eafb5596b2b8059b164dd9169c93741fe16` |
 
-## Mesure fraîche représentative
+## Analyse d’impact
 
-- Node.js `v26.6.0`, mono-processus local.
-- Jeu déterministe : **250 ressources / 10 000 réservations**, fichier JSON `10 846 935` octets.
-- Commande : `npm run benchmark:http`.
-- Itérations : 30 lectures, 30 conflits, 20 écritures, 10 batchs de 100.
+- La page ajoute trois lectures parallèles paginées à 200 éléments maximum : annuaire minimal, compétences et indisponibilités.
+- La projection serveur de l’annuaire parcourt les adhésions du tenant, applique `membershipAllowed`, puis ne sérialise que quatre champs. Elle ne touche ni moteur de conflit, ni écriture de réservation, ni SSE.
+- Le rendu construit une seule arborescence HTML. Les recherches de nom sont linéaires pour chaque compétence/absence (`members.find`) : au plafond actuel de 200 membres + 200 compétences + 200 absences, la borne reste faible et déterministe.
+- Aucun actif, dépendance réseau, polling ou listener continu supplémentaire. Le chargement utilise `Promise.all`.
+- Les mesures G5 de référence restent applicables aux chemins planning inchangés : lecture p95 `116,60 ms`, conflit `166,27 ms`, écriture `206,25 ms`, batch100 `249,66 ms` sur 250 ressources/10 000 réservations.
 
-| Chemin | p50 | p95 | max | Seuil | Résultat |
-|---|---:|---:|---:|---:|---|
-| Lecture planning | 114,18 ms | **116,60 ms** | 116,98 ms | `< 300 ms` | PASS |
-| Détection conflit | 164,51 ms | **166,27 ms** | 168,37 ms | `< 250 ms` | PASS |
-| Écriture | 203,00 ms | **206,25 ms** | 206,49 ms | `< 250 ms` | PASS |
-| Batch 100 actions | 225,58 ms | **249,66 ms** | 249,66 ms | cible 250 ms | PASS, marge faible |
-| Rejeu idempotent | — | 187,22 ms (1 mesure) | — | information | PASS |
+## Preuves
 
-Mémoire en fin de campagne : RSS `527 630 336` octets ; heap utilisée `74 684 464` octets. Aucun seuil mémoire produit n’est défini.
-
-## Impact du correctif final
-
-La mesure ci-dessus porte sur le serveur `dd5d410a…`. Le candidat final `b9b6294f…` ajoute uniquement l’application de `personnelSnapshotAllowed` aux chemins liste/suppression d’indisponibilités et leurs tests HTTP. Ces filtres concernent la collection Personnel et n’altèrent ni lecture planning, ni moteur de conflit, ni écriture/batch de réservations. L’analyse d’impact ne justifie donc pas de rejouer le benchmark long.
-
-Le scénario temps réel ciblé démontre trois sessions, deux flux SSE simultanés, diffusion d’événements, conflit optimiste, libération de présence au logout, reconnexion et redémarrage. Le doublon d’une même session est rejeté en `429`. Le plafond global évite une croissance sans borne.
+- Inspection indépendante du diff et des bornes de pagination sur les hashes ci-dessus.
+- Preuves DEV transmises : API **41/41**, Organisation **34/34**, suite complète **262/262**, lint/build/diff-check PASS ; contrôle navigateur réel avec 2 membres et formulaires alimentés.
 
 ## P2 de preuve
 
-### PERF-G5-01 — batch 100 proche de la cible
-
-Le p95 `249,66 ms` respecte la cible, avec moins de 0,4 ms de marge. Une machine plus lente peut la dépasser. Optimiser la persistance batch ou formaliser son seuil avant RELEASE reste recommandé.
-
-### PERF-G5-02 — UI et forte charge SSE non mesurées
-
-La campagne ne mesure pas le Planning authentifié `< 2 s` dans un navigateur avec 250/10 000, ni un p95 à 20 flux SSE. Une tentative de mesure SSE supplémentaire a été interrompue et n’est pas utilisée comme preuve. Le test fonctionnel à deux flux confirme le comportement, pas sa capacité sous forte charge.
+**PERF-TEAM-01 — pas de mesure chronométrée dédiée.** Aucun benchmark long n’a été rejoué, conformément au périmètre ciblé. Le verdict repose sur l’analyse d’impact, les bornes de 200 éléments et le contrôle navigateur. Une mesure RUM/DOM serait utile si ces plafonds augmentent.
 
 ## Limites
 
-- Mesure locale mono-processus et persistance JSON, sans stockage réseau.
-- Dix observations seulement pour le batch 100.
-- Pas de campagne longue durée/GC ni seuil mémoire.
-- Pas de mesure UI authentifiée, scroll ou vues Planning sur ce hash.
-- Les deux contrôles inter-site finaux sont couverts par analyse d’impact performance, pas par un nouveau benchmark complet.
+- Pas de chronométrage navigateur automatisé de `#team` ni de profil mémoire DOM.
+- Le benchmark planning antérieur ne mesure pas le nouvel endpoint, mais les chemins planning sont inchangés.
 
 ## Verdict
 
-Les seuils API contractuels sont respectés et aucun P0/P1 performance n’est ouvert : **PERFORMANCE G5 est APPROVED**. Les limites UI/SSE et la faible marge batch restent visibles pour les gates aval.
+Le correctif est borné et n’affecte pas les seuils G5 du planning : **PERFORMANCE APPROVED** sans P0/P1.

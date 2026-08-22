@@ -2170,3 +2170,137 @@ Le contrôle couvre désormais dynamiquement les deux consommateurs HTTP qui res
 ## Verdict terminal
 
 La re-QA finale G5 est **APPROVED** sur les empreintes exactes ci-dessus. L'isolation Paris/Boulogne des indisponibilités est démontrée sur la lecture et la suppression avec un acteur pourtant autorisé à écrire sur son propre site, la cible hors site reste inchangée, et la suite complète passe à **260/260**. Aucun P0/P1 QA n'est ouvert.
+
+---
+
+# Re-QA post-release visuelle — route Équipe autonome
+
+Date : 2026-08-22 21:29 CEST
+
+Verdict : **REJECTED — 1 P1 QA ouvert**
+
+Périmètre : route `#team`, indépendance vis-à-vis de l'étape O3, navigation, annuaire, compétences, indisponibilités et matrice `planning.read` / `planning.write`.
+
+Indépendance : aucun code, test ou autre document modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Candidat exact
+
+```text
+app.js                         707005ff708137c5b591868120fb6fd54ea9337bb7cda28e3e78eceb820faee8
+tests/organization.test.js     5c512ddcb44bb0722121804f2ff0dd4051e21f65f7a99a1f6ba52dbd3f876ab3
+server.js                      b9b6294f5816ca8ed12d7be1789127e4a9bc1f19d7f2e25a12ef8a3db5c0d200
+```
+
+Environnement : Node `v26.6.0`, Darwin `25.5.0` arm64.
+
+## Preuves fraîches
+
+| Commande exacte | Résultat observé |
+|---|---|
+| `node --test tests/organization.test.js` | PASS, **34/34**, 0 échec/annulé/ignoré/TODO |
+| `node --test tests/api.test.js` | PASS, **40/40**, 0 échec/annulé/ignoré/TODO |
+| `node --test tests/planning-postproduction.test.js` | PASS, **43/43**, 0 échec/annulé/ignoré/TODO |
+| `npm test` | PASS, **261/261**, 0 échec/annulé/ignoré/TODO, 8 523,86 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` | PASS, code 0 |
+
+La route et son rendu statique sont bien raccordés : `team` appartient aux routes Organisation, appelle directement `teamPage()` avant la gouvernance O3, active l'entrée `team`, affiche le fil d'Ariane « Équipe », protège la lecture par `planning.read` et masque formulaires/boutons de mutation sans `planning.write`. Le test ajouté démontre seulement ce câblage par expressions régulières ; il n'exécute pas le parcours avec les rôles livrés.
+
+## P1 — un planificateur autorisé ne reçoit pas l'annuaire nécessaire à la page Équipe
+
+Le rôle de démonstration `planner` reçoit bien `planning.read` et `planning.write`, mais pas `membership.read`. Or `loadOrganizationData()` construit l'annuaire de `teamPage()` depuis `GET /api/v1/memberships`; il absorbe son `403` en remplaçant `organization.memberships` par une liste vide. Conséquences observables :
+
+- « Membres actifs » vaut zéro au lieu d'afficher l'équipe accessible ;
+- les compétences/indisponibilités éventuellement retournées ne peuvent plus résoudre les noms et affichent « Personne » ;
+- les formulaires pourtant autorisés par `planning.write` ont un sélecteur Personne vide, donc la création n'est pas utilisable ;
+- la promesse de droits `planning.read` / `planning.write` de la page autonome n'est pas tenue pour le rôle opérationnel principal.
+
+Reproduction HTTP fraîche sur le serveur local du candidat, avec `planner@northlight.fr` :
+
+```text
+POST /api/v1/auth/login                         200
+permissions                                    planning.read, planning.write (présentes)
+GET /api/v1/memberships?pageSize=200           403 FORBIDDEN
+GET /api/v1/person-skills?pageSize=200          200
+GET /api/v1/person-unavailabilities?pageSize=200 200
+```
+
+Critère de fermeture : avec un acteur `planning.read` sans privilège de gouvernance, la page doit recevoir un annuaire personnel strictement borné à sa société et à ses sites, sans exposer les rôles/périmètres administratifs ; avec `planning.write`, les personnes autorisées doivent être sélectionnables pour créer une compétence ou une indisponibilité. Ajouter un test fonctionnel de rôle lecture seule et un test de planificateur, au-delà des assertions textuelles de route.
+
+## Limite visuelle
+
+Le serveur local a démarré correctement, mais aucun navigateur contrôlable n'était connecté à cette tâche (`agent.browsers.list()` vide). Aucun verdict esthétique n'est donc fabriqué. Le défaut P1 est néanmoins démontré dynamiquement au niveau des permissions/API et bloque la fonctionnalité avant même le rendu visuel.
+
+## Verdict terminal
+
+La re-QA post-release de la page Équipe est **REJECTED**. Le câblage autonome, l'entrée active, le fil d'Ariane et la séparation lecture/écriture sont présents dans le frontend, et les **261/261** tests restent verts, mais le rôle Planificateur ne peut pas charger l'annuaire indispensable à l'usage de la page. Un P1 QA reste ouvert ; le candidat doit retourner en DEV puis repasser QA.
+
+---
+
+# Re-QA finale post-release — page Équipe et annuaire opérationnel
+
+Date : 2026-08-22 21:42 CEST
+
+Verdict : **APPROVED — 0 P0/P1 QA ouvert**
+
+Périmètre : fermeture du P1 annuaire `#team`, endpoint `/api/v1/personnel-directory`, séparation avec la gouvernance, permissions de lecture/écriture, isolation société/site et non-régression.
+
+Indépendance : aucun code, test, contrat ou statut modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Candidat final exact
+
+```text
+server.js                      8b1e180f94c0101342e4ecda6258e23d5ddafd99c1e9caecdff5cbbd3c51063a
+app.js                         8a122679a279beedb6c0d6cd8f0bf9197a36124bc60c55bef25d35b93f9823b7
+index.html                     edada446944aa48c1782028dc52e8b35cf00589156a3016ab0a2cd1bf97504ae
+planning.css                   4016e6d89ac521cfc22eb42aad17ef16d54db5720e6e8df0bebf6c4739cc57d1
+tests/api.test.js              f5c788f3cf74e1fb810b0730a8d18269922179eca7576eeec6ff02bbeb08d2f3
+tests/organization.test.js     665257902c792725f0978a5726238eafb5596b2b8059b164dd9169c93741fe16
+docs/api/openapi-v1.yaml       75a83115cbeb5712f237884cc9144726e8cfa5b9e0a455d98ab386c1048e2c1e
+```
+
+Environnement : Node `v26.6.0`, Darwin `25.5.0` arm64.
+
+## Preuves fraîches
+
+| Commande exacte | Résultat observé |
+|---|---|
+| `node --test tests/api.test.js` | PASS, **41/41**, 0 échec/annulé/ignoré/TODO |
+| `node --test tests/organization.test.js` | PASS, **34/34**, 0 échec/annulé/ignoré/TODO |
+| `node --test tests/planning-postproduction.test.js` | PASS, **43/43**, 0 échec/annulé/ignoré/TODO |
+| `npm test` | PASS, **262/262**, 0 échec/annulé/ignoré/TODO, 8 401,69 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` | PASS, code 0 |
+
+## Fermeture du P1 précédent
+
+La page Équipe ne dépend plus de la collection de gouvernance `organization.memberships`. Elle charge une collection séparée `personnelAdmin.directory` depuis `/api/v1/personnel-directory`, sous la permission `planning.read` :
+
+- le DTO ne contient que `id`, `displayName`, `jobTitle` et `defaultSiteId` ; aucun e-mail, identifiant utilisateur, rôle ou scope de gouvernance n'est exposé ;
+- les membres sont actifs, de la société courante et filtrés par `membershipAllowed`; un site par défaut hors périmètre n'est pas révélé ;
+- l'API de gouvernance `/api/v1/memberships` reste refusée au planificateur sans `membership.read` ;
+- l'annuaire opérationnel alimente le compteur, les libellés et les deux sélecteurs « Personne » des formulaires Compétence et Indisponibilité ;
+- le lien « Gérer les accès » est rendu uniquement avec `membership.read`, tandis que les formulaires et commandes restent conditionnés par `planning.write` ;
+- la route `#team` reste autonome et ne consulte pas l'état verrouillé de l'étape O3.
+
+Reproduction HTTP indépendante sur le serveur local du candidat :
+
+```text
+Planificateur : GET /api/v1/personnel-directory?pageSize=200   200
+               2 membres : Camille Martin, Alex Bernard
+               champs exacts : id, displayName, jobTitle, defaultSiteId
+Planificateur : GET /api/v1/memberships?pageSize=200           403
+Lecteur :       GET /api/v1/personnel-directory?pageSize=200   200
+```
+
+Les tests ajoutés vérifient aussi le périmètre Paris/Boulogne et l'absence de champs sensibles ; les tests Personnel existants maintiennent les refus d'écriture du lecteur et les filtres des compétences/indisponibilités.
+
+## Limite visuelle indépendante
+
+Aucun navigateur contrôlable n'était attaché à cette tâche de re-QA. Le contrôle navigateur réel du développeur (planificateur, deux membres et deux sélecteurs remplis, aucune commande de gouvernance) n'est donc pas revendiqué comme preuve QA indépendante. La fermeture est néanmoins démontrée dynamiquement par les rôles/API réels, par le contrat frontend et par les suites ciblées. Une dernière recette esthétique PO reste distincte du verdict technique.
+
+## Verdict terminal
+
+La re-QA finale de la page Équipe est **APPROVED**. Le P1 est fermé sans promouvoir le planificateur vers la gouvernance : l'annuaire minimal est lisible et scopé, les sélecteurs sont alimentés, les données sensibles restent absentes et le lien d'administration est masqué sans `membership.read`. Les suites ciblées et les **262/262** tests complets passent ; aucun P0/P1 QA n'est ouvert.

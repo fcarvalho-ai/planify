@@ -288,6 +288,17 @@ paths:
         '201': { description: Compétence structurée créée, content: { application/json: { schema: { $ref: '#/components/schemas/PersonSkill' } } } }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /personnel-directory:
+    get:
+      operationId: listPersonnelDirectory
+      tags: [People]
+      description: Annuaire opérationnel minimal, filtré par société et périmètre de planification. Ne retourne ni e-mail, ni rôle, ni scope de gouvernance. Requiert planning.read.
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200': { description: Personnes actives visibles dans le périmètre Planning, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /person-skills/{skillId}:
     delete:
       operationId: archivePersonSkill
@@ -1141,6 +1152,15 @@ components:
         code: { type: string, pattern: '^[A-Z0-9][A-Z0-9_-]{1,63}$' }
         name: { type: string, minLength: 1, maxLength: 120 }
         level: { type: integer, minimum: 1, maximum: 5 }
+    PersonnelDirectoryEntry:
+      type: object
+      additionalProperties: false
+      required: [id, displayName, jobTitle]
+      properties:
+        id: { type: string }
+        displayName: { type: string }
+        jobTitle: { type: string }
+        defaultSiteId: { type: [string, 'null'] }
     PersonSkill:
       allOf:
         - { $ref: '#/components/schemas/PersonSkillCommand' }

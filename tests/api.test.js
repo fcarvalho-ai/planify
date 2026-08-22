@@ -206,6 +206,19 @@ test('Sprint 5 personnel : compétences, indisponibilités et filtrage PlanyBot'
   assert.equal(viewerWrite.response.status, 403);
 });
 
+test('Sprint 5 annuaire opérationnel : un planificateur lit uniquement les champs nécessaires', async () => {
+  const governance = await request('/api/v1/memberships?pageSize=200', {}, planner);
+  assert.equal(governance.response.status, 403);
+  const directory = await request('/api/v1/personnel-directory?pageSize=200', {}, planner);
+  assert.equal(directory.response.status, 200);
+  assert.ok(directory.data.items.length > 0);
+  assert.deepEqual(Object.keys(directory.data.items[0]).sort(), ['defaultSiteId', 'displayName', 'id', 'jobTitle']);
+  assert.equal(directory.data.items.some(item => item.userId || item.email || item.roles || item.scopes), false);
+  const scopedDirectory = await request('/api/v1/personnel-directory?pageSize=200', {}, parisPlanner);
+  assert.equal(scopedDirectory.response.status, 200);
+  assert.equal(scopedDirectory.data.items.some(item => item.defaultSiteId === 'site_boulogne'), false);
+});
+
 test('Sprint 5 personnel : une indisponibilité reste masquée et non annulable hors site', async () => {
   const memberships = await request('/api/v1/memberships?pageSize=200', {}, admin), person = memberships.data.items.find(item => item.userId === 'user_planner');
   const made = await request('/api/v1/person-unavailabilities', { method: 'POST', headers: { 'Idempotency-Key': 's5-person-boulogne' }, body: JSON.stringify({ membershipId: person.id, siteId: 'site_boulogne', startsAt: '2030-07-10T00:00:00.000Z', endsAt: '2030-07-11T00:00:00.000Z', type: 'leave', reason: 'Boulogne uniquement' }) }, admin);

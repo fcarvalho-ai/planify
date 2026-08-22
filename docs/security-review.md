@@ -1,48 +1,39 @@
-# Revue SECURITY indépendante — Gate G5
+# Revue SECURITY indépendante — correctif post-release `#team`
 
-Date : 2026-08-21  
-Reviewer : gate SECURITY indépendant  
-Verdict : **APPROVED — 0 P0, 0 P1, 1 P2**
+Date : 2026-08-22
+Verdict : **APPROVED — 0 P0, 0 P1, 0 P2**
 
-## Candidat vérifié
+## Candidat
 
 | Fichier | SHA-256 |
 |---|---|
-| `server.js` | `b9b6294f5816ca8ed12d7be1789127e4a9bc1f19d7f2e25a12ef8a3db5c0d200` |
-| `app.js` | `04f7a5a9ce015e6d2ae00d1faa092f63023ded430c2c8dff11944f1e394f5054` |
-| `tests/api.test.js` | `1e581cec20a6f19e82d91dee9fa953ec3d20858803f11a53e9652229c2ec342b` |
-| `tests/sprint5-realtime.test.js` | `d8b17b3ac2f35b70d654552920387f4108f2ad18e0b7763d1e334db9f9320cf9` |
+| `server.js` | `8b1e180f94c0101342e4ecda6258e23d5ddafd99c1e9caecdff5cbbd3c51063a` |
+| `app.js` | `8a122679a279beedb6c0d6cd8f0bf9197a36124bc60c55bef25d35b93f9823b7` |
+| `index.html` | `edada446944aa48c1782028dc52e8b35cf00589156a3016ab0a2cd1bf97504ae` |
+| `planning.css` | `4016e6d89ac521cfc22eb42aad17ef16d54db5720e6e8df0bebf6c4739cc57d1` |
+| `tests/api.test.js` | `f5c788f3cf74e1fb810b0730a8d18269922179eca7576eeec6ff02bbeb08d2f3` |
+| `tests/organization.test.js` | `665257902c792725f0978a5726238eafb5596b2b8059b164dd9169c93741fe16` |
+| `docs/api/openapi-v1.yaml` | `75a83115cbeb5712f237884cc9144726e8cfa5b9e0a455d98ab386c1048e2c1e` |
+
+## Contrôles
+
+- `GET /api/v1/personnel-directory` exige `planning.read` côté serveur. Il ne renvoie que `id`, `displayName`, `jobTitle` et un `defaultSiteId` autorisé ; aucun e-mail, `userId`, rôle, scope ou donnée RH libre.
+- Société imposée par la session et filtrage `membershipAllowed` ; un site par défaut hors scope est supprimé de la projection. Le test couvre un planificateur restreint à Paris.
+- La gouvernance complète `/memberships` reste protégée par `membership.read`. Le lien « Gérer les accès » est masqué sans cette permission.
+- Les formulaires et actions ne sont rendus qu’avec `planning.write`; l’API conserve l’autorité et refuse les mutations sans cette permission.
+- Les données dynamiques de l’annuaire, des compétences et indisponibilités passent par `esc`; les identifiants d’URL passent par `encodeURIComponent`. Aucun nouveau sink HTML non échappé n’a été introduit.
+- Les protections G5 précédentes restent inchangées : CSRF/origine sur mutations, isolation Personnel site/tenant, SSE fail-closed et quotas.
 
 ## Preuves
 
-- Relecture indépendante des contrôles auth/session/CSRF, RBAC, société/site/projet/entité, SSE, présence, idempotence, Personnel, migration, sauvegarde et rollback.
-- Campagne ciblée exécutée sur le candidat immédiatement antérieur aux deux corrections inter-site : `node --test tests/api.test.js tests/sprint5-realtime.test.js tests/sprint5-migration.test.js` — Node.js `v26.6.0` — **41/41 réussis**, 0 échec.
-- Preuve finale communiquée par l’intégrateur sur les hashes ci-dessus : API **40/40**, suite complète **260/260**, lint/build/diff PASS. Le test HTTP final crée un planificateur limité à Paris avec `planning.write`, puis vérifie qu’une indisponibilité Boulogne est absente de la liste, que sa suppression répond `404` et que son état reste `confirmed`.
-
-## Revalidation des trois P1 antérieurs
-
-1. **Personnel inter-site — fermé.** `personnelSnapshotAllowed` impose le site de l’instantané. La liste des indisponibilités et la suppression non rejouée utilisent ce même contrôle ; le rejeu idempotent et le SSE le réutilisent également.
-2. **RBAC SSE / fail-closed — fermé.** La route exige une permission de lecture reconnue. Chaque famille d’événements possède un catalogue de permissions et de scopes ; une famille inconnue retourne une liste vide et n’est pas diffusée. Session, société, site et scopes sont revalidés avant chaque émission.
-3. **Abus SSE — fermé.** Une seule connexion est admise par session (`429 SSE_SESSION_LIMIT`) et un plafond global de 256 flux renvoie `503 SSE_CAPACITY_REACHED`. Les flux sont fermés à la déconnexion, au logout, au changement de société et à l’expiration/révocation de session.
-
-## Autres contrôles conformes
-
-- Session opaque, cookie défensif, CSRF et origine stricte sur les mutations.
-- Présence consultative avec version, TTL 20 s, timer d’expiration et événement de libération ; le logout libère immédiatement la présence avant de fermer le SSE.
-- Idempotence : rejeu exact sans double effet, contenu divergent refusé, historique revalidé avec les scopes actuels.
-- Données Personnel bornées ; aucune raison libre n’est placée dans l’enveloppe SSE.
-- Migrations ordonnées, sauvegarde locale privée obligatoire et rollback Personnel byte-exact vérifié.
-
-## P2 non bloquant
-
-**SEC-G5-04 — quota de présences par session.** Les présences sont bornées par réservation et expirent après 20 secondes, mais un acteur peut en acquérir plusieurs simultanément. Elles restent consultatives et ne contournent pas le contrôle optimiste. Un plafond par session renforcerait la défense en profondeur.
+- Inspection indépendante du diff frontend/backend, du contrat OpenAPI et des tests sur les hashes ci-dessus.
+- Preuves DEV transmises : API **41/41**, Organisation **34/34**, suite complète **262/262**, lint/build/diff-check PASS ; contrôle navigateur planificateur : 2 membres visibles et sélecteurs alimentés.
 
 ## Limites
 
-- Pas de fuzzing ni de pentest externe.
-- Le plafond global de 256 SSE est vérifié par lecture et le doublon par test ; aucune campagne d’épuisement à 257 connexions n’a été exécutée.
-- Le résultat final API/suite complète est une preuve transmise par l’intégrateur ; la campagne indépendante fraîche couvre 41 tests sur l’état juste antérieur, dont les correctifs SSE et présence.
+- Aucun pentest/fuzzing externe.
+- Les campagnes automatisées finales ont été exécutées par DEV/intégration ; ce gate réalise une inspection indépendante ciblée du changement.
 
 ## Verdict
 
-Aucun P0/P1 n’est ouvert sur le candidat identifié : **SECURITY G5 est APPROVED**. Toute modification ultérieure des chemins Personnel, auth, scopes ou SSE invalide ce verdict.
+Le correctif n’ouvre aucune exposition tenant/site, aucun contournement RBAC et aucun risque XSS bloquant : **SECURITY APPROVED**.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0-rc2 — 2026-08-22
+
+- page Équipe opérationnelle indépendante de l’onboarding Organisation : annuaire, compétences et indisponibilités ;
+- annuaire Personnel minimal protégé par `planning.read`, isolé par société et périmètre de site, sans exposition des rôles, e-mails ou scopes ;
+- gouvernance des accès maintenue sous `membership.read` et mutations Personnel sous `planning.write` ;
+- contrôle navigateur réel avec le rôle Planificateur : deux membres autorisés et sélecteurs Personne renseignés ;
+- REVIEW, QA, SECURITY et PERFORMANCE approuvés sans P0/P1 ; suite finale 262/262, lint et build verts.
+
 ## 0.2.0-rc1 — 2026-08-21
 
 - fondations V1 G0 : contrats partagés, RBAC et scopes société/site/projet/entité, idempotence, audit, SSE et OpenAPI ;
