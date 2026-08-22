@@ -19,6 +19,7 @@ tags:
   - name: Audit
   - name: Foundation
   - name: Planning
+  - name: PlanyBot
   - name: People
 paths:
   /auth/login:
@@ -339,6 +340,74 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [version], properties: { version: { type: integer, minimum: 1 } } } } } }
       responses:
         '200': { description: Indisponibilité annulée, content: { application/json: { schema: { $ref: '#/components/schemas/PersonUnavailability' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /plany/messages:
+    post:
+      operationId: postPlanyMessage
+      tags: [PlanyBot]
+      description: Produit une réponse factuelle et, le cas échéant, une proposition persistée. Ne crée jamais de réservation.
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlanyMessageCommand' }
+      responses:
+        '201': { description: Réponse et propositions sans mutation métier, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /plany/proposals/{proposalId}:
+    get:
+      operationId: getPlanyProposal
+      tags: [PlanyBot]
+      parameters:
+        - { name: proposalId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Proposition autorisée, content: { application/json: { schema: { $ref: '#/components/schemas/PlanyProposal' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /plany/proposals/{proposalId}/confirm:
+    post:
+      operationId: confirmPlanyProposal
+      tags: [PlanyBot]
+      description: Revalide droits, scopes, versions, disponibilité et capacité, puis appelle le moteur Réservation après confirmation humaine.
+      parameters:
+        - { name: proposalId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [proposalDigest]
+              properties: { proposalDigest: { type: string, minLength: 32, maxLength: 128 } }
+      responses:
+        '201': { description: Proposition exécutée, content: { application/json: { schema: { $ref: '#/components/schemas/PlanyProposalExecution' } } } }
+        '200': { description: Rejeu idempotent, content: { application/json: { schema: { $ref: '#/components/schemas/PlanyProposalExecution' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /plany/proposals/{proposalId}/reject:
+    post:
+      operationId: rejectPlanyProposal
+      tags: [PlanyBot]
+      parameters:
+        - { name: proposalId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: { reason: { type: string, maxLength: 500 } }
+      responses:
+        '200': { description: Proposition refusée ou rejeu, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
   /reservations:
     get:
@@ -953,6 +1022,59 @@ components:
             type: array
             uniqueItems: true
             items: { type: string }
+    PlanyMessageCommand:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message: { type: string, minLength: 1, maxLength: 800 }
+        conversationId: { type: string }
+        context:
+          type: object
+          additionalProperties: false
+          properties:
+            projectId: { type: string }
+            siteId: { type: string }
+            from: { type: string, format: date }
+            to: { type: string, format: date }
+            workflow: { type: string }
+            phase: { type: string }
+            quoteId: { type: string }
+            clientPlanningImportId: { type: string }
+    PlanyProposal:
+      type: object
+      additionalProperties: false
+      required: [id, conversationId, projectId, siteId, type, status, command, resourceIds, sourceVersions, preview, digest, createdAt, expiresAt, version]
+      properties:
+        id: { type: string }
+        companyId: { type: string, readOnly: true }
+        userId: { type: string, readOnly: true }
+        conversationId: { type: string }
+        projectId: { type: string }
+        siteId: { type: string }
+        type: { type: string, enum: [reservation.create] }
+        status: { type: string, enum: [prepared, confirmed, rejected, expired, executed] }
+        command: { $ref: '#/components/schemas/ReservationCommand' }
+        resourceIds: { type: array, minItems: 1, uniqueItems: true, items: { type: string } }
+        sourceVersions: { type: object, additionalProperties: true }
+        preview: { type: object, additionalProperties: true }
+        digest: { type: string }
+        reservationId: { type: string }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        confirmedAt: { type: string, format: date-time }
+        executedAt: { type: string, format: date-time }
+        rejectedAt: { type: string, format: date-time }
+        rejectionReason: { type: string }
+        version: { type: integer, minimum: 1 }
+    PlanyProposalExecution:
+      type: object
+      additionalProperties: false
+      required: [proposal, reservation, replay]
+      properties:
+        proposal: { $ref: '#/components/schemas/PlanyProposal' }
+        reservation: { $ref: '#/components/schemas/Reservation' }
+        replay: { type: boolean }
     ReservationCommand:
       type: object
       additionalProperties: false
@@ -968,6 +1090,7 @@ components:
         optionPriority: { type: integer, minimum: 1, maximum: 100 }
         optionExpiresAt: { type: string, format: date-time }
         resources: { type: array, minItems: 1, items: { $ref: '#/components/schemas/Allocation' } }
+        notes: { type: string, maxLength: 4000 }
         includeWeekends: { type: boolean, default: true }
         timeGranularity: { type: string, enum: [hour, halfDay, day], default: day, description: Quand il est transmis, startsAt et endsAt doivent être alignés sur cette granularité dans le fuseau du site. }
         snapMinutes: { type: integer, enum: [30, 60, 240, 1440], default: 1440, description: "hour: 30 ou 60 ; halfDay: 240 ; day: 1440. Les instants sont validés sur ce pas dans le fuseau du site." }

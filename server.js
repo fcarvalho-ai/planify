@@ -73,6 +73,7 @@ const SPRINT1_ANALYTICS_MIGRATION = 'sprint-1-analytics-v1';
 const SPRINT1_CONTRACTS_MIGRATION = 'sprint-1-contracts-v2';
 const SPRINT5_ADVANCED_RESOURCES_MIGRATION = 'sprint-5-advanced-resources-v1';
 const SPRINT5_PERSONNEL_MIGRATION = 'sprint-5-personnel-v1';
+const SPRINT6_PLANYBOT_MIGRATION = 'sprint-6-planybot-proposals-v1';
 const PERSON_SKILL_LEVELS = new Set([1, 2, 3, 4, 5]);
 const PERSON_UNAVAILABILITY_TYPES = new Set(['leave', 'rtt', 'illness', 'unavailable']);
 const PERSON_UNAVAILABILITY_STATUSES = new Set(['confirmed', 'cancelled']);
@@ -290,7 +291,7 @@ function resetData(seed = makeSeed()) {
 }
 function ensureStockCollections(db) { for (const key of ['stockItems', 'equipmentAssets', 'stockLocations', 'stockMovements', 'maintenanceRecords', 'stockIdempotency']) if (!Array.isArray(db[key])) db[key] = []; return db; }
 function ensureOrganizationCollections(db) {
-  for (const key of ['organizationAddresses', 'organizationContacts', 'organizationUnits', 'serviceOfferings', 'organizationMemberships', 'membershipRoles', 'membershipScopes', 'roles', 'organizationIdempotency', 'vatRates', 'quotes', 'budgets', 'budgetVersions', 'quoteVersions', 'rateCards', 'rates', 'quoteIdempotency', 'quoteNumberCounters', 'clientPlanningImports', 'quotePlanningControls', 'planyConversations', 'planyMessages', 'planyIdempotency', 'clientContacts', 'clientRateImports', 'clientIdempotency', 'resourceCategories', 'personSkills', 'personUnavailabilities', 'domainEvents', 'foundationCommands']) if (!Array.isArray(db[key])) db[key] = [];
+  for (const key of ['organizationAddresses', 'organizationContacts', 'organizationUnits', 'serviceOfferings', 'organizationMemberships', 'membershipRoles', 'membershipScopes', 'roles', 'organizationIdempotency', 'vatRates', 'quotes', 'budgets', 'budgetVersions', 'quoteVersions', 'rateCards', 'rates', 'quoteIdempotency', 'quoteNumberCounters', 'clientPlanningImports', 'quotePlanningControls', 'planyConversations', 'planyMessages', 'planyProposals', 'planyProposalCommands', 'planyIdempotency', 'clientContacts', 'clientRateImports', 'clientIdempotency', 'resourceCategories', 'personSkills', 'personUnavailabilities', 'domainEvents', 'foundationCommands']) if (!Array.isArray(db[key])) db[key] = [];
   return db;
 }
 function migrateClientsModuleV1(db) {
@@ -567,6 +568,36 @@ function rollbackSprint5Personnel(options = {}) {
   migrateSprint5PersonnelV1(db, raw);
   const backupPath = path.join(path.dirname(DATA_FILE), marker.backupFile), exportFile = options.exportFile ? path.resolve(options.exportFile) : '';
   if (!exportFile) throw apiError(409, 'ROLLBACK_EXPORT_REQUIRED', 'Un export de récupération est obligatoire avant le rollback Personnel Sprint 5.');
+  if (exportFile === path.resolve(DATA_FILE)) throw apiError(422, 'VALIDATION_ERROR', 'Le fichier d’export doit être distinct des données actives.');
+  fs.mkdirSync(path.dirname(exportFile), { recursive: true, mode: 0o700 }); fs.writeFileSync(exportFile, raw, { mode: 0o600, flag: 'wx' });
+  const source = fs.readFileSync(backupPath, 'utf8'), temporary = `${DATA_FILE}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.rollback.tmp`; fs.writeFileSync(temporary, source, { mode: 0o600, flag: 'wx' }); fs.renameSync(temporary, DATA_FILE);
+  return { restoredDigest: digestText(source), exportFile, exportDigest: digestText(raw) };
+}
+function sprint6PlanyBotStateValid(db) {
+  const companies = new Set((db.companies || []).map(value => value.id)), users = new Set((db.users || []).map(value => value.id)), conversations = new Set((db.planyConversations || []).map(value => value.id)), proposals = new Set((db.planyProposals || []).map(value => value.id));
+  return (db.planyProposals || []).every(value => companies.has(value.companyId) && users.has(value.userId) && conversations.has(value.conversationId) && ['reservation.create'].includes(value.type) && ['prepared', 'confirmed', 'rejected', 'expired', 'executed'].includes(value.status) && typeof value.command === 'object' && value.command && /^[a-f0-9]{64}$/.test(value.digest || '') && validIso(value.createdAt) && validIso(value.expiresAt) && Number.isInteger(value.version) && value.version > 0) && (db.planyProposalCommands || []).every(value => companies.has(value.companyId) && users.has(value.userId) && proposals.has(value.proposalId) && ['confirm', 'reject'].includes(value.command) && cleanString(value.key, 201).length > 0 && /^[a-f0-9]{64}$/.test(value.requestDigest || ''));
+}
+function migrateSprint6PlanyBotV1(db, raw) {
+  ensureOrganizationCollections(db); db.migrations = Array.isArray(db.migrations) ? db.migrations : [];
+  const existing = db.migrations.find(value => value.id === SPRINT6_PLANYBOT_MIGRATION);
+  if (existing) {
+    const { integrityDigest, ...fields } = existing, backupPath = typeof existing.backupFile === 'string' && path.basename(existing.backupFile) === existing.backupFile ? path.join(path.dirname(DATA_FILE), existing.backupFile) : '';
+    if (integrityDigest !== digestText(JSON.stringify(fields)) || !backupPath || !fs.existsSync(backupPath) || digestText(fs.readFileSync(backupPath)) !== existing.sourceDigest || !sprint6PlanyBotStateValid(db)) throw apiError(409, 'MIGRATION_MARKER_CONFLICT', 'Le marqueur PlanyBot Sprint 6 ne correspond pas à sa sauvegarde ou aux invariants métier.');
+    return false;
+  }
+  if (!db.migrations.some(value => value.id === SPRINT5_PERSONNEL_MIGRATION)) throw apiError(409, 'MIGRATION_ORDER_INVALID', 'Le Sprint 5 doit précéder PlanyBot Sprint 6.');
+  if (typeof raw !== 'string') throw apiError(409, 'MIGRATION_SOURCE_REQUIRED', 'La source brute est requise pour sécuriser PlanyBot Sprint 6.');
+  const sourceDigest = digestText(raw), backup = `${DATA_FILE}.${SPRINT6_PLANYBOT_MIGRATION}.${sourceDigest.slice(0, 16)}.backup.json`;
+  if (fs.existsSync(backup)) { if (fs.readFileSync(backup, 'utf8') !== raw) throw apiError(409, 'MIGRATION_BACKUP_CONFLICT', 'La sauvegarde PlanyBot Sprint 6 ne correspond pas aux données source.'); }
+  else { const temporary = `${backup}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`; fs.writeFileSync(temporary, raw, { mode: 0o600, flag: 'wx' }); fs.renameSync(temporary, backup); }
+  const marker = { id: SPRINT6_PLANYBOT_MIGRATION, appliedAt: now(), additive: true, backupFile: path.basename(backup), sourceDigest, policyVersion: 'SPRINT6_PLANYBOT@1', collections: ['planyProposals', 'planyProposalCommands'] }; marker.integrityDigest = digestText(JSON.stringify(marker)); db.migrations.push(marker); return true;
+}
+function rollbackSprint6PlanyBot(options = {}) {
+  const raw = fs.readFileSync(DATA_FILE, 'utf8'), db = JSON.parse(raw), marker = (db.migrations || []).find(value => value.id === SPRINT6_PLANYBOT_MIGRATION);
+  if (!marker) throw apiError(409, 'MIGRATION_MARKER_CONFLICT', 'Le marqueur PlanyBot Sprint 6 est absent.');
+  migrateSprint6PlanyBotV1(db, raw);
+  const backupPath = path.join(path.dirname(DATA_FILE), marker.backupFile), exportFile = options.exportFile ? path.resolve(options.exportFile) : '';
+  if (!exportFile) throw apiError(409, 'ROLLBACK_EXPORT_REQUIRED', 'Un export de récupération est obligatoire avant le rollback PlanyBot Sprint 6.');
   if (exportFile === path.resolve(DATA_FILE)) throw apiError(422, 'VALIDATION_ERROR', 'Le fichier d’export doit être distinct des données actives.');
   fs.mkdirSync(path.dirname(exportFile), { recursive: true, mode: 0o700 }); fs.writeFileSync(exportFile, raw, { mode: 0o600, flag: 'wx' });
   const source = fs.readFileSync(backupPath, 'utf8'), temporary = `${DATA_FILE}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.rollback.tmp`; fs.writeFileSync(temporary, source, { mode: 0o600, flag: 'wx' }); fs.renameSync(temporary, DATA_FILE);
@@ -926,7 +957,8 @@ function readDb() {
   const sprint1AnalyticsChanged = migrateSprint1AnalyticsV1(db, raw); if (sprint1AnalyticsChanged) { atomicWriteFile(DATA_FILE, db); raw = fs.readFileSync(DATA_FILE, 'utf8'); db = JSON.parse(raw); }
   const sprint1ContractsChanged = migrateSprint1ContractsV2(db, raw); if (sprint1ContractsChanged) { atomicWriteFile(DATA_FILE, db); raw = fs.readFileSync(DATA_FILE, 'utf8'); db = JSON.parse(raw); }
   const sprint5AdvancedChanged = migrateSprint5AdvancedResourcesV1(db, raw); if (sprint5AdvancedChanged) { atomicWriteFile(DATA_FILE, db); raw = fs.readFileSync(DATA_FILE, 'utf8'); db = JSON.parse(raw); }
-  const sprint5PersonnelChanged = migrateSprint5PersonnelV1(db, raw); if (sprint5PersonnelChanged) atomicWriteFile(DATA_FILE, db);
+  const sprint5PersonnelChanged = migrateSprint5PersonnelV1(db, raw); if (sprint5PersonnelChanged) { atomicWriteFile(DATA_FILE, db); raw = fs.readFileSync(DATA_FILE, 'utf8'); db = JSON.parse(raw); }
+  const sprint6PlanyBotChanged = migrateSprint6PlanyBotV1(db, raw); if (sprint6PlanyBotChanged) atomicWriteFile(DATA_FILE, db);
   return db;
 }
 function atomicWrite(db) {
@@ -1251,6 +1283,26 @@ function planyAnswer(db, auth, message, context = {}) {
   }
   return { intent: 'help', assistantMessage: 'Je peux chercher des salles libres, résumer le projet actif, repérer les conflits ou préparer une réservation. Essayez : « Quelles salles de mixage sont libres cette semaine ? »', facts: {}, actions: [] };
 }
+function planyProposalAllowed(db, auth, proposal) {
+  if (!proposal || proposal.companyId !== auth.user.companyId || proposal.userId !== auth.user.id || !projectAllowed(auth, proposal.projectId) || !siteAllowed(auth, proposal.siteId)) return false;
+  return (proposal.resourceIds || []).every(resourceId => entityAllowed(auth, 'resource', resourceId) && db.resources.some(value => value.id === resourceId && value.companyId === proposal.companyId && value.siteId === proposal.siteId));
+}
+function preparePlanyBookingProposal(db, auth, conversation, action) {
+  const activeProposalCount = db.planyProposals.filter(value => value.companyId === auth.user.companyId && value.userId === auth.user.id && value.status === 'prepared' && Date.parse(value.expiresAt) > Date.now()).length;
+  if (activeProposalCount >= 40) throw apiError(409, 'PLANY_PROPOSAL_LIMIT', 'Trop de propositions PlanyBot sont en attente. Confirmez-les ou refusez-les avant de continuer.');
+  const project = db.projects.find(value => value.id === action.projectId && value.companyId === auth.user.companyId && value.active !== false && projectAllowed(auth, value.id));
+  const resource = db.resources.find(value => value.id === action.resourceId && value.companyId === auth.user.companyId && value.active !== false && siteAllowed(auth, value.siteId) && entityAllowed(auth, 'resource', value.id));
+  const site = resource && db.sites.find(value => value.id === resource.siteId && value.companyId === auth.user.companyId && value.active !== false);
+  if (!project || !resource || !site) return null;
+  const startsAt = exactZonedDateTimeIso(action.startDate, '09:00', site.timezone || 'Europe/Paris'), endsAt = exactZonedDateTimeIso(action.endDate, '18:00', site.timezone || 'Europe/Paris');
+  if (!startsAt || !endsAt || Date.parse(startsAt) >= Date.parse(endsAt)) return null;
+  const command = { title: cleanString(action.title, 200) || project.name, siteId: site.id, projectId: project.id, status: 'option', startsAt, endsAt, resources: [{ resourceId: resource.id, quantity: 1 }], planningMode: 'dailyCells', includeWeekends: false, notes: 'Préparé par PlanyBot après confirmation humaine.' };
+  const timestamp = now(), proposal = { id: id('planyProposal'), companyId: auth.user.companyId, userId: auth.user.id, conversationId: conversation.id, projectId: project.id, siteId: site.id, type: 'reservation.create', status: 'prepared', command, resourceIds: [resource.id], sourceVersions: { project: Number(project.version || 1), resources: { [resource.id]: Number(resource.version || 1) } }, preview: { title: command.title, projectName: project.name, resourceName: resource.name, startsAt, endsAt, status: command.status }, createdAt: timestamp, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(), version: 1 };
+  proposal.digest = digestPayload({ type: proposal.type, command: proposal.command, sourceVersions: proposal.sourceVersions, expiresAt: proposal.expiresAt });
+  db.planyProposals.push(proposal);
+  audit(db, auth, 'plany.proposalPrepared', 'planyProposal', proposal.id, { before: null, after: { id: proposal.id, status: proposal.status, type: proposal.type, projectId: proposal.projectId, siteId: proposal.siteId, resourceIds: proposal.resourceIds, digest: proposal.digest, expiresAt: proposal.expiresAt }, versionAfter: 1, conversationId: conversation.id });
+  return proposal;
+}
 function planyPostMessage(input, auth, idempotencyKey) {
   const message = cleanString(input.message, 801); if (!message || message.length > 800) throw apiError(422, 'VALIDATION_ERROR', 'Le message doit contenir entre 1 et 800 caractères.', { fields: ['message'] });
   const context = input.context && typeof input.context === 'object' && !Array.isArray(input.context) ? input.context : {}; assertAllowedFields(input, new Set(['message', 'conversationId', 'context'])); assertAllowedFields(context, new Set(['projectId', 'siteId', 'from', 'to', 'workflow', 'phase', 'quoteId', 'clientPlanningImportId']));
@@ -1263,11 +1315,52 @@ function planyPostMessage(input, auth, idempotencyKey) {
     if (input.conversationId && !conversation) throw apiError(404, 'NOT_FOUND', 'Conversation introuvable.');
     if (!conversation) { const count = db.planyConversations.filter(value => value.companyId === auth.user.companyId && value.userId === auth.user.id).length; if (count >= 20) throw apiError(409, 'CONVERSATION_LIMIT', 'Le nombre maximal de conversations PlanyBot est atteint.'); conversation = { id: id('planyConversation'), companyId: auth.user.companyId, userId: auth.user.id, projectId: cleanString(context.projectId) || null, siteId: cleanString(context.siteId) || null, createdAt: now(), updatedAt: now() }; db.planyConversations.push(conversation); }
     const count = db.planyMessages.filter(value => value.conversationId === conversation.id).length; if (count > 48) throw apiError(409, 'CONVERSATION_LIMIT', 'Cette conversation PlanyBot est complète. Démarrez une nouvelle conversation.');
-    const answer = planyAnswer(db, auth, message, context), timestamp = now(), userMessage = { id: id('planyMessage'), conversationId: conversation.id, companyId: auth.user.companyId, userId: auth.user.id, role: 'user', intent: answer.intent, content: message, facts: {}, actions: [], createdAt: timestamp }, assistant = { id: id('planyMessage'), conversationId: conversation.id, companyId: auth.user.companyId, userId: auth.user.id, role: 'assistant', intent: answer.intent, content: answer.assistantMessage, facts: answer.facts, actions: answer.actions, createdAt: timestamp };
+    const answer = planyAnswer(db, auth, message, context), proposals = answer.actions.map(action => action.type === 'prepareBooking' ? preparePlanyBookingProposal(db, auth, conversation, action) : null).filter(Boolean), actions = answer.actions.map(action => { if (action.type !== 'prepareBooking') return action; const proposal = proposals.shift(); return proposal ? { type: 'confirmProposal', proposalId: proposal.id, proposalDigest: proposal.digest, label: 'Vérifier et confirmer', preview: proposal.preview, expiresAt: proposal.expiresAt } : action; }), timestamp = now(), userMessage = { id: id('planyMessage'), conversationId: conversation.id, companyId: auth.user.companyId, userId: auth.user.id, role: 'user', intent: answer.intent, content: message, facts: {}, actions: [], createdAt: timestamp }, assistant = { id: id('planyMessage'), conversationId: conversation.id, companyId: auth.user.companyId, userId: auth.user.id, role: 'assistant', intent: answer.intent, content: answer.assistantMessage, facts: answer.facts, actions, createdAt: timestamp };
     db.planyMessages.push(userMessage, assistant); conversation.updatedAt = timestamp; conversation.projectId = cleanString(context.projectId) || conversation.projectId; conversation.siteId = cleanString(context.siteId) || conversation.siteId;
-    const result = { conversationId: conversation.id, intent: answer.intent, userMessage, assistantMessage: answer.assistantMessage, assistant, facts: answer.facts, actions: answer.actions };
+    const result = { conversationId: conversation.id, intent: answer.intent, userMessage, assistantMessage: answer.assistantMessage, assistant, facts: answer.facts, actions };
     db.planyIdempotency.push({ id: id('planyIdempotency'), companyId: auth.user.companyId, userId: auth.user.id, key: idempotencyKey, requestDigest, result, createdAt: timestamp });
-    audit(db, auth, 'plany.messageCreated', 'planyConversation', conversation.id, { intent: answer.intent, hasAction: answer.actions.length > 0, messageLength: message.length }); return result;
+    audit(db, auth, 'plany.messageCreated', 'planyConversation', conversation.id, { intent: answer.intent, hasAction: actions.length > 0, messageLength: message.length }); return result;
+  });
+}
+function confirmPlanyProposal(proposalId, input, auth, idempotencyKey) {
+  const key = cleanString(idempotencyKey, 200); if (!key) return Promise.reject(apiError(400, 'IDEMPOTENCY_KEY_REQUIRED', 'La clé d’idempotence est requise.'));
+  const requestDigest = digestPayload(input);
+  return mutate(db => {
+    ensureOrganizationCollections(db);
+    const proposal = db.planyProposals.find(value => value.id === proposalId && planyProposalAllowed(db, auth, value));
+    if (!proposal) throw apiError(404, 'NOT_FOUND', 'Proposition PlanyBot introuvable.');
+    const prior = db.planyProposalCommands.find(value => value.companyId === auth.user.companyId && value.userId === auth.user.id && value.proposalId === proposal.id && value.command === 'confirm' && value.key === key);
+    if (prior) {
+      if (prior.requestDigest !== requestDigest) throw apiError(409, 'IDEMPOTENCY_CONFLICT', 'Cette clé a déjà été utilisée avec une autre confirmation.');
+      const reservation = db.reservations.find(value => value.id === prior.reservationId && value.companyId === auth.user.companyId && siteAllowed(auth, value.siteId) && reservationAllowed(auth, value));
+      if (!reservation) throw apiError(404, 'NOT_FOUND', 'Résultat PlanyBot introuvable.');
+      return { proposal, reservation, replay: true };
+    }
+    if (proposal.status !== 'prepared') throw apiError(409, 'PLANY_PROPOSAL_NOT_CONFIRMABLE', 'Cette proposition ne peut plus être confirmée.', { status: proposal.status });
+    if (Date.parse(proposal.expiresAt) <= Date.now()) throw apiError(409, 'PLANY_PROPOSAL_EXPIRED', 'Cette proposition a expiré. Demandez une nouvelle prévisualisation.');
+    if (cleanString(input.proposalDigest, 128) !== proposal.digest) throw apiError(409, 'PLANY_PROPOSAL_CHANGED', 'La prévisualisation a changé. Relisez-la avant de confirmer.');
+    const project = db.projects.find(value => value.id === proposal.projectId && value.companyId === auth.user.companyId && value.active !== false && projectAllowed(auth, value.id));
+    const resources = proposal.resourceIds.map(resourceId => db.resources.find(value => value.id === resourceId && value.companyId === auth.user.companyId && value.active !== false && value.siteId === proposal.siteId && siteAllowed(auth, value.siteId) && entityAllowed(auth, 'resource', value.id)));
+    if (!project || project.version !== proposal.sourceVersions.project || resources.some((resource, index) => !resource || resource.version !== proposal.sourceVersions.resources[proposal.resourceIds[index]])) throw apiError(409, 'PLANY_PROPOSAL_STALE', 'Le projet ou une ressource a changé. Demandez une nouvelle prévisualisation.');
+    const created = createReservationCommand(db, proposal.command, auth, `plany:${proposal.id}:${key}`), before = structuredClone(proposal);
+    Object.assign(proposal, { status: 'executed', confirmedAt: now(), executedAt: now(), reservationId: created.item.id, version: proposal.version + 1 });
+    db.planyProposalCommands.push({ id: id('planyProposalCommand'), companyId: auth.user.companyId, userId: auth.user.id, proposalId: proposal.id, command: 'confirm', key, requestDigest, reservationId: created.item.id, createdAt: now() });
+    audit(db, auth, 'plany.proposalExecuted', 'planyProposal', proposal.id, { before, after: proposal, versionBefore: before.version, versionAfter: proposal.version, conversationId: proposal.conversationId, reservationId: created.item.id, proposalDigest: proposal.digest });
+    return { proposal, reservation: created.item, replay: false };
+  });
+}
+function rejectPlanyProposal(proposalId, input, auth, idempotencyKey) {
+  const key = cleanString(idempotencyKey, 200); if (!key) return Promise.reject(apiError(400, 'IDEMPOTENCY_KEY_REQUIRED', 'La clé d’idempotence est requise.'));
+  const requestDigest = digestPayload(input);
+  return mutate(db => {
+    ensureOrganizationCollections(db); const proposal = db.planyProposals.find(value => value.id === proposalId && planyProposalAllowed(db, auth, value));
+    if (!proposal) throw apiError(404, 'NOT_FOUND', 'Proposition PlanyBot introuvable.');
+    const prior = db.planyProposalCommands.find(value => value.companyId === auth.user.companyId && value.userId === auth.user.id && value.proposalId === proposal.id && value.command === 'reject' && value.key === key);
+    if (prior) { if (prior.requestDigest !== requestDigest) throw apiError(409, 'IDEMPOTENCY_CONFLICT', 'Cette clé a déjà été utilisée avec un autre refus.'); return { proposal, replay: true }; }
+    if (proposal.status !== 'prepared') throw apiError(409, 'PLANY_PROPOSAL_NOT_REJECTABLE', 'Cette proposition ne peut plus être refusée.', { status: proposal.status });
+    const before = structuredClone(proposal); Object.assign(proposal, { status: 'rejected', rejectedAt: now(), rejectionReason: cleanString(input.reason, 500), version: proposal.version + 1 });
+    db.planyProposalCommands.push({ id: id('planyProposalCommand'), companyId: auth.user.companyId, userId: auth.user.id, proposalId: proposal.id, command: 'reject', key, requestDigest, createdAt: now() });
+    audit(db, auth, 'plany.proposalRejected', 'planyProposal', proposal.id, { before, after: proposal, versionBefore: before.version, versionAfter: proposal.version, conversationId: proposal.conversationId, reason: proposal.rejectionReason }); return { proposal, replay: false };
   });
 }
 function validateReservation(db, auth, candidate, ignoreId, conflictIndex) {
@@ -2572,6 +2665,9 @@ async function api(req, res, url, requestId) {
   if (route === '/api/v1/planning/conflicts/check' && method === 'POST') { const input = await body(req); const candidate = reservationFrom(input, auth); const checked = validateReservation(db, auth, candidate, input.id); return send(res, 200, { hasConflicts: checked.conflicts.length > 0, conflicts: checked.conflicts, errors: checked.errors }); }
   if (route === '/api/v1/plany/messages' && method === 'POST') { const input = await body(req); return planyPostMessage(input, auth, cleanString(req.headers['idempotency-key'], 160)).then(result => send(res, 201, result)).catch(error => sendApiError(res, error, requestId)); }
   const planyMessagesMatch = route.match(/^\/api\/v1\/plany\/conversations\/([^/]+)\/messages$/); if (planyMessagesMatch && method === 'GET') { const conversation = db.planyConversations.find(value => value.id === planyMessagesMatch[1] && value.companyId === companyId && value.userId === auth.user.id && projectAllowed(auth, value.projectId) && siteAllowed(auth, value.siteId)); if (!conversation) return fail(res, 404, 'NOT_FOUND', 'Conversation introuvable.', requestId); return send(res, 200, { conversationId: conversation.id, items: db.planyMessages.filter(value => value.conversationId === conversation.id).slice(-50) }); }
+  const planyProposalMatch = route.match(/^\/api\/v1\/plany\/proposals\/([^/]+)$/); if (planyProposalMatch && method === 'GET') { const proposal = db.planyProposals.find(value => value.id === planyProposalMatch[1] && planyProposalAllowed(db, auth, value)); return proposal ? send(res, 200, proposal) : fail(res, 404, 'NOT_FOUND', 'Proposition PlanyBot introuvable.', requestId); }
+  const planyProposalConfirmMatch = route.match(/^\/api\/v1\/plany\/proposals\/([^/]+)\/confirm$/); if (planyProposalConfirmMatch && method === 'POST') { if (!has(auth, 'planning.write')) return fail(res, 403, 'FORBIDDEN', 'Confirmation PlanyBot non autorisée.', requestId); const input = await body(req); try { assertNoTenantFields(input); assertAllowedFields(input, new Set(['proposalDigest'])); return confirmPlanyProposal(planyProposalConfirmMatch[1], input, auth, req.headers['idempotency-key']).then(result => { if (!result.replay) emit('reservation.created.v1', result.reservation); send(res, result.replay ? 200 : 201, result); }).catch(error => sendApiError(res, error, requestId)); } catch (error) { return sendApiError(res, error, requestId); } }
+  const planyProposalRejectMatch = route.match(/^\/api\/v1\/plany\/proposals\/([^/]+)\/reject$/); if (planyProposalRejectMatch && method === 'POST') { const input = await body(req); try { assertNoTenantFields(input); assertAllowedFields(input, new Set(['reason'])); return rejectPlanyProposal(planyProposalRejectMatch[1], input, auth, req.headers['idempotency-key']).then(result => send(res, 200, result)).catch(error => sendApiError(res, error, requestId)); } catch (error) { return sendApiError(res, error, requestId); } }
   if (route === '/api/v1/dashboard/revenue' && method === 'GET') {
     const from = cleanString(url.searchParams.get('from'), 10), to = cleanString(url.searchParams.get('to'), 10);
     if (from && !/^\d{4}-\d{2}-\d{2}$/.test(from) || to && !/^\d{4}-\d{2}-\d{2}$/.test(to) || from && to && from > to) return fail(res, 422, 'VALIDATION_ERROR', 'Période de chiffre d’affaires invalide.', requestId);
@@ -2592,31 +2688,32 @@ function filterReservations(items, url) { const q = url.searchParams; if (q.get(
 function reservationFrom(input, auth, existing = {}) { const times = canonicalTimes(input), planningMode = input.planningMode ?? existing.planningMode ?? 'continuous', timeGranularity = input.timeGranularity ?? existing.timeGranularity ?? 'day', defaultSnap = timeGranularity === 'hour' ? 60 : timeGranularity === 'halfDay' ? 240 : 1440, timePolicyVersion = input.timeGranularity !== undefined || input.snapMinutes !== undefined ? 'sprint3-v1' : existing.timePolicyVersion, cellOverrides = input.cellOverrides === undefined ? (existing.cellOverrides || []) : (Array.isArray(input.cellOverrides) ? input.cellOverrides.slice(0, 5000).map(value => ({ sourceDate: cleanString(value.sourceDate, 10), sourceResourceId: cleanString(value.sourceResourceId), targetDate: cleanString(value.targetDate, 10), targetResourceId: cleanString(value.targetResourceId) })) : []); return { ...existing, title: cleanString(input.title ?? existing.title), siteId: input.siteId ?? existing.siteId, projectId: input.projectId === null ? null : (input.projectId ?? existing.projectId ?? null), status: input.status ?? existing.status ?? 'confirmed', startsAt: times.startsAt ?? existing.startsAt, endsAt: times.endsAt ?? existing.endsAt, notes: cleanString(input.notes ?? existing.notes, 4000), resources: canonicalReservationAllocations(input, existing.resources), optionGroupId: cleanString(input.optionGroupId ?? existing.optionGroupId) || undefined, optionPriority: input.optionPriority === undefined ? existing.optionPriority : Number(input.optionPriority), optionExpiresAt: cleanString(input.optionExpiresAt ?? existing.optionExpiresAt) || undefined, includeWeekends: input.includeWeekends === undefined ? existing.includeWeekends !== false : input.includeWeekends === true, timeGranularity, snapMinutes: Number(input.snapMinutes ?? existing.snapMinutes ?? defaultSnap), ...(timePolicyVersion ? { timePolicyVersion } : {}), holidayCalendarId: cleanString(input.holidayCalendarId ?? existing.holidayCalendarId, 120) || undefined, sourceQuoteId: cleanString(input.sourceQuoteId ?? existing.sourceQuoteId) || undefined, sourceQuoteVersionId: cleanString(input.sourceQuoteVersionId ?? existing.sourceQuoteVersionId) || undefined, sourceQuoteLineId: cleanString(input.sourceQuoteLineId ?? existing.sourceQuoteLineId) || undefined, planningQuantityMilli: cleanString(input.planningQuantityMilli ?? existing.planningQuantityMilli) || undefined, planningUnit: cleanString(input.planningUnit ?? existing.planningUnit, 40) || undefined, planningMode, cellOverrides } }
 function shiftedPlanningDate(value, days) { const date = new Date(`${value}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10); }
 function validateReservationQuoteSource(db, auth, reservation) { if (!reservation.sourceQuoteId && !reservation.sourceQuoteLineId) return null; const quote = db.quotes.find(value => value.id === reservation.sourceQuoteId && value.companyId === auth.user.companyId && value.status === 'accepted' && value.projectId === reservation.projectId && (!value.siteId || value.siteId === reservation.siteId)); if (!quote || quote.currentVersionId !== reservation.sourceQuoteVersionId) throw apiError(409, 'QUOTE_PLANNING_SOURCE_INVALID', 'Le devis validé ou sa version ne correspond pas à cette réservation.'); const line = quote.lines.find(value => value.id === reservation.sourceQuoteLineId); if (!line || !quoteLinePlanifiable(line)) throw apiError(422, 'QUOTE_LINE_NOT_PLANIFIABLE', 'La ligne de devis choisie ne peut pas être planifiée.'); return { quote, line }; }
-async function createReservation(input, auth, res, requestId, idempotencyKey) {
+function createReservationCommand(db, input, auth, idempotencyKey) {
   const key = cleanString(idempotencyKey, 200);
   const payloadHash = digestPayload(input), candidate = reservationFrom(input, auth);
   Object.assign(candidate, { id: id('reservation'), companyId: auth.user.companyId, createdBy: auth.user.id, version: 1, createdAt: now(), updatedAt: now() });
-  return mutate(db => {
-    requireActiveCompany(db, auth);
-    if (!key) throw apiError(400, 'IDEMPOTENCY_KEY_REQUIRED', 'La clé d’idempotence est requise.');
-    db.reservationCommands ||= [];
-    const prior = db.reservationCommands.find(value => value.companyId === auth.user.companyId && value.actorUserId === auth.user.id && value.command === 'reservation.create' && value.key === key);
-    if (prior) {
-      if (prior.payloadHash !== payloadHash) throw apiError(409, 'IDEMPOTENCY_CONFLICT', 'Cette clé a déjà été utilisée avec une autre réservation.');
-      const replay = db.reservations.find(value => value.id === prior.reservationId && value.companyId === auth.user.companyId && siteAllowed(auth, value.siteId));
-      if (!replay) throw apiError(404, 'NOT_FOUND', 'Réservation rejouée introuvable.');
-      validateReservationQuoteSource(db, auth, replay);
-      return { item: replay, replay: true };
-    }
-    const source = validateReservationQuoteSource(db, auth, candidate), checked = validateReservation(db, auth, candidate);
-    if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Données invalides.', { fields: checked.errors });
-    if (checked.conflicts.length && !(input.conflictPolicy === 'override' && has(auth, 'planning.override_conflict') && cleanString(input.overrideReason))) throw apiError(409, 'PLANNING_CONFLICT', 'La ressource n’est pas disponible sur cette période.', { conflicts: checked.conflicts });
-    db.reservations.push(candidate);
-    db.reservationCommands.push({ companyId: auth.user.companyId, actorUserId: auth.user.id, command: 'reservation.create', key, payloadHash, reservationId: candidate.id, createdAt: now() });
-    audit(db, auth, source ? 'reservation.createdFromAcceptedQuote' : 'reservation.created', 'reservation', candidate.id, { versionAfter: 1, after: candidate, ...(source ? { quoteId: source.quote.id, quoteVersionId: source.quote.currentVersionId, quoteLineId: source.line.id, projectId: candidate.projectId } : {}), ...(checked.conflicts.length ? { overrideReason: cleanString(input.overrideReason), conflicts: checked.conflicts } : {}) });
-    if (source) syncPlanningComplementaryQuote(db, auth, source.quote);
-    return { item: candidate, replay: false };
-  }).then(result => {
+  requireActiveCompany(db, auth);
+  if (!key) throw apiError(400, 'IDEMPOTENCY_KEY_REQUIRED', 'La clé d’idempotence est requise.');
+  db.reservationCommands ||= [];
+  const prior = db.reservationCommands.find(value => value.companyId === auth.user.companyId && value.actorUserId === auth.user.id && value.command === 'reservation.create' && value.key === key);
+  if (prior) {
+    if (prior.payloadHash !== payloadHash) throw apiError(409, 'IDEMPOTENCY_CONFLICT', 'Cette clé a déjà été utilisée avec une autre réservation.');
+    const replay = db.reservations.find(value => value.id === prior.reservationId && value.companyId === auth.user.companyId && siteAllowed(auth, value.siteId) && reservationAllowed(auth, value));
+    if (!replay) throw apiError(404, 'NOT_FOUND', 'Réservation rejouée introuvable.');
+    validateReservationQuoteSource(db, auth, replay);
+    return { item: replay, replay: true };
+  }
+  const source = validateReservationQuoteSource(db, auth, candidate), checked = validateReservation(db, auth, candidate);
+  if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Données invalides.', { fields: checked.errors });
+  if (checked.conflicts.length && !(input.conflictPolicy === 'override' && has(auth, 'planning.override_conflict') && cleanString(input.overrideReason))) throw apiError(409, 'PLANNING_CONFLICT', 'La ressource n’est pas disponible sur cette période.', { conflicts: checked.conflicts });
+  db.reservations.push(candidate);
+  db.reservationCommands.push({ companyId: auth.user.companyId, actorUserId: auth.user.id, command: 'reservation.create', key, payloadHash, reservationId: candidate.id, createdAt: now() });
+  audit(db, auth, source ? 'reservation.createdFromAcceptedQuote' : 'reservation.created', 'reservation', candidate.id, { versionAfter: 1, after: candidate, ...(source ? { quoteId: source.quote.id, quoteVersionId: source.quote.currentVersionId, quoteLineId: source.line.id, projectId: candidate.projectId } : {}), ...(checked.conflicts.length ? { overrideReason: cleanString(input.overrideReason), conflicts: checked.conflicts } : {}) });
+  if (source) syncPlanningComplementaryQuote(db, auth, source.quote);
+  return { item: candidate, replay: false };
+}
+async function createReservation(input, auth, res, requestId, idempotencyKey) {
+  return mutate(db => createReservationCommand(db, input, auth, idempotencyKey)).then(result => {
     if (!result.replay) emit('reservation.created.v1', result.item);
     if (!result.replay && result.item.sourceQuoteId) emit('quote.planningProgress.v1', { id: result.item.sourceQuoteId, companyId: result.item.companyId, siteId: result.item.siteId, version: result.item.version });
     send(res, result.replay ? 200 : 201, result.item);
@@ -3074,5 +3171,5 @@ function startServer(options = {}) {
 const server = createServer();
 
 if (require.main === module) { ensureData(); server.listen(PORT, () => console.log(`Planify disponible sur http://localhost:${PORT}`)); }
-module.exports = { server, createServer, startServer, resetData, makeSeed, avidPostProductionResources, eliotePostProductionResources, migrateAvidPostProductionResources, migrateEliotePostProductionResources, migrateFoundationRbacV1, ensureStandardRoles, foundationRbacProjection, migrateCommercialQuotesV1, migrateCommercialReviewV3, migrateCommercialSynopticV4, migrateCommercialPlanningControlV5, migrateSprint1ReferentialsV1, migrateSprint1PricingV1, migrateSprint1AnalyticsV1, migrateSprint1ContractsV2, rollbackSprint1Migrations, migrateSprint5AdvancedResourcesV1, rollbackSprint5AdvancedResources, migrateSprint5PersonnelV1, sprint5PersonnelStateValid, planyAvailablePeople, personnelSnapshotAllowed, canonicalProjectStatus, sprint1ReferentialsProjection, sprint1PricingProjection, sprint1AnalyticsProjection, sprint1ContractsProjection, resolvedRatePrice, rateForSource, quoteMissingRateLineIds, universalSearch, revenueChain, rollbackCommercialReviewMigration, validateCommercialReviewMarker, validateReservation, readDb, resolveStaticPath, ensureStockCollections, ensureOrganizationCollections, migrateOrganizationV2ToV3, migrateOrganizationFiscalV3, organizationCompleteness, fiscalProfileDto, vatRateApplicable, validateTaxIdentifiers, snapshotForQuote, quoteLineAmounts, recalculateQuote, quotePlanningControl, quotePdfBuffer, parseClientPlanningXlsx, clientRateBlockRows, reconstructStockBalances, validateStockLedger, stockMovementAllowed, appendStockMovement, checkStockAvailability, allocateStock, releaseStock, adjustStock, openAssetMaintenance, completeAssetMaintenance, validateIdempotentTarget, idempotentResult, rememberIdempotent, isLoopbackAddress, isLoopbackHostname, allowedOriginsForRequest, originAllowed, mutationGuard, revalidateSseClient, closeSseClient, closeSseClientsForToken, ssePermissionsForEvent, sseScopeAllowed, audit, domainEventTypeForAudit };
+module.exports = { server, createServer, startServer, resetData, makeSeed, avidPostProductionResources, eliotePostProductionResources, migrateAvidPostProductionResources, migrateEliotePostProductionResources, migrateFoundationRbacV1, ensureStandardRoles, foundationRbacProjection, migrateCommercialQuotesV1, migrateCommercialReviewV3, migrateCommercialSynopticV4, migrateCommercialPlanningControlV5, migrateSprint1ReferentialsV1, migrateSprint1PricingV1, migrateSprint1AnalyticsV1, migrateSprint1ContractsV2, rollbackSprint1Migrations, migrateSprint5AdvancedResourcesV1, rollbackSprint5AdvancedResources, migrateSprint5PersonnelV1, sprint5PersonnelStateValid, migrateSprint6PlanyBotV1, sprint6PlanyBotStateValid, rollbackSprint6PlanyBot, planyAvailablePeople, personnelSnapshotAllowed, canonicalProjectStatus, sprint1ReferentialsProjection, sprint1PricingProjection, sprint1AnalyticsProjection, sprint1ContractsProjection, resolvedRatePrice, rateForSource, quoteMissingRateLineIds, universalSearch, revenueChain, rollbackCommercialReviewMigration, validateCommercialReviewMarker, validateReservation, readDb, resolveStaticPath, ensureStockCollections, ensureOrganizationCollections, migrateOrganizationV2ToV3, migrateOrganizationFiscalV3, organizationCompleteness, fiscalProfileDto, vatRateApplicable, validateTaxIdentifiers, snapshotForQuote, quoteLineAmounts, recalculateQuote, quotePlanningControl, quotePdfBuffer, parseClientPlanningXlsx, clientRateBlockRows, reconstructStockBalances, validateStockLedger, stockMovementAllowed, appendStockMovement, checkStockAvailability, allocateStock, releaseStock, adjustStock, openAssetMaintenance, completeAssetMaintenance, validateIdempotentTarget, idempotentResult, rememberIdempotent, isLoopbackAddress, isLoopbackHostname, allowedOriginsForRequest, originAllowed, mutationGuard, revalidateSseClient, closeSseClient, closeSseClientsForToken, ssePermissionsForEvent, sseScopeAllowed, audit, domainEventTypeForAudit };
 module.exports.rollbackSprint5Personnel = rollbackSprint5Personnel;

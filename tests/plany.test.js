@@ -12,6 +12,7 @@ const { createServer, resetData, makeSeed, readDb } = require('../server.js');
 let server;
 let baseUrl;
 let admin;
+let viewer;
 
 async function request(route, options = {}, auth) {
   const headers = { ...(options.body ? { 'content-type': 'application/json' } : {}), ...options.headers };
@@ -22,8 +23,8 @@ async function request(route, options = {}, auth) {
   try { data = text ? JSON.parse(text) : undefined; } catch { data = text; }
   return { response, data };
 }
-async function login() {
-  const result = await request('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email: 'admin@northlight.fr', password: 'demo2026' }) });
+async function login(email = 'admin@northlight.fr') {
+  const result = await request('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email, password: 'demo2026' }) });
   assert.equal(result.response.status, 200);
   return { cookie: result.response.headers.get('set-cookie').split(';', 1)[0], csrf: result.data.csrfToken };
 }
@@ -39,7 +40,7 @@ before(async () => {
   seed.quotes = [{ id: 'quote_plany_client_planning', companyId: 'company_northlight', siteId: 'site_paris', projectId: 'project_1', number: 'DEV-PLANY-001', kind: 'quote', status: 'accepted', version: 1 }];
   resetData(seed); server = createServer();
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
-  baseUrl = `http://127.0.0.1:${server.address().port}`; admin = await login();
+  baseUrl = `http://127.0.0.1:${server.address().port}`; admin = await login(); viewer = await login('viewer@northlight.fr');
 });
 after(async () => { if (server?.listening) await new Promise(resolve => server.close(resolve)); try { fs.unlinkSync(process.env.PLANIFY_DATA_FILE); } catch {} });
 
@@ -77,11 +78,28 @@ test('PlanyBot détecte un chevauchement visible sans l’arbitrer', async () =>
   assert.deepEqual(result.data.actions, []);
 });
 
-test('une demande de réservation produit seulement un préremplissage', async () => {
+test('une demande de réservation produit une proposition persistée sans mutation', async () => {
   const before = readDb().reservations.length;
   const result = await ask('Prépare une salle de montage du 12/10/2026 au 14/10/2026', 'draft-1', { projectId: 'project_1', siteId: 'site_paris' });
-  assert.equal(result.response.status, 201); assert.equal(result.data.intent, 'bookingDraft'); assert.equal(result.data.actions[0].type, 'prepareBooking'); assert.equal(result.data.actions[0].startDate, '2026-10-12'); assert.equal(result.data.actions[0].endDate, '2026-10-14');
+  assert.equal(result.response.status, 201); assert.equal(result.data.intent, 'bookingDraft'); assert.equal(result.data.actions[0].type, 'confirmProposal'); assert.ok(result.data.actions[0].proposalId); assert.ok(result.data.actions[0].proposalDigest); assert.equal(result.data.actions[0].preview.projectName, 'Horizons — Saison 2');
+  const proposal = await request(`/api/v1/plany/proposals/${result.data.actions[0].proposalId}`, {}, admin); assert.equal(proposal.response.status, 200); assert.equal(proposal.data.status, 'prepared'); assert.equal(proposal.data.command.status, 'option');
+  const hidden = await request(`/api/v1/plany/proposals/${result.data.actions[0].proposalId}`, {}, viewer); assert.equal(hidden.response.status, 404);
   assert.equal(readDb().reservations.length, before);
+});
+
+test('seule une confirmation explicite valide crée la réservation et le rejeu reste unique', async () => {
+  const prepared = await ask('Prépare une salle de montage du 20/10/2026 au 21/10/2026', 'proposal-confirm-prepare', { projectId: 'project_1', siteId: 'site_paris' }), action = prepared.data.actions[0], before = readDb().reservations.length;
+  const wrong = await request(`/api/v1/plany/proposals/${action.proposalId}/confirm`, { method: 'POST', headers: { 'Idempotency-Key': 'proposal-confirm-wrong' }, body: JSON.stringify({ proposalDigest: 'digest-invalide' }) }, admin); assert.equal(wrong.response.status, 409); assert.equal(wrong.data.error.code, 'PLANY_PROPOSAL_CHANGED'); assert.equal(readDb().reservations.length, before);
+  const confirmed = await request(`/api/v1/plany/proposals/${action.proposalId}/confirm`, { method: 'POST', headers: { 'Idempotency-Key': 'proposal-confirm-once' }, body: JSON.stringify({ proposalDigest: action.proposalDigest }) }, admin); assert.equal(confirmed.response.status, 201, JSON.stringify(confirmed.data)); assert.equal(confirmed.data.proposal.status, 'executed'); assert.equal(confirmed.data.reservation.projectId, 'project_1'); assert.equal(readDb().reservations.length, before + 1);
+  const audits = readDb().auditEvents.filter(value => value.action === 'plany.proposalExecuted' && value.entityId === action.proposalId); assert.equal(audits.length, 1);
+  const replay = await request(`/api/v1/plany/proposals/${action.proposalId}/confirm`, { method: 'POST', headers: { 'Idempotency-Key': 'proposal-confirm-once' }, body: JSON.stringify({ proposalDigest: action.proposalDigest }) }, admin); assert.equal(replay.response.status, 200); assert.equal(replay.data.reservation.id, confirmed.data.reservation.id); assert.equal(readDb().reservations.length, before + 1); assert.equal(readDb().auditEvents.filter(value => value.action === 'plany.proposalExecuted' && value.entityId === action.proposalId).length, 1);
+  const divergent = await request(`/api/v1/plany/proposals/${action.proposalId}/confirm`, { method: 'POST', headers: { 'Idempotency-Key': 'proposal-confirm-once' }, body: JSON.stringify({ proposalDigest: `${action.proposalDigest}0` }) }, admin); assert.equal(divergent.response.status, 409); assert.equal(divergent.data.error.code, 'IDEMPOTENCY_CONFLICT'); assert.equal(readDb().reservations.length, before + 1);
+});
+
+test('un lecteur peut consulter mais pas confirmer une proposition et un refus ne crée rien', async () => {
+  const prepared = await request('/api/v1/plany/messages', { method: 'POST', headers: { 'Idempotency-Key': 'viewer-proposal-prepare' }, body: JSON.stringify({ message: 'Prépare une salle de montage le 22/10/2026', context: { projectId: 'project_1', siteId: 'site_paris' } }) }, viewer), action = prepared.data.actions[0], before = readDb().reservations.length;
+  const denied = await request(`/api/v1/plany/proposals/${action.proposalId}/confirm`, { method: 'POST', headers: { 'Idempotency-Key': 'viewer-proposal-confirm' }, body: JSON.stringify({ proposalDigest: action.proposalDigest }) }, viewer); assert.equal(denied.response.status, 403); assert.equal(readDb().reservations.length, before);
+  const rejected = await request(`/api/v1/plany/proposals/${action.proposalId}/reject`, { method: 'POST', headers: { 'Idempotency-Key': 'viewer-proposal-reject' }, body: JSON.stringify({ reason: 'Période à revoir' }) }, viewer); assert.equal(rejected.response.status, 200); assert.equal(rejected.data.proposal.status, 'rejected'); assert.equal(readDb().reservations.length, before);
 });
 
 test('PlanyBot accompagne les phases du planning client sans mutation', async () => {
@@ -102,8 +120,9 @@ test('le replay idempotent ne double pas les messages et un autre corps est refu
 
 test('l’interface annonce PlanyBot et le contrôle humain sans mutation directe', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
-  assert.match(source, /PlanyBot prépare, vous confirmez/); assert.match(source, /data-plany-prompt/); assert.match(source, /action\.type!=='prepareBooking'/);
+  assert.match(source, /PlanyBot prépare, vous confirmez/); assert.match(source, /data-plany-prompt/); assert.match(source, /data-plany-confirm/); assert.match(source, /Confirmer et créer/);
   assert.match(source, /Guide de l’analyse du planning client/); assert.match(source, /workflow:'clientPlanning'/);
+  assert.match(source, /proposalKeys\[`confirm:\$\{proposalId\}`\]/, 'la clé de confirmation doit rester stable pendant un retry UI');
   assert.match(source, /rooms=planningDomain==='postProduction'\?state\.resources\.filter/, 'le formulaire doit conserver toutes les salles éligibles même lorsqu’une vue Projet est vide');
-  const planyBlock = source.slice(source.indexOf('const plany=')); assert.doesNotMatch(planyBlock, /api\('\/api\/v1\/reservations',\{method:'POST'/);
+  const planyBlock = source.slice(source.indexOf('const plany=')); assert.doesNotMatch(planyBlock, /api\('\/api\/v1\/reservations',\{method:'POST'/); assert.match(planyBlock, /\/plany\/proposals\/\$\{encodeURIComponent\(proposalId\)\}\/confirm/);
 });

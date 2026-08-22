@@ -77,3 +77,13 @@ PLANIFY_DATA_FILE=/chemin/vers/planify.json node -e "console.log(require('./serv
 ```
 
 La restauration retire les données Sprint 5 créées depuis la sauvegarde. Elle doit donc être suivie du retour à la version applicative précédente ; l’export est la source de récupération obligatoire des écritures postérieures.
+
+### Rollback Sprint 6 — propositions PlanyBot
+
+La migration additive PlanyBot sauvegarde l’état précédent en `0600`. Son rollback exige un export distinct, vérifié et privé de l’état courant avant toute restauration byte-exacte :
+
+```bash
+PLANIFY_DATA_FILE=/chemin/vers/planify.json node -e "console.log(require('./server.js').rollbackSprint6PlanyBot({ exportFile: '/chemin/vers/recovery-sprint6-planybot.json' }))"
+```
+
+Après restauration, remettre en service une version antérieure au Sprint 6 ; sinon le runtime courant réappliquera la migration au démarrage. Les réservations déjà exécutées après confirmation humaine restent des opérations métier à rapprocher depuis l’export et ne sont jamais supprimées silencieusement.

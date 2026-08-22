@@ -128,3 +128,17 @@ G6 est `APPROVED` uniquement si les preuves portent sur le même candidat et dé
 ## 10. Rollback
 
 Le rollback du Sprint 6 désactive les nouvelles routes et l’interface, restaure la sauvegarde vérifiée de toute migration additive et laisse intacts Projets, Devis, réservations et audits antérieurs. Une proposition non exécutée peut être abandonnée ; une action déjà exécutée reste une opération métier historique et n’est jamais supprimée par le rollback technique.
+
+## 11. État DEV
+
+### S6-A — intégré le 2026-08-22
+
+- collections additives `planyProposals` et `planyProposalCommands`, marqueur d’intégrité, sauvegarde privée et rollback byte-exact ;
+- préparation persistée sans mutation Planning, avec commande canonique, versions sources, digest, prévisualisation et expiration ;
+- lecture privée, refus explicite et confirmation sous `planning.write` ;
+- confirmation idempotente revalidant les autorités courantes avant appel au moteur Réservation ;
+- audit préparation/exécution/refus et SSE Réservation uniquement après une exécution nouvelle ;
+- panneau PlanyBot avec prévisualisation, actions clavier natives et information de revalidation ;
+- contrat OpenAPI et tests négatifs RBAC, digest, isolation utilisateur, replay divergent et rollback.
+
+Preuves fraîches : tests ciblés 12/12, suite complète 265/265, lint et build verts. Cet état est un lot DEV ; il ne constitue pas le Gate G6 et ne couvre pas encore S6-B/C/D.
