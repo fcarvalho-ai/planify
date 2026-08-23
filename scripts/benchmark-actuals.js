@@ -7,7 +7,7 @@ const { performance } = require('node:perf_hooks');
 
 const prefix = `planify-actuals-benchmark-${process.pid}-${Date.now()}.json`;
 process.env.PLANIFY_DATA_FILE = path.join(os.tmpdir(), prefix);
-const { actualRevisionDigest, createServer, makeSeed, readDb, resetData } = require('../server.js');
+const { actualRevisionDigest, createServer, freezeReservationPlannedCosts, makeSeed, readDb, resetData } = require('../server.js');
 
 const percentile = (values, ratio) => values.slice().sort((left, right) => left - right)[Math.max(0, Math.ceil(values.length * ratio) - 1)] || 0;
 const measure = async (iterations, callback) => { const values = []; for (let index = 0; index < iterations; index++) { const started = performance.now(); await callback(index); values.push(performance.now() - started); } return { p50: percentile(values, 0.5), p95: percentile(values, 0.95), max: Math.max(...values) }; };
@@ -26,6 +26,7 @@ async function main() {
     db.actualRecords.push(record); db.actualRevisions.push(revision);
   }
   for (let index = 0; index < 6; index++) db.reservations.push({ id: `actual_benchmark_pending_${index}`, companyId, siteId: 'site_paris', projectId: 'project_1', title: `À confirmer ${index}`, startsAt: '2026-08-02T07:00:00.000Z', endsAt: '2026-08-02T08:00:00.000Z', status: 'confirmed', resources: [{ resourceId: 'resource_1', quantity: 1 }], planningMode: 'continuous', cellOverrides: [], version: 1, createdBy: 'user_admin', createdAt: timestamp, updatedAt: timestamp });
+  freezeReservationPlannedCosts(db);
   fs.writeFileSync(process.env.PLANIFY_DATA_FILE, `${JSON.stringify(db)}\n`, { mode: 0o600 });
 
   const server = createServer(); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); }); const base = `http://127.0.0.1:${server.address().port}`;
