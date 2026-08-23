@@ -1,3 +1,63 @@
+# Re-QA indépendante terminale S7-B — scopes, cache et écritures bornées
+
+Date : 2026-08-23
+
+HEAD documentaire contrôlé : `39cd261621d719618d4bf40fc75e64f840ce111e`
+
+Commit applicatif exact : `0aec6303c9b9f5672be4c512277cfca6a6e99988` (`fix(finance): enforce scopes and bound actual writes`)
+
+Verdict : **APPROVED — 0 P0 / 0 P1**
+
+Ce verdict couvre uniquement S7-B (`US-085` à `US-088`) et les correctifs transverses nécessaires à ses performances et à son intégrité. Il ne vaut ni approbation du Sprint 7 complet ni approbation G7.
+
+## État exact et empreintes
+
+Le `HEAD` correspondait au commit documentaire demandé et son ancêtre applicatif exact était `0aec630…`. Le répertoire de travail était propre au démarrage. Environnement : Node `v26.6.0`, macOS/Darwin arm64.
+
+```text
+server.js                              a65c81f95c013fa66ac61306d285b50abdbe461f901fe3da4b957e4c779a220e
+app.js                                 67b80cac99763abd2d5dbfe57fadefe5612504978a156b29343d30ce03a6277d
+index.html                             63713e30a59e7192c60b023b9f78d7e85bfef5904788f816e2cec190bd573590
+planning.css                           a3bf8f5cea927f00c722c905f85fff1290ef4717ec42836e9acc17cd236c68ad
+docs/api/openapi-v1.yaml               b3d48360e946ac3d854c22a6915dc398a2fc6951e2f880b6122a882c88a5cb8e
+package.json                           c892784bd2db25355bb2aeacdbf5bfb63544472f0598eee25cd35e2048296813
+scripts/benchmark-finance.js           1d0b4726837026923736bdb27210ea9a5262b429afa9771b665ecc3aee715e11
+scripts/benchmark-actuals.js           6bd42742306e65ce72db3ac62c1d80cbaa20c7df93116cfaf1884fdf56741873
+tests/sprint7-finance.test.js           07dac1c226372cb1c39db56c123e0c11720dd795803659015e4ca5d5658d290f
+tests/sprint7-actuals.test.js           d83667ecd893ed88046f95474dd33bf1f5b508cbd83676db774e349f0742a7c9
+```
+
+## Commandes et résultats frais
+
+- `node --test tests/sprint7-finance.test.js tests/sprint7-actuals.test.js tests/quotes.test.js` : **72/72 réussis**, 0 échec, 0 ignoré, code 0, durée 5,787 s.
+- `npm test` : **294/294 réussis**, 0 échec, 0 ignoré, code 0, durée 10,630 s.
+- `npm run lint` : **PASS**, incluant les benchmarks Finance et Actuals, code 0.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés, code 0.
+- `git diff --check 0aec630^ 0aec630` : **PASS**, code 0.
+- `npm run benchmark:finance` : **PASS** sur 250 ressources, 10 000 réservations, 2 000 documents commerciaux, 2 000 réalisés et 2 000 dépenses Projet ; marges p50 `25,67 ms`, p95/max `36,48 ms`, sous le seuil lecture p95 `< 300 ms`.
+- Réconciliation benchmark : 2 000 lignes, CA signé `20 000 000`, coût planifié `25 200 000`, coût réel `5 200 000` en unités mineures.
+
+## Fermeture des risques vérifiée
+
+- **Tarif personne hors site** : le gestionnaire Finance Paris reçoit `404 NOT_FOUND` en création d'un tarif visant une personne Boulogne. Le retargeting d'un tarif Paris vers cette personne reçoit également `404`; source et version du tarif autorisé restent inchangées.
+- **Dépense Projet/Client hors scope** : les créations visant un Projet Boulogne ou le Client non autorisé reçoivent `404`. Le retargeting d'une dépense Paris vers le Projet Boulogne reçoit `404`; Projet, site et version de la dépense initiale restent inchangés.
+- **Absence d'état partiel** : les négatifs ci-dessus vérifient l'état persistant après refus. Les mutations réussies restent versionnées, idempotentes, auditées et suivies du SSE seulement après commit.
+- **Cache validé** : les lectures répétées utilisent une copie structurée du cache validé. Toute écriture atomique réussie recalcule sa signature et remplace le cache par l'état normalisé ; les écritures externes de falsification modifient la signature fichier et forcent la revalidation complète. Les falsifications de révisions, coûts réels, snapshots planifiés, références de tarif, marqueurs idempotents et chaînes append-only sont toutes refusées avec `MIGRATION_MARKER_CONFLICT` dans la campagne ciblée.
+- **Snapshots planifiés** : la migration conserve le backfill initial. Les mutations capturent l'état de planification avant commande puis ne figent que les Réservations créées ou dont la version change. Une base de coût inchangée recopie le snapshot précédent vers la nouvelle version ; une base modifiée est recalculée. Confirmation et correction du réalisé désactivent explicitement ce suivi puisqu'elles ne mutent pas la Réservation.
+- **Historique et rollback** : le coût planifié reste stable après changement du tarif ; le coût réalisé reste figé dans la révision. Le rollback exige un export privé `0600` et restaure exactement les octets sauvegardés.
+- **Bornage des écritures Actuals** : les écritures de confirmation/correction ne parcourent plus et ne dupliquent plus les snapshots de toutes les Réservations. Les 72 tests ciblés conservent versions, idempotence, scopes, chaîne append-only, digest et confidentialité Finance.
+- **Marges et confidentialité** : Client, Devis, Ressource et Prestation sont filtrés avant agrégation ; la réponse reste réconciliable via `FINANCE_MARGIN@1`. Aucun coût ou total de marge n'est restitué sans `finance.read`.
+
+## Limites non bloquantes
+
+- Une sonde QA additionnelle destinée à compter directement `+1` snapshot après une mutation de Réservation puis `+0` après une confirmation Actual a été refusée par le sandbox (`listen EPERM` sur port local éphémère). La demande d'autorisation a ensuite été interrompue et n'a produit aucun résultat ; elle n'est pas revendiquée comme preuve. Le comportement incrémental est couvert ici par l'inspection du chemin de mutation, les campagnes vertes et le benchmark représentatif, mais ne dispose pas d'une assertion automatisée dédiée dans `tests/sprint7-finance.test.js`.
+- Aucun smoke visuel navigateur n'est revendiqué. Les assertions UI statiques restent vertes ; le parcours visuel et la persistance après rechargement relèvent du gate E2E.
+- S7-C et S7-D restent hors périmètre.
+
+Conclusion : les deux mutations Finance hors scope sont refusées sans état partiel, le cache ne masque pas une falsification, les écritures Actuals sont bornées et la mesure représentative garde une marge importante sur le seuil. Aucun P0/P1 n'a été observé sur le code applicatif exact `0aec630…`. La re-QA indépendante terminale S7-B est **APPROVED — 0 P0 / 0 P1**.
+
+---
+
 # Re-QA indépendante finale S7-B — fermeture des bloqueurs coûts et marges
 
 Date : 2026-08-23
