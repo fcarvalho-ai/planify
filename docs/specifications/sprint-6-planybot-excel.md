@@ -177,7 +177,7 @@ Preuves DEV fraîches : PlanyBot 14/14, suite complète 270/270, lint, build, va
 
 ### Provenance compacte et revalidable — intégré le 2026-08-23
 
-La provenance PlanyBot est portée en `schemaVersion: 3`. Elle conserve les permissions effectivement utilisées et, pour les agrégats potentiellement volumineux, une empreinte déterministe des scopes d’entité courants au lieu de recopier toutes les réservations et ressources sources. Le rejeu et l’historique comparent cette empreinte aux droits courants et échouent fermés après toute réduction ou modification de périmètre. Les faits directement exposés restent contrôlés par leurs identifiants bornés. Une recommandation utilisant la préférence tarifaire client requiert explicitement `quote.read`; la continuité et la disponibilité revalident les scopes Réservation et Ressource.
+La provenance PlanyBot est portée en `schemaVersion: 3`. Elle conserve les permissions effectivement utilisées et, pour les agrégats potentiellement volumineux, une empreinte déterministe des sites et scopes d’entité courants au lieu de recopier toutes les réservations et ressources sources. Le rejeu et l’historique comparent cette empreinte aux droits courants et échouent fermés après toute réduction ou modification de périmètre. Les faits directement exposés restent contrôlés par leurs identifiants bornés. Une recommandation utilisant la préférence tarifaire client requiert explicitement `quote.read`; la continuité et la disponibilité revalident les sites et les scopes Réservation et Ressource.
 
 Le contrat OpenAPI déclare également `ReservationAllocation` comme alias explicite de l’union d’allocations. La validation sémantique résout les 228 références de schéma et les paramètres requis des 46 chemins.
 
