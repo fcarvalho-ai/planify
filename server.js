@@ -1094,8 +1094,15 @@ function mutate(fn, options = {}) {
   return operation;
 }
 
+const INTERNAL_FINANCIAL_RESPONSE_KEYS = new Set(['costUnitMinor', 'costTotal', 'marginAmount', 'marginBps', 'marginAlert', 'marginTargetBps', 'costSnapshot', 'plannedCostSnapshot', 'estimatedCost', 'estimatedMargin', 'actualCost', 'actualMargin']);
+function restrictedFinancialDto(value) {
+  if (Array.isArray(value)) return value.map(restrictedFinancialDto);
+  if (!value || typeof value !== 'object' || Buffer.isBuffer(value)) return value;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !INTERNAL_FINANCIAL_RESPONSE_KEYS.has(key)).map(([key, item]) => [key, restrictedFinancialDto(item)]));
+}
 function send(res, status, body, headers = {}) {
-  const payload = body === undefined ? '' : JSON.stringify(body);
+  const output = res.planifyRestrictFinancials ? restrictedFinancialDto(body) : body;
+  const payload = output === undefined ? '' : JSON.stringify(output);
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers }); res.end(payload);
 }
 function fail(res, status, code, message, requestId, details) { send(res, status, { error: { code, message, ...(details ? { details } : {}), error_id: requestId, requestId } }); }
@@ -2653,6 +2660,7 @@ async function api(req, res, url, requestId) {
   const commercialReadRoute = route === '/api/v1/rate-cards' || /^\/api\/v1\/projects\/[^/]+\/dashboard$/.test(route) || /^\/api\/v1\/reservations\/[^/]+\/commercial-links$/.test(route); const personnelRoute = route === '/api/v1/personnel-directory' || route.startsWith('/api/v1/person-skills') || route.startsWith('/api/v1/person-unavailabilities'); const permission = actualRoute ? (safeMethod ? 'actual.read' : 'actual.confirm') : route.startsWith('/api/v1/finance/') ? (safeMethod ? 'finance.read' : 'finance.cost.manage') : personnelRoute ? (safeMethod ? 'planning.read' : 'planning.write') : route.startsWith('/api/v1/plany') ? 'planning.read' : route.startsWith('/api/v1/analytics') ? 'finance.read' : commercialReadRoute ? 'quote.read' : route === '/api/v1/rates' ? (safeMethod ? 'quote.read' : 'quote.manage') : route.startsWith('/api/v1/maintenance') ? (safeMethod ? 'maintenance.read' : 'maintenance.manage') : route.startsWith('/api/v1/equipment/assets') ? (safeMethod ? 'equipment.read' : 'equipment.manage') : route.startsWith('/api/v1/stock') ? (safeMethod || route === '/api/v1/stock/availability/check' ? 'stock.read' : stockMoveRoute ? 'stock.move' : stockManageRoute ? 'equipment.manage' : null) : route.startsWith('/api/v1/dashboard') ? 'dashboard.read' : route.startsWith('/api/v1/quotes') || route === '/api/v1/quote-catalog' ? (safeMethod ? 'quote.read' : 'quote.manage') : route.startsWith('/api/v1/reservations') || route.includes('/planning/') ? (method === 'GET' ? 'planning.read' : 'planning.write') : route.startsWith('/api/v1/resources') || route.startsWith('/api/v1/resource-categories') || route === '/api/v1/sites' ? 'resource.read' : null;
   const auth = requireAuth(req, res, requestId, permission); if (!auth) return; auth.requestId = requestId; auth.operationId = cleanString(req.headers['idempotency-key'] || req.headers['x-operation-id'], 200) || requestId; auth.origin = cleanString(req.headers.origin, 320) || 'loopback-client';
   res.planifyLogContext = { userId: auth.user.id, operationId: auth.operationId };
+  res.planifyRestrictFinancials = !has(auth, 'finance.read') && (route.startsWith('/api/v1/quotes') || route === '/api/v1/quote-catalog' || route === '/api/v1/rate-cards' || route === '/api/v1/rates' || /^\/api\/v1\/projects\/[^/]+\/dashboard$/.test(route) || /^\/api\/v1\/clients\/[^/]+\/(?:rates|rate-card-import)/.test(route));
   if (!['GET', 'HEAD'].includes(method) && !mutationGuard(req, res, auth, requestId)) return;
   const db = readDb(); const companyId = auth.user.companyId;
   if (route === '/api/v1/actuals/pending' && method === 'GET') { const asOf = cleanString(url.searchParams.get('asOf')) || now(); if (!validIso(asOf) || Date.parse(asOf) > Date.now()) return fail(res, 422, 'ACTUAL_AS_OF_INVALID', 'La date de référence est invalide ou future.', requestId, { fields: ['asOf'] }); return send(res, 200, list(pendingActualItems(db, auth, asOf), url)); }
