@@ -7,7 +7,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 process.env.PLANIFY_DATA_FILE = path.join(os.tmpdir(), `planify-sprint7-test-${process.pid}-${Date.now()}.json`);
-const { createServer, resetData, makeSeed, readDb, sprint7ActualsStateValid, ssePermissionsForEvent, actualRecordAllowed } = require('../server.js');
+const { createServer, resetData, makeSeed, readDb, sprint7ActualsStateValid, ssePermissionsForEvent, actualRecordAllowed, actualCommercialSummary } = require('../server.js');
 const { QuoteConsumptionEngine } = require('../packages/quote-consumption');
 
 let server;
@@ -115,6 +115,18 @@ test('la provenance Devis exige quote.read et le scope du Devis source', () => {
   assert.equal(actualRecordAllowed(db, { user: baseUser }, record), false);
   assert.equal(actualRecordAllowed(db, { user: { ...baseUser, effectivePermissions: ['actual.read', 'quote.read'] } }, record), true);
   assert.equal(actualRecordAllowed(db, { user: { ...baseUser, effectivePermissions: ['actual.read', 'quote.read'], entityScopes: { ...baseUser.entityScopes, quote: [] } } }, record), false);
+});
+
+test('la réconciliation ignore tout Devis complémentaire hors scope', () => {
+  const db = readDb(), source = db.actualRecords.find(value => value.reservationId === 'reservation_1'), record = structuredClone(source), revision = db.actualRevisions.find(value => value.id === source.currentRevisionId);
+  const baseQuote = { id: 'quote_actual_base', companyId: record.companyId, projectId: record.projectId, siteId: record.siteId, status: 'accepted', currency: 'EUR', lines: [{ id: 'line_actual_base', quantityMilli: '1000', netHt: '10000' }], version: 1 };
+  const complement = (id, quantityMilli) => ({ id, companyId: record.companyId, projectId: record.projectId, siteId: record.siteId, status: 'accepted', planningComplementSourceQuoteId: baseQuote.id, lines: [{ id: `${id}_line`, planningSourceQuoteLineId: baseQuote.lines[0].id, quantityMilli }], version: 1 });
+  const allowedComplement = complement('quote_actual_complement_allowed', '500'), hiddenComplement = complement('quote_actual_complement_hidden', '9000');
+  db.quotes.push(baseQuote, allowedComplement, hiddenComplement); record.sourceQuoteId = baseQuote.id; Object.assign(record.plannedSnapshot, { sourceQuoteId: baseQuote.id, sourceQuoteLineId: baseQuote.lines[0].id, quantityMilli: '1000' });
+  const resourceIds = record.plannedSnapshot.resources.map(value => value.resourceId).filter(Boolean), user = { companyId: record.companyId, siteIds: [record.siteId], organizationScope: false, projectScopeRestricted: true, projectIds: [record.projectId], organizationUnitIds: [], entityScopes: { actual: [record.id], reservation: [record.reservationId], resource: resourceIds, quote: [baseQuote.id, allowedComplement.id] }, effectivePermissions: ['actual.read', 'quote.read'] };
+  assert.equal(actualCommercialSummary(db, { user }, record, revision).soldQuantityMilli, '1500');
+  user.entityScopes.quote.push(hiddenComplement.id);
+  assert.equal(actualCommercialSummary(db, { user }, record, revision).soldQuantityMilli, '10500');
 });
 
 test('un lecteur consulte les réalisations mais ne peut jamais confirmer ni corriger', async () => {
