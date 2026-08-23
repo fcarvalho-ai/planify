@@ -666,6 +666,44 @@ previewQuotePlanningConversion=async function(event){if(activeStockEditor?.analy
 
 async function applyClientPlanningQuoteLines(event){event.preventDefault();const editor=activeStockEditor,quote=editor.quote;stockDrawerSubmit.disabled=true;stockDrawerError.hidden=true;try{await saveDirectClientPlanningCorrections();const items=[...stockDrawerBody.querySelectorAll('[data-client-planning-row]')].filter(row=>row.querySelector('[data-commercial-row]').checked).map(row=>{const sourceId=row.querySelector('[data-commercial-resource]').value,days=Number(row.querySelector('[data-commercial-days]').value);return{rowNumber:Number(row.dataset.clientPlanningRow),sourceType:'resource',sourceId,category:'room',section:'Planning client',label:row.querySelector('[data-commercial-label]').value,unit:'jour',quantityMilli:String(BigInt(days)*1000n),requestedDurationDays:days}});if(!items.length)throw new Error('Sélectionnez au moins une prestation.');if(items.some(item=>!item.sourceId))throw new Error('Choisissez une ressource pour chaque prestation sélectionnée.');const updated=await api(`/api/v1/quotes/${encodeURIComponent(quote.id)}/client-planning/apply-lines`,{method:'POST',headers:{'Idempotency-Key':editor.idempotencyKey},body:JSON.stringify({version:quote.version,quoteVersionId:quote.currentVersionId,clientPlanningImportId:editor.analysis.id,items})});updateQuoteLocal(updated);stockDrawerDirty=false;stockDrawerBackdrop.hidden=true;render();toast(`${items.length} prestation(s) ajoutée(s) au devis. Aucune réservation créée.`)}catch(error){stockDrawerError.textContent=apiMessage(error);stockDrawerError.hidden=false}finally{stockDrawerSubmit.disabled=false}}
 
+const quoteWorkspaceFinanceBase=quoteWorkspacePage;
+quoteWorkspacePage=function(quote){
+  const html=quoteWorkspaceFinanceBase(quote);
+  return can('finance.read')?html:html.replace(/<details class="quote-editor-internals">[\s\S]*?<\/details>/g,'');
+};
+const projectDetailFinanceBase=projectDetailPage;
+projectDetailPage=function(project){
+  const html=projectDetailFinanceBase(project);
+  if(can('finance.read'))return html;
+  return html
+    .replace(/<button[^>]*>Rentabilité<\/button>/g,'')
+    .replace(/<article class="card"><span>(?:Coût estimé|Marge estimée)<\/span><strong>[\s\S]*?<\/article>/g,'');
+};
+const projectTabFinanceBase=projectTabContent;
+projectTabContent=function(project,label){
+  if(label==='Rentabilité'&&!can('finance.read'))return'<div class="stock-state" role="status">Les données de rentabilité sont réservées aux rôles Finance.</div>';
+  return projectTabFinanceBase(project,label);
+};
+const openQuoteLineFinanceBase=openQuoteLineDrawer;
+openQuoteLineDrawer=async function(){
+  await openQuoteLineFinanceBase();
+  if(activeStockEditor?.kind!=='quoteLine'||can('finance.cost.manage'))return;
+  const costInput=stockDrawerForm.elements.costUnit;
+  if(costInput){costInput.disabled=true;costInput.closest('label').hidden=true;}
+};
+submitQuoteLine=async function(event){
+  event.preventDefault();
+  const quote=quotesModule.active,data=Object.fromEntries(new FormData(stockDrawerForm)),[sourceType,sourceId]=data.catalogKey.split('|'),price=stockDrawerForm.elements.unitPrice;
+  stockDrawerSubmit.disabled=true;stockDrawerError.hidden=true;
+  try{
+    const discountText=String(data.discountPercent||'0').replace(',','.'),discountBps=Math.round(Number(discountText)*100),fixedDiscountAmountMinor=decimalToScaledString(data.fixedDiscount||'0',quote.currencyExponent,'La remise fixe');
+    if(!Number.isFinite(discountBps)||discountBps<0||discountBps>10000)throw new Error('La remise doit être comprise entre 0 et 100 %.');
+    if(discountBps>0&&BigInt(fixedDiscountAmountMinor)>0n)throw new Error('Choisissez une remise en pourcentage ou une remise fixe.');
+    const payload={version:quote.version,category:data.category,section:data.section,sourceType,...(sourceId?{sourceId}:{}),label:data.label,description:data.description,unit:data.unit,quantityMilli:decimalToScaledString(data.quantity,3,'La quantité'),...manualPriceOverridePayload(data.unitPrice,quote.currencyExponent,data.priceOverrideReason,price.dataset.resolvedMinor,sourceType==='manual'),...(can('finance.cost.manage')&&data.costUnit!==undefined?{costUnitMinor:decimalToScaledString(data.costUnit,quote.currencyExponent,'Le coût')}:{ }),discountBps,...(BigInt(fixedDiscountAmountMinor)>0n?{fixedDiscountAmountMinor}:{}),discountReason:data.discountReason,...(data.requestedDurationDays?{requestedDurationDays:Number(data.requestedDurationDays)}:{})};
+    updateQuoteLocal(await api(`/api/v1/quotes/${encodeURIComponent(quote.id)}/lines`,{method:'POST',body:JSON.stringify(payload)}));stockDrawerDirty=false;stockDrawerBackdrop.hidden=true;render();toast('Prestation ajoutée sans réservation. Remises et marge recalculées.');
+  }catch(error){stockDrawerError.textContent=apiMessage(error);stockDrawerError.hidden=false}finally{stockDrawerSubmit.disabled=false}
+};
+
 function planningQuantityLabel(value,unit){const quantity=Number(BigInt(value||'0'))/1000;return`${new Intl.NumberFormat('fr-FR',{maximumFractionDigits:2}).format(quantity)} ${esc(unit||'unité')}`}
 function planningControlStateLabel(stateValue){return{unplanned:'À planifier',partiallyPlanned:'Partiellement planifié',compliant:'Conforme',overPlanned:'Dépassement',nonApplicable:'Non applicable'}[stateValue]||stateValue}
 function acceptedQuoteForPlanning(){return quotesModule.items.find(value=>value.id===activePlanningQuoteId&&value.kind==='quote'&&value.status==='accepted')||null}

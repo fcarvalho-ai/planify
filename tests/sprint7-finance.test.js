@@ -134,6 +134,13 @@ test('les DTO commerciaux masquent tous les coûts internes sans finance.read', 
   const full = await request(`/api/v1/quotes/${document.id}`, {}, admin); assert.equal(full.response.status, 200); assert.ok(full.data.lines.some(value => Object.hasOwn(value, 'costUnitMinor'))); assert.ok(Object.hasOwn(full.data, 'marginAmount'));
 });
 
+test('le frontend et OpenAPI respectent la projection financière des devis', () => {
+  const frontend=fs.readFileSync(path.join(__dirname,'..','app.js'),'utf8'),openapi=fs.readFileSync(path.join(__dirname,'..','docs','api','openapi-v1.yaml'),'utf8');
+  assert.match(frontend,/quoteWorkspaceFinanceBase/);assert.match(frontend,/can\('finance\.read'\)\?html/);assert.match(frontend,/label==='Rentabilité'&&!can\('finance\.read'\)/);
+  assert.match(frontend,/costInput\.disabled=true/);assert.match(frontend,/can\('finance\.cost\.manage'\)&&data\.costUnit!==undefined/);
+  assert.match(openapi,/RateResponse:/);assert.match(openapi,/Le coût interne est omis sans finance\.read/);assert.match(openapi,/not: \{ required: \[costUnitMinor\] \}/);
+});
+
 test('une falsification du snapshot de dépense ou du coût réel rend la base indisponible', () => {
   const raw = fs.readFileSync(process.env.PLANIFY_DATA_FILE, 'utf8'), tampered = JSON.parse(raw); tampered.projectCostRevisions[0].snapshot.amountMinor = '9999'; fs.writeFileSync(process.env.PLANIFY_DATA_FILE, `${JSON.stringify(tampered, null, 2)}\n`, { mode: 0o600 }); assert.throws(() => readDb(), error => error.code === 'MIGRATION_MARKER_CONFLICT');
   const actualTampered = JSON.parse(raw), revision = actualTampered.actualRevisions.find(value => value.digestVersion === 3); revision.costSnapshot.totalMinor = '9999'; fs.writeFileSync(process.env.PLANIFY_DATA_FILE, `${JSON.stringify(actualTampered, null, 2)}\n`, { mode: 0o600 }); assert.throws(() => readDb(), error => error.code === 'MIGRATION_MARKER_CONFLICT'); fs.writeFileSync(process.env.PLANIFY_DATA_FILE, raw, { mode: 0o600 });

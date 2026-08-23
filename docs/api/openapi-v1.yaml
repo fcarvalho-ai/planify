@@ -216,7 +216,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/RateCreateCommand' }
       responses:
-        '201': { description: Tarif créé, content: { application/json: { schema: { $ref: '#/components/schemas/Rate' } } } }
+        '201': { description: Tarif créé. Le coût interne est omis sans finance.read., content: { application/json: { schema: { $ref: '#/components/schemas/RateResponse' } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
@@ -1278,6 +1278,28 @@ components:
           properties:
             id: { type: string }
             companyId: { type: string, readOnly: true }
+            scope: { type: string, enum: [catalog, client, project], readOnly: true }
+            version: { type: integer, minimum: 1 }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    RateResponse:
+      description: Projection d'un tarif selon les permissions. Avec finance.read, la réponse est complète ; sinon costUnitMinor est absent.
+      oneOf:
+        - { $ref: '#/components/schemas/Rate' }
+        - type: object
+          additionalProperties: true
+          required: [id, companyId, rateCardId, sourceType, sourceId, unit, saleUnitMinor, scope, version]
+          not: { required: [costUnitMinor] }
+          properties:
+            id: { type: string }
+            companyId: { type: string, readOnly: true }
+            rateCardId: { type: string }
+            sourceType: { type: string, enum: [resource, serviceOffering, manual, freeLine] }
+            sourceId: { type: string }
+            projectId: { type: string }
+            clientId: { type: string }
+            unit: { type: string, maxLength: 40 }
+            saleUnitMinor: { type: string, pattern: '^\\d+$' }
             scope: { type: string, enum: [catalog, client, project], readOnly: true }
             version: { type: integer, minimum: 1 }
             createdAt: { type: string, format: date-time }
