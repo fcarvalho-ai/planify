@@ -1,3 +1,56 @@
+# Re-QA indépendante finale S7-B — fermeture des bloqueurs coûts et marges
+
+Date : 2026-08-23
+Commit contrôlé : `b42ea165ed32eeebae0b3f9f2080520bf946d4d8` (`fix(finance): close S7-B gate blockers`)
+Verdict : **APPROVED — 0 P0 / 0 P1**
+
+Ce verdict couvre uniquement S7-B (`US-085` à `US-088`) après correction des constats des gates initiaux. Il ne vaut ni approbation du Sprint 7 complet ni approbation G7.
+
+## État exact et empreintes
+
+Le dépôt était propre au démarrage et `HEAD` correspondait exactement au commit demandé. Environnement : Node `v26.6.0`, macOS/Darwin arm64.
+
+```text
+server.js                              30099196c834172b88870b568b79f8af1b667a9994974c1669a9494e2783d004
+app.js                                 67b80cac99763abd2d5dbfe57fadefe5612504978a156b29343d30ce03a6277d
+index.html                             63713e30a59e7192c60b023b9f78d7e85bfef5904788f816e2cec190bd573590
+planning.css                           a3bf8f5cea927f00c722c905f85fff1290ef4717ec42836e9acc17cd236c68ad
+docs/api/openapi-v1.yaml               b3d48360e946ac3d854c22a6915dc398a2fc6951e2f880b6122a882c88a5cb8e
+package.json                           c892784bd2db25355bb2aeacdbf5bfb63544472f0598eee25cd35e2048296813
+scripts/benchmark-finance.js           1d0b4726837026923736bdb27210ea9a5262b429afa9771b665ecc3aee715e11
+tests/sprint7-actuals.test.js           d83667ecd893ed88046f95474dd33bf1f5b508cbd83676db774e349f0742a7c9
+tests/sprint7-finance.test.js           1c20ef42048df5420fc522155c861f1b3d664e15a188163ac6b744c84545a85d
+```
+
+## Commandes et résultats frais
+
+- `node --test tests/sprint7-finance.test.js tests/sprint7-actuals.test.js tests/quotes.test.js` : **71/71 réussis**, 0 échec, 0 ignoré, code 0, durée 5,082 s.
+- `npm test` : **293/293 réussis**, 0 échec, 0 ignoré, code 0, durée 9,229 s.
+- `npm run lint` : **PASS**, incluant `scripts/benchmark-finance.js`, code 0.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés, code 0.
+- `git diff --check` : **PASS**, code 0.
+- validation sémantique indépendante de `docs/api/openapi-v1.yaml` : **PASS** — OpenAPI 3.1.0, 57 chemins, 75 schémas, 298 références locales (80 distinctes) toutes résolues et 70 `operationId` uniques.
+- sonde déterministe locale, isolée via `PLANIFY_DATA_FILE=/private/tmp/planify-s7b-qa-scope.json`, appel direct de `financeMargins` : **PASS** pour la visibilité autorisée et le masquage successif des dimensions Client, Devis et Prestation ; aucun fichier du dépôt modifié.
+
+## Fermeture des risques vérifiée
+
+- **Historique planifié** : un snapshot `plannedCostSnapshots` est créé hors DTO Réservation et indexé par version source. Le coût planifié reste identique après modification du tarif interne et lorsque la Réservation passe à `completed`.
+- **Confidentialité du réalisé** : `costSnapshot` est présent pour Finance mais supprimé de la révision courante et de tout l'historique renvoyé à un acteur sans `finance.read`; les routes marges et dépenses lui répondent `403`.
+- **Quatre scopes de tarif** : `resource`, `resourceCategory`, `person` et `personCategory` sont créés et la lecture d'un financier limité à Paris masque les quatre sources Boulogne. La résolution directe avant catégorie et le refus de chevauchement restent verts.
+- **Marges filtrées avant agrégation** : le test ciblé couvre Client, Devis et Ressource ; la sonde indépendante complète la Prestation via son unité organisationnelle. Retirer chacun des périmètres concernés ramène le CA signé visible à zéro, sans total résiduel permettant une inférence.
+- **Marges réconciliées** : la réponse expose `FINANCE_MARGIN@1`, fraîcheur, sources et drill-down ; devis, planifié et réel utilisent leurs coûts figés respectifs. Une dépense annulée reste terminale et ne peut être rouverte.
+- **Intégrité et reprise** : la migration est additive, privée et rejouable. Les falsifications de révision de dépense, snapshot réel même re-digéré, snapshot planifié, référence de tarif, marqueur idempotent et chaîne append-only rendent la base indisponible avec `MIGRATION_MARKER_CONFLICT`. Le rollback exige l'export `0600` et restaure exactement les octets sauvegardés.
+- **Commercial** : les 51 tests Devis rejoués avec Finance/Réalisations restent verts ; aucune régression du calcul monétaire, des snapshots fiscaux, des versions ou des imports Planning n'est observée.
+
+## Limites non bloquantes
+
+- La sonde Prestation utilise volontairement une prestation rattachée à une unité sans site afin d'isoler le contrôle d'unité organisationnelle. Pour une prestation rattachée à un site, le périmètre site est l'autorité prévue par `offeringAllowed`.
+- Cette passe ne revendique pas de smoke visuel navigateur. Les assertions UI statiques Finance sont vertes ; le parcours visuel et la persistance après rechargement restent au gate E2E.
+- Les latences et le jeu volumétrique relèvent du gate Performance indépendant ; la présence et la validité syntaxique du benchmark Finance ne constituent pas son verdict.
+- S7-C et S7-D restent hors périmètre.
+
+Conclusion : les bloqueurs S7-B sur l'historique planifié, la confidentialité, les quatre sources de coût, les dimensions de marge et l'intégrité de migration sont fermés sur le candidat exact `b42ea16…`. La re-QA indépendante finale S7-B est **APPROVED — 0 P0 / 0 P1**.
+
 # QA indépendante S7-B — coûts internes, dépenses Projet et marges
 
 Date : 2026-08-23
