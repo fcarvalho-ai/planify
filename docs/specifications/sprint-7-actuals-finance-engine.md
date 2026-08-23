@@ -277,6 +277,7 @@ Nouvelles permissions fermées :
 - `actual.confirm` : confirmer/corriger un réalisé ;
 - `finance.cost.manage` : administrer coûts internes et dépenses Projet ;
 - `finance.read` : lire CA, coûts, marges, facturable et analyses Finance.
+- `finance.cost.manage` : créer ou modifier toute valeur de coût interne, y compris via une ligne de devis, un tarif commercial ou l'activation d'une grille client importée. Les permissions `quote.manage` et `client.manage` seules ne donnent jamais cette autorité.
 
 Le responsable Planning et le planificateur reçoivent `actual.read`; les profils habilités à valider reçoivent explicitement `actual.confirm`. Finance lit les métriques et gère les coûts selon la matrice, sans obtenir implicitement `planning.write`. Les coûts, marges, tarifs internes et valeurs facturables ne sont jamais inclus dans une réponse ou un SSE destiné à un acteur sans `finance.read`.
 
