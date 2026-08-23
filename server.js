@@ -1540,7 +1540,7 @@ function financeFlowLineRows(db, auth, input = {}) {
   }
   for (const record of db.actualRecords || []) {
     if (!projects.has(record.projectId) || !record.sourceQuoteId || !record.sourceQuoteLineId || !actualRecordAllowed(db, auth, record, indexes)) continue;
-    const revision = (indexes.revisionsByRecordId.get(record.id) || []).find(value => value.id === record.currentRevisionId); if (!revision) continue;
+    const revision = (indexes.revisionsByRecordId.get(record.id) || []).find(value => value.id === record.currentRevisionId); if (!revision || revision.endsAt.slice(0, 10) > asOf) continue;
     const key = `${record.sourceQuoteId}:${record.sourceQuoteLineId}`, values = actualsByLine.get(key) || [];
     values.push({ id: record.id, revisionId: revision.id, startsAt: revision.startsAt, endsAt: revision.endsAt, quantityMilli: String(revision.quantityMilli || '0') }); actualsByLine.set(key, values);
   }
@@ -1554,8 +1554,32 @@ function financeFlowLineRows(db, auth, input = {}) {
       const soldQuantity = BigInt(line.quantityMilli || '0'), plannedQuantity = reservations.reduce((total, value) => total + BigInt(value.quantityMilli), 0n), actualQuantity = actuals.reduce((total, value) => total + BigInt(value.quantityMilli), 0n), signed = BigInt(line.netHt || '0');
       const earnedQuantity = actualQuantity < soldQuantity ? actualQuantity : soldQuantity, billableQuantity = actualQuantity > soldQuantity ? actualQuantity - soldQuantity : 0n, plannedCovered = plannedQuantity < soldQuantity ? plannedQuantity : soldQuantity;
       const proportional = quantity => soldQuantity > 0n ? roundHalfUpInteger(signed * quantity, soldQuantity) : 0n, earned = proportional(earnedQuantity), planned = proportional(plannedCovered), billable = proportional(billableQuantity);
-      rows.push({ quoteId: document.id, quoteNumber: document.number || null, quoteLineId: line.id, label: line.label || '', projectId: project.id, projectName: project.name, clientId: client.id, siteId: document.siteId || project.siteId || null, serviceOfferingId: line.sourceType === 'serviceOffering' ? line.sourceId : null, resourceId: line.sourceType === 'resource' ? line.sourceId : null, salesOwnerId: project.salesOwnerId || null, createdBy: document.createdBy || null, currency: document.currency || 'EUR', currencyExponent: document.currencyExponent ?? 2, signedRevenueMinor: String(signed), plannedRevenueMinor: String(planned), earnedSignedRevenueMinor: String(earned), billableValueMinor: String(billable), backlogMinor: String(signed > earned ? signed - earned : 0n), soldQuantityMilli: String(soldQuantity), plannedQuantityMilli: String(plannedQuantity), actualQuantityMilli: String(actualQuantity), billableQuantityMilli: String(billableQuantity), projectStartDate: project.startDate || null, projectEndDate: project.endDate || null, reservations, actuals });
+      rows.push({ quoteId: document.id, quoteVersionId: document.revenueRecognition?.quoteVersionId || document.currentVersionId || null, quoteNumber: document.number || null, quoteLineId: line.id, label: line.label || '', projectId: project.id, projectName: project.name, clientId: client.id, siteId: document.siteId || project.siteId || null, serviceOfferingId: line.sourceType === 'serviceOffering' ? line.sourceId : null, resourceId: line.sourceType === 'resource' ? line.sourceId : null, salesOwnerId: project.salesOwnerId || null, createdBy: document.createdBy || null, currency: document.currency || 'EUR', currencyExponent: document.currencyExponent ?? 2, signedRevenueMinor: String(signed), plannedRevenueMinor: String(planned), earnedSignedRevenueMinor: String(earned), billableValueMinor: String(billable), backlogMinor: String(signed > earned ? signed - earned : 0n), soldQuantityMilli: String(soldQuantity), plannedQuantityMilli: String(plannedQuantity), actualQuantityMilli: String(actualQuantity), billableQuantityMilli: String(billableQuantity), projectStartDate: project.startDate || null, projectEndDate: project.endDate || null, reservations, actuals, complementSourceQuoteId: document.planningComplementSourceQuoteId || null, complementSourceQuoteLineId: line.planningSourceQuoteLineId || null });
     }
+  }
+  const splitAtQuantity = (items, quantity) => {
+    let available = quantity; const kept = [], overflow = [];
+    for (const item of items) { const itemQuantity = BigInt(item.quantityMilli || '0'), used = itemQuantity < available ? itemQuantity : available; if (used > 0n) kept.push({ ...item, quantityMilli: String(used) }); if (itemQuantity > used) overflow.push({ ...item, quantityMilli: String(itemQuantity - used) }); available -= used; }
+    return { kept, overflow };
+  };
+  const moveOverflowToComplements = (base, complements, field) => {
+    const split = splitAtQuantity(base[field], BigInt(base.soldQuantityMilli)); base[field] = split.kept; let overflow = split.overflow;
+    for (const complement of complements) {
+      const direct = complement[field].reduce((total, item) => total + BigInt(item.quantityMilli || '0'), 0n), capacity = BigInt(complement.soldQuantityMilli) > direct ? BigInt(complement.soldQuantityMilli) - direct : 0n;
+      const allocation = splitAtQuantity(overflow, capacity); complement[field].push(...allocation.kept.map(item => ({ ...item, allocatedFromQuoteId: base.quoteId, allocatedFromQuoteLineId: base.quoteLineId }))); overflow = allocation.overflow;
+    }
+    base[field].push(...overflow);
+  };
+  const rowByKey = new Map(rows.map(row => [`${row.quoteId}:${row.quoteLineId}`, row]));
+  for (const base of rows) {
+    const complements = rows.filter(row => row.complementSourceQuoteId === base.quoteId && row.complementSourceQuoteLineId === base.quoteLineId).sort((left, right) => left.quoteId.localeCompare(right.quoteId) || left.quoteLineId.localeCompare(right.quoteLineId));
+    if (!complements.length || !rowByKey.has(`${base.quoteId}:${base.quoteLineId}`)) continue;
+    moveOverflowToComplements(base, complements, 'reservations'); moveOverflowToComplements(base, complements, 'actuals');
+  }
+  for (const row of rows) {
+    const soldQuantity = BigInt(row.soldQuantityMilli), plannedQuantity = row.reservations.reduce((total, value) => total + BigInt(value.quantityMilli || '0'), 0n), actualQuantity = row.actuals.reduce((total, value) => total + BigInt(value.quantityMilli || '0'), 0n), signed = BigInt(row.signedRevenueMinor), earnedQuantity = actualQuantity < soldQuantity ? actualQuantity : soldQuantity, plannedCovered = plannedQuantity < soldQuantity ? plannedQuantity : soldQuantity, billableQuantity = actualQuantity > soldQuantity ? actualQuantity - soldQuantity : 0n, proportional = quantity => soldQuantity > 0n ? roundHalfUpInteger(signed * quantity, soldQuantity) : 0n;
+    Object.assign(row, { plannedQuantityMilli: String(plannedQuantity), actualQuantityMilli: String(actualQuantity), billableQuantityMilli: String(billableQuantity), plannedRevenueMinor: String(proportional(plannedCovered)), earnedSignedRevenueMinor: String(proportional(earnedQuantity)), billableValueMinor: String(proportional(billableQuantity)), backlogMinor: String(signed - proportional(earnedQuantity)) });
+    delete row.complementSourceQuoteId; delete row.complementSourceQuoteLineId;
   }
   return { asOf, rows: rows.sort((a, b) => a.projectId.localeCompare(b.projectId) || String(a.quoteNumber || '').localeCompare(String(b.quoteNumber || '')) || a.quoteLineId.localeCompare(b.quoteLineId)) };
 }
@@ -1567,12 +1591,12 @@ function financeForecast(db, auth, input = {}) {
   const { asOf, rows } = financeFlowLineRows(db, auth, input), horizons = [30, 60, 90], windows = horizons.map(days => ({ days, through: addCalendarDays(asOf, days), scheduledMinor: 0n, unscheduledMinor: 0n, totalMinor: 0n })), undated = { amountMinor: 0n, lineCount: 0 }, drilldown = [];
   for (const row of rows) {
     const sold = BigInt(row.soldQuantityMilli), actual = BigInt(row.actualQuantityMilli), remaining = sold > actual ? sold - actual : 0n; if (!remaining) continue;
-    let available = remaining; const future = row.reservations.filter(value => value.startsAt.slice(0, 10) > asOf), scheduledByWindow = Array(windows.length).fill(0n);
-    for (const reservation of future) { if (available <= 0n) break; const quantity = BigInt(reservation.quantityMilli), allocated = quantity < available ? quantity : available; available -= allocated; const amount = sold > 0n ? roundHalfUpInteger(BigInt(row.signedRevenueMinor) * allocated, sold) : 0n; windows.forEach((window, index) => { if (reservation.startsAt.slice(0, 10) <= window.through) scheduledByWindow[index] += amount; }); }
-    const unscheduledAmount = sold > 0n ? roundHalfUpInteger(BigInt(row.signedRevenueMinor) * available, sold) : 0n, targetDate = row.projectEndDate || row.projectStartDate;
+    let available = remaining, availableMinor = BigInt(row.backlogMinor); const future = row.reservations.filter(value => value.startsAt.slice(0, 10) > asOf), scheduledByWindow = Array(windows.length).fill(0n);
+    for (const reservation of future) { if (available <= 0n) break; const quantity = BigInt(reservation.quantityMilli), allocated = quantity < available ? quantity : available; available -= allocated; const rounded = sold > 0n ? roundHalfUpInteger(BigInt(row.signedRevenueMinor) * allocated, sold) : 0n, amount = rounded < availableMinor ? rounded : availableMinor; availableMinor -= amount; windows.forEach((window, index) => { if (reservation.startsAt.slice(0, 10) <= window.through) scheduledByWindow[index] += amount; }); }
+    const unscheduledAmount = availableMinor, targetDate = row.projectEndDate || row.projectStartDate;
     windows.forEach((window, index) => { const unscheduled = targetDate && targetDate > asOf && targetDate <= window.through ? unscheduledAmount : 0n; window.scheduledMinor += scheduledByWindow[index]; window.unscheduledMinor += unscheduled; window.totalMinor += scheduledByWindow[index] + unscheduled; });
     if (!targetDate && unscheduledAmount > 0n) { undated.amountMinor += unscheduledAmount; undated.lineCount++; }
-    drilldown.push({ quoteId: row.quoteId, quoteNumber: row.quoteNumber, quoteLineId: row.quoteLineId, label: row.label, projectId: row.projectId, projectName: row.projectName, clientId: row.clientId, remainingQuantityMilli: String(remaining), projectTargetDate: targetDate || null, scheduled: windows.map((window, index) => ({ days: window.days, amountMinor: String(scheduledByWindow[index]) })), unscheduledMinor: String(unscheduledAmount), undated: !targetDate });
+    drilldown.push({ quoteId: row.quoteId, quoteVersionId: row.quoteVersionId, quoteNumber: row.quoteNumber, quoteLineId: row.quoteLineId, label: row.label, projectId: row.projectId, projectName: row.projectName, clientId: row.clientId, remainingQuantityMilli: String(remaining), projectTargetDate: targetDate || null, scheduled: windows.map((window, index) => ({ days: window.days, amountMinor: String(scheduledByWindow[index]) })), unscheduledMinor: String(unscheduledAmount), undated: !targetDate });
   }
   return { definitionVersion: 'FINANCE_FORECAST@1', generatedAt: now(), asOf, currency: db.companies.find(value => value.id === auth.user.companyId)?.currency || 'EUR', filters: { projectId: cleanString(input.projectId) || null }, freshness: { mode: 'live', source: 'local-transactional-store' }, windows: windows.map(value => ({ days: value.days, through: value.through, scheduledMinor: String(value.scheduledMinor), unscheduledMinor: String(value.unscheduledMinor), totalMinor: String(value.totalMinor) })), undated: { amountMinor: String(undated.amountMinor), lineCount: undated.lineCount }, items: drilldown.slice(0, 200), itemCount: drilldown.length };
 }
@@ -2260,12 +2284,20 @@ function commercialAnalyticRows(db, auth, document, stage, amountMinor, date) {
 }
 function financeFlowAnalyticRows(db, auth) {
   const { rows } = financeFlowLineRows(db, auth, {}), result = [];
+  const quantitySlices = (items, skip, take) => {
+    let skipped = skip, remaining = take; const slices = [];
+    for (const item of items) { let quantity = BigInt(item.quantityMilli || '0'); if (skipped >= quantity) { skipped -= quantity; continue; } if (skipped > 0n) { quantity -= skipped; skipped = 0n; } const used = quantity < remaining ? quantity : remaining; if (used > 0n) slices.push({ ...item, quantityMilli: String(used) }); remaining -= used; if (remaining <= 0n) break; }
+    return slices;
+  };
+  const sourceRows = (row, stage, items, skipQuantity, takeQuantity, targetMinor, dateField) => {
+    const slices = quantitySlices(items, skipQuantity, takeQuantity), target = BigInt(targetMinor || '0'), totalQuantity = slices.reduce((total, item) => total + BigInt(item.quantityMilli), 0n); let allocated = 0n;
+    return slices.map((item, index) => { const amount = index === slices.length - 1 ? target - allocated : totalQuantity > 0n ? target * BigInt(item.quantityMilli) / totalQuantity : 0n; allocated += amount; return { stage, documentId: row.quoteId, sourceId: item.id, currency: row.currency, currencyExponent: row.currencyExponent, valueMinor: String(amount), dimensions: { date: item[dateField]?.slice(0, 10) || null, clientId: row.clientId, projectId: row.projectId, serviceOfferingId: row.serviceOfferingId, resourceId: row.resourceId, siteId: row.siteId, legalEntityId: auth.user.companyId, salesOwnerId: row.salesOwnerId, userId: row.createdBy } }; });
+  };
   for (const row of rows) {
-    const dimensions = date => ({ date, clientId: row.clientId, projectId: row.projectId, serviceOfferingId: row.serviceOfferingId, resourceId: row.resourceId, siteId: row.siteId, legalEntityId: auth.user.companyId, salesOwnerId: row.salesOwnerId, userId: row.createdBy });
-    const plannedDate = row.reservations[0]?.startsAt?.slice(0, 10) || null, actualDate = row.actuals.at(-1)?.endsAt?.slice(0, 10) || null;
-    result.push({ stage: 'planned', documentId: row.quoteId, sourceId: row.quoteLineId, currency: row.currency, currencyExponent: row.currencyExponent, valueMinor: row.plannedRevenueMinor, dimensions: dimensions(plannedDate) });
-    result.push({ stage: 'actual', documentId: row.quoteId, sourceId: row.quoteLineId, currency: row.currency, currencyExponent: row.currencyExponent, valueMinor: row.earnedSignedRevenueMinor, dimensions: dimensions(actualDate) });
-    result.push({ stage: 'billable', documentId: row.quoteId, sourceId: row.quoteLineId, currency: row.currency, currencyExponent: row.currencyExponent, valueMinor: row.billableValueMinor, dimensions: dimensions(actualDate) });
+    const sold = BigInt(row.soldQuantityMilli), planned = BigInt(row.plannedQuantityMilli), actual = BigInt(row.actualQuantityMilli), plannedCovered = planned < sold ? planned : sold, earned = actual < sold ? actual : sold, billable = actual > sold ? actual - sold : 0n;
+    result.push(...sourceRows(row, 'planned', row.reservations, 0n, plannedCovered, row.plannedRevenueMinor, 'startsAt'));
+    result.push(...sourceRows(row, 'actual', row.actuals, 0n, earned, row.earnedSignedRevenueMinor, 'endsAt'));
+    result.push(...sourceRows(row, 'billable', row.actuals, sold, billable, row.billableValueMinor, 'endsAt'));
   }
   return result;
 }

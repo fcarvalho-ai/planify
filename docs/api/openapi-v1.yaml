@@ -1452,8 +1452,28 @@ components:
             signedRevenueMinor: { type: string, pattern: '^[0-9]+$' }
             earnedSignedRevenueMinor: { type: string, pattern: '^[0-9]+$' }
             backlogMinor: { type: string, pattern: '^[0-9]+$' }
-        items: { type: array, items: { type: object, additionalProperties: true } }
+        items: { type: array, items: { $ref: '#/components/schemas/FinanceBacklogItem' } }
         itemCount: { type: integer, minimum: 0 }
+    FinanceBacklogItem:
+      type: object
+      required: [quoteId, quoteVersionId, quoteLineId, projectId, clientId, signedRevenueMinor, earnedSignedRevenueMinor, backlogMinor, soldQuantityMilli, plannedQuantityMilli, actualQuantityMilli]
+      properties:
+        quoteId: { type: string }
+        quoteVersionId: { type: string }
+        quoteLineId: { type: string }
+        quoteNumber: { type: [string, 'null'] }
+        label: { type: string }
+        projectId: { type: string }
+        projectName: { type: string }
+        clientId: { type: string }
+        signedRevenueMinor: { type: string, pattern: '^[0-9]+$' }
+        earnedSignedRevenueMinor: { type: string, pattern: '^[0-9]+$' }
+        backlogMinor: { type: string, pattern: '^[0-9]+$' }
+        soldQuantityMilli: { type: string, pattern: '^[0-9]+$' }
+        plannedQuantityMilli: { type: string, pattern: '^[0-9]+$' }
+        actualQuantityMilli: { type: string, pattern: '^[0-9]+$' }
+        reservations: { type: array, items: { type: string } }
+        actualRecords: { type: array, items: { type: string } }
     FinanceForecastWindow:
       type: object
       additionalProperties: false
@@ -1482,8 +1502,36 @@ components:
           properties:
             amountMinor: { type: string, pattern: '^[0-9]+$' }
             lineCount: { type: integer, minimum: 0 }
-        items: { type: array, items: { type: object, additionalProperties: true } }
+        items: { type: array, items: { $ref: '#/components/schemas/FinanceForecastItem' } }
         itemCount: { type: integer, minimum: 0 }
+    FinanceForecastItem:
+      type: object
+      additionalProperties: false
+      required: [quoteId, quoteVersionId, quoteLineId, projectId, clientId, remainingQuantityMilli, projectTargetDate, scheduled, unscheduledMinor, undated]
+      properties:
+        quoteId: { type: string }
+        quoteVersionId: { type: string }
+        quoteLineId: { type: string }
+        quoteNumber: { type: [string, 'null'] }
+        label: { type: string }
+        projectId: { type: string }
+        projectName: { type: string }
+        clientId: { type: string }
+        remainingQuantityMilli: { type: string, pattern: '^[0-9]+$' }
+        projectTargetDate: { type: [string, 'null'], format: date }
+        scheduled:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            type: object
+            additionalProperties: false
+            required: [days, amountMinor]
+            properties:
+              days: { type: integer, enum: [30, 60, 90] }
+              amountMinor: { type: string, pattern: '^[0-9]+$' }
+        unscheduledMinor: { type: string, pattern: '^[0-9]+$' }
+        undated: { type: boolean }
     LoginResponse:
       type: object
       additionalProperties: false

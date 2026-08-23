@@ -1,3 +1,78 @@
+# Gate REVIEW indépendante S7-C — backlog signé et forecast 30/60/90
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7b_review`
+
+Candidat Git exact : `43bea95f74ad6d6bcb602254c25deff7e9f1205e` (`feat(finance): add signed backlog and forecast`)
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 4 P1 ouverts, 3 P2.**
+
+Les routes, read-models, scopes et consommateurs UI sont présents, sans persistance nouvelle. Les tests nominaux passent. Le candidat ne peut cependant pas être approuvé : trois erreurs de conservation/date déjà observables dans le cœur de calcul et l'absence de version commerciale dans le drill-down empêchent US-083/084 de fournir un backlog/forecast exact et réconciliable.
+
+## P1 bloquants
+
+### REV-S7C-01 — `asOf` ne borne ni les réalisés ni la chaîne de revenus
+
+`financeFlowLineRows()` valide et retourne `asOf`, mais collecte toutes les réservations actives et toutes les révisions courantes visibles sans comparer leurs dates à cette date de situation (`server.js:1528-1559`). Un réalisé dont `endsAt` est postérieur à `asOf` réduit donc déjà `earnedSignedRevenueMinor` et le backlog historique. Le forecast calcule ensuite son `remaining` à partir de ce réalisé futur et sous-estime les fenêtres.
+
+Le même agrégat alimente `revenueChain()`. Pour les filtres de période, toute la valeur planifiée est datée sur la première réservation et toute la valeur réalisée/facturable sur le dernier réalisé (`server.js:2262-2268`) : plusieurs sources couvrant plusieurs périodes sont déplacées vers une date unique. Une requête mensuelle peut ainsi inclure ou exclure la totalité d'une ligne au lieu de sa part dans la période.
+
+Correction requise : sélectionner les sources selon une convention temporelle explicite et testée (`endsAt <= fin de situation` pour le réalisé, règles semi-ouvertes pour planning), puis émettre des lignes analytiques par source/date ou ventiler de manière conservatrice avant les filtres `from/to`. Ajouter des tests avant/après `asOf`, borne exacte et plusieurs mois.
+
+### REV-S7C-02 — la ventilation par réservation ne conserve pas les unités mineures
+
+Dans `financeForecast()`, chaque réservation calcule séparément `roundHalfUpInteger(signed * allocated, sold)` puis le reste non planifié est arrondi séparément (`server.js:1570-1575`). La somme des arrondis n'est pas contrainte au montant signé restant. Exemple arithmétique : 2 centimes vendus pour 3 milli-unités, répartis en trois réservations d'une unité, donnent trois arrondis de 1 centime, soit 3 centimes planifiés pour 2 signés. L'inverse peut aussi perdre des centimes.
+
+Cela viole `total = scheduled + unscheduled` sans double comptage et empêche la réconciliation du forecast avec le backlog. Correction requise : allouer par différences cumulées ou attribuer explicitement le reliquat déterministe à la dernière tranche, avec invariants par ligne et par fenêtre. Tester montants indivisibles, plusieurs réservations, reste non planifié et horizons cumulés.
+
+### REV-S7C-03 — le drill-down US-083 ne porte pas la version du Devis
+
+US-083 exige un chemin jusqu'au Devis, **à sa version** et à ses lignes. `financeFlowLineRows()` expose `quoteId`, `quoteNumber` et `quoteLineId`, mais ne capture ni `revenueRecognition.quoteVersionId`, ni `currentVersionId` (`server.js:1551-1558`). `financeBacklog()` et `financeForecast()` propagent donc des lignes sans version, et les schémas OpenAPI ne rendent pas ce lien obligatoire.
+
+Sur un modèle commercial versionné, un montant live sans identifiant de version n'est pas une provenance revalidable et peut devenir ambigu après succession/version. Correction requise : porter la version acceptée figée dans les deux read-models, le contrat OpenAPI, l'UI/drill-down et les tests.
+
+### REV-S7C-04 — les compléments acceptés ne couvrent pas le réalisé de leur ligne source
+
+La formule contractuelle définit `sold = devis principal accepté + compléments acceptés`. Le dépôt possède déjà `actualIndexes().complementByLine` et `actualCommercialSummary()` additionne les quantités des compléments visibles à la ligne principale (`server.js:1313-1338`). Le nouveau `financeFlowLineRows()` ignore cette relation : il traite chaque document accepté et chaque ligne isolément, avec `soldQuantity = line.quantityMilli` (`server.js:1551-1557`).
+
+Conséquence : un dépassement réalisé sur la ligne principale reste présenté comme `billable`, tandis que le complément accepté correspondant apparaît séparément comme backlog entièrement non produit. La chaîne planned/actual/billable n'est donc pas cohérente avec le moteur de consommation existant et peut simultanément surévaluer le facturable et le backlog. Correction requise : réutiliser une projection canonique principal + compléments, rattacher les sources réalisées aux quantités acceptées correspondantes et tester principal 10 + complément 2 + réalisé 12, avec et sans scope sur le complément.
+
+## Contrôles conformes
+
+- Les endpoints `/analytics/backlog` et `/analytics/forecast` restent protégés par `finance.read` via la famille `/analytics`.
+- Société, Projet, Client, site, Devis, ressource/prestation, réservation et réalisé sont filtrés avant les totaux dans le chemin nominal ; le test de ressource hors scope retourne zéro.
+- Les quantités et montants sont manipulés en `BigInt` et chaînes d'unités mineures ; aucune arithmétique flottante n'est introduite côté serveur.
+- `invoiced` et `collected` restent explicitement indisponibles ; `billable` demeure séparé du CA signé.
+- S7-C est un read-model sans nouvelle collection, mutation, audit ou migration. Le rollback annoncé peut retirer routes/UI sans réécrire les données S7-A/B.
+- L'UI échappe les libellés et identifiants affichés, utilise des régions/tableaux et rafraîchit Finance sur invalidations Réservation/Réalisé ; aucun nouveau sink HTML non échappé n'a été identifié dans le diff.
+- Les contrats OpenAPI publient les deux routes, les définitions, fenêtres et montants sous forme de chaînes.
+
+## P2 importants
+
+1. `items` est tronqué à 200 tandis que `itemCount` indique le total, sans paramètres de pagination ni curseur pour parcourir le drill-down complet.
+2. Le choix de `projectEndDate || projectStartDate` comme cible du non-planifié n'est pas accompagné d'un champ de provenance indiquant laquelle des deux dates a été retenue.
+3. Les tests UI/API S7-C sont principalement statiques ou purement domaine ; ils ne couvrent pas le rendu navigateur, le focus, l'erreur partielle d'un des cinq appels Finance ni le rafraîchissement SSE complet.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `node --test tests/sprint7-forecast.test.js tests/sprint1-data.test.js` : **19/19 réussis**, 0 échec, durée `764,63 ms`.
+- Inspection du diff `37a1337..43bea95f`, de la spécification US-083/084, des formules, consommateurs, OpenAPI et tests.
+- Hashes : `server.js` `968894ca91f230d4c6886c1b509156be997a5c4bfe8ff0004bacf716e676c197`; `app.js` `608f84b3235c746e997077e596d562c9b3588d3af52fc650de7333806285f571`; `tests/sprint7-forecast.test.js` `75ea47313ca1f6b4f8cd1de313fadeee77bbe341430d0220c62377455a983bff`; OpenAPI `6415d6ef5247a2ae08143f6662c42dbdae286727420845eddc51cb4fdf9f0a4a`.
+- Aucune campagne longue supplémentaire n'a été lancée après identification des défauts bloquants. La suite complète DEV annoncée ne ferme pas les cas limites absents des tests.
+
+## Condition de revalidation
+
+Corriger les quatre P1, ajouter les non-régressions datées/conservatives/versionnées/compléments, puis repasser REVIEW et tous les gates aval impactés sur un même hash candidat. L'intégrateur doit reporter ce verdict dans `docs/project-status.md`.
+
+---
+
 # Gate re-REVIEW indépendante terminale S7-B — import de grille Client
 
 Date : 2026-08-23

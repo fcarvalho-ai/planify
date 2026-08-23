@@ -31,6 +31,31 @@ test('S7-C calcule le backlog signé sans double comptage des réalisations', ()
   assert.deepEqual(result.totals, { signedRevenueMinor: '100000', earnedSignedRevenueMinor: '20000', backlogMinor: '80000' });
   assert.equal(result.sources.quoteCount, 1); assert.equal(result.sources.reservationCount, 2); assert.equal(result.sources.actualRecordCount, 1);
   assert.equal(result.items[0].plannedQuantityMilli, '5000'); assert.equal(result.items[0].actualQuantityMilli, '2000');
+  assert.equal(result.items[0].quoteVersionId, 'version_forecast');
+});
+
+test('S7-C applique asOf aux réalisés et conserve les montants après arrondi', () => {
+  const { db, auth } = fixture();
+  db.actualRecords.push({ ...structuredClone(db.actualRecords[0]), id: 'actual_future', reservationId: 'reservation_future', currentRevisionId: 'actual_revision_future' });
+  db.actualRevisions.push({ ...structuredClone(db.actualRevisions[0]), id: 'actual_revision_future', actualRecordId: 'actual_future', startsAt: '2026-09-10T08:00:00.000Z', endsAt: '2026-09-10T18:00:00.000Z', quantityMilli: '1000' });
+  assert.equal(financeBacklog(db, auth, { asOf: '2026-08-31' }).totals.earnedSignedRevenueMinor, '20000');
+  assert.equal(financeBacklog(db, auth, { asOf: '2026-09-30' }).totals.earnedSignedRevenueMinor, '30000');
+
+  db.quotes[0].lines[0].quantityMilli = '3000'; db.quotes[0].lines[0].netHt = '2'; db.actualRevisions[0].quantityMilli = '1000';
+  db.actualRecords = [db.actualRecords[0]]; db.actualRevisions = [db.actualRevisions[0]]; db.reservations = [{ ...db.reservations[1], planningQuantityMilli: '1000', resources: [{ resourceId: 'resource_forecast', quantity: 1 }] }];
+  const forecast = financeForecast(db, auth, { asOf: '2026-08-31' }), window = forecast.windows.at(-1);
+  assert.equal(BigInt(window.scheduledMinor) + BigInt(window.unscheduledMinor), BigInt(forecast.items[0].scheduled.at(-1).amountMinor) + BigInt(forecast.items[0].unscheduledMinor));
+  assert.ok(BigInt(window.totalMinor) <= BigInt(financeBacklog(db, auth, { asOf: '2026-08-31' }).totals.backlogMinor));
+});
+
+test('S7-C affecte le dépassement réalisé au complément accepté avant le billable', () => {
+  const { db, auth } = fixture(), base = db.quotes[0];
+  base.lines[0].quantityMilli = '10000'; base.lines[0].netHt = '100000'; db.actualRevisions[0].quantityMilli = '12000';
+  db.quotes.push({ id: 'quote_complement', companyId: base.companyId, projectId: base.projectId, siteId: base.siteId, kind: 'quote', status: 'accepted', number: 'DEV-COMP', currency: 'EUR', currencyExponent: 2, createdBy: 'user_sales', planningComplementSourceQuoteId: base.id, currentVersionId: 'version_complement', revenueRecognition: { state: 'active', quoteVersionId: 'version_complement', netHt: '20000' }, lines: [{ id: 'line_complement', planningSourceQuoteLineId: base.lines[0].id, sourceType: 'resource', sourceId: 'resource_forecast', label: 'Montage complément', unit: 'jour', quantityMilli: '2000', netHt: '20000' }] });
+  const rows = require('../server.js').financeFlowLineRows(db, auth, { asOf: '2026-08-31' }).rows, baseRow = rows.find(value => value.quoteId === base.id), complementRow = rows.find(value => value.quoteId === 'quote_complement'), backlog = financeBacklog(db, auth, { asOf: '2026-08-31' });
+  assert.equal(baseRow.earnedSignedRevenueMinor, '100000'); assert.equal(baseRow.billableValueMinor, '0');
+  assert.equal(complementRow.earnedSignedRevenueMinor, '20000'); assert.equal(complementRow.backlogMinor, '0');
+  assert.deepEqual(backlog.totals, { signedRevenueMinor: '120000', earnedSignedRevenueMinor: '120000', backlogMinor: '0' });
 });
 
 test('S7-C sépare forecast planifié, non planifié et sans date à 30/60/90 jours', () => {
@@ -38,6 +63,7 @@ test('S7-C sépare forecast planifié, non planifié et sans date à 30/60/90 jo
   assert.equal(result.definitionVersion, 'FINANCE_FORECAST@1');
   assert.deepEqual(result.windows.map(value => [value.days, value.scheduledMinor, value.unscheduledMinor, value.totalMinor]), [['30', '30000', '0', '30000'], ['60', '30000', '50000', '80000'], ['90', '30000', '50000', '80000']].map(([days, ...rest]) => [Number(days), ...rest]));
   assert.deepEqual(result.undated, { amountMinor: '0', lineCount: 0 });
+  assert.equal(result.items[0].quoteVersionId, 'version_forecast');
   delete db.projects[0].startDate; delete db.projects[0].endDate;
   const undated = financeForecast(db, auth, { asOf: '2026-08-31' });
   assert.deepEqual(undated.windows.map(value => value.unscheduledMinor), ['0', '0', '0']);

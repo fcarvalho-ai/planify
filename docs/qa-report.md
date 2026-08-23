@@ -67,6 +67,57 @@ Le candidat exact satisfait les tests ciblés et la non-régression complète av
 
 ---
 
+# QA indépendante S7-C — Backlog signé et Forecast 30/60/90
+
+Date : 2026-08-23
+
+Commit applicatif contrôlé : `43bea95f74ad6d6bcb602254c25deff7e9f1205e` (`feat(finance): add signed backlog and forecast`)
+
+Environnement : Node `v26.6.0`, Darwin `25.5.0` arm64
+Verdict : **CHANGES REQUIRED — 0 P0 / 3 P1**
+
+Ce verdict couvre S7-C, soit US-083 Backlog signé, US-084 Forecast 30/60/90 et l'extension `planned` / `actual` / `billable` de la chaîne de revenus. Aucun code, test, statut projet ou autre rapport n'a été modifié par cette QA.
+
+## Constats bloquants
+
+### P1 — `asOf` ne borne pas les réalisés du Backlog/Forecast
+
+`financeFlowLineRows()` valide et restitue `asOf`, mais agrège toutes les révisions courantes visibles sans comparer leur période à cette date. Une sonde minimale avec un réalisé daté du 10–11 septembre retourne donc exactement les mêmes valeurs au `2026-08-31` et au `2026-09-30` : `earnedSignedRevenueMinor=20000`, `backlogMinor=80000`, `remainingQuantityMilli=8000`. Au 31 août, ce réalisé futur ne devait pas réduire le backlog ni le reste forecasté. La date de situation publiée est ainsi trompeuse et les fenêtres 30/60/90 partent d'un état qui peut déjà intégrer le futur.
+
+Attendu : borner les réalisés et les quantités acquises à `asOf` selon une règle publiée, puis ajouter un négatif automatisé avec un réalisé strictement postérieur à `asOf`.
+
+### P1 — les arrondis par fragment peuvent dépasser le CA signé restant
+
+`financeForecast()` arrondit séparément chaque réservation planifiée puis le solde non planifié. Sonde minimale : ligne signée de `2` unités mineures pour `3000` milli-unités, deux réservations futures de `1000`, solde non planifié de `1000`, cible Projet dans la fenêtre 60 jours. Résultat observé : `scheduledMinor=2`, `unscheduledMinor=1`, `totalMinor=3`, alors que le CA signé et le backlog valent `2`. Le critère `total = scheduled + unscheduled, sans double comptage` n'est donc pas garanti.
+
+Attendu : répartir en unités mineures avec conservation du total et affectation déterministe du reliquat d'arrondi ; tester au minimum des montants non divisibles et plusieurs réservations d'une même ligne.
+
+### P1 — le drill-down US-083 ne permet pas d'atteindre la version du Devis
+
+Le critère US-083 exige un drill-down jusqu'au Devis, à sa version et à ses lignes. Les items `FINANCE_BACKLOG@1` exposent `quoteId` et `quoteLineId`, mais `financeFlowLineRows()` n'inscrit aucun `quoteVersionId` (ni version commerciale équivalente) dans les lignes retournées. Les schémas OpenAPI laissent en outre `items` en objet libre et ne contractualisent pas cette provenance.
+
+Attendu : exposer l'identifiant/version commerciale acceptée qui fait autorité, la revalider dans les scopes, et la déclarer dans un schéma OpenAPI structuré avec test de contrat.
+
+## Preuves fraîches réussies
+
+- `node --test tests/sprint7-forecast.test.js tests/sprint1-data.test.js` : **19/19 réussis**, 0 échec, 0 ignoré, durée `807,749 ms`.
+- `npm test` : **301/301 réussis**, 0 échec, 0 ignoré, durée `8,325 s`.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés, code 0.
+- `git diff --check HEAD^ HEAD` : **PASS**, code 0.
+- Validation sémantique Ruby/Psych de `docs/api/openapi-v1.yaml` : **PASS** — OpenAPI `3.1.0`, 59 chemins, 79 schémas, 306 références locales (84 distinctes) toutes résolues, 72 `operationId` uniques.
+
+## Critères couverts et limites
+
+- Les tests nominaux confirment la formule `signedBacklog = max(signedRevenue - earnedSignedRevenue, 0)`, l'absence de double comptage d'une révision courante dans leur fixture standard, les fenêtres cumulatives 30/60/90, les catégories `scheduled`, `unscheduled`, `undated`, les scopes Ressource/Projet/Client/Devis et le refus `403` sans `finance.read`.
+- La chaîne `revenue-chain-g7-v1` rend `planned`, `actual` et `billable` disponibles tout en conservant `invoiced` et `collected` indisponibles. Les neuf dimensions et leurs filtres restent couverts par la régression Sprint 1.
+- L'UI Finance charge les deux routes, affiche Backlog, fenêtres 30/60/90, sans-date et détail, avec contenu échappé et région tabulable. Cette QA est statique ; aucun parcours navigateur n'est revendiqué.
+- Les erreurs de format `asOf` sont validées côté moteur, mais aucun test HTTP ciblé S7-C ne couvre actuellement le `422 ANALYTICS_PERIOD_INVALID` des deux nouvelles routes.
+
+Conclusion : la compilation, les contrats syntaxiques, les permissions nominales et les régressions sont verts, mais les trois critères métier ci-dessus restent bloquants. La QA S7-C est **CHANGES REQUIRED — 0 P0 / 3 P1**. `docs/project-status.md` doit être mis à jour par l'intégrateur après correction et re-QA, conformément à la limite d'ownership de ce lot.
+
+---
+
 # Re-QA indépendante terminale S7-B — scopes, cache et écritures bornées
 
 Date : 2026-08-23
