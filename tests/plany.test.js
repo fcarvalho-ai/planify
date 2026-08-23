@@ -28,12 +28,13 @@ async function login(email = 'admin@northlight.fr') {
   assert.equal(result.response.status, 200);
   return { cookie: result.response.headers.get('set-cookie').split(';', 1)[0], csrf: result.data.csrfToken };
 }
-async function ask(message, key, context = {}, conversationId) {
-  return request('/api/v1/plany/messages', { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify({ message, context, ...(conversationId ? { conversationId } : {}) }) }, admin);
+async function ask(message, key, context = {}, conversationId, actor = admin) {
+  return request('/api/v1/plany/messages', { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify({ message, context, ...(conversationId ? { conversationId } : {}) }) }, actor);
 }
 
 before(async () => {
   const seed = makeSeed();
+  const timestamp = '2026-08-23T08:00:00.000Z'; seed.rateCards ||= []; seed.rates ||= []; seed.rateCards.push({ id: 'rateCard_plany_client', companyId: 'company_northlight', clientId: 'client_1', scope: 'client', name: 'Préférences commerciales PlanyBot', active: true, version: 1, createdAt: timestamp, updatedAt: timestamp }); seed.rates.push({ id: 'rate_plany_client_resource_4', companyId: 'company_northlight', clientId: 'client_1', rateCardId: 'rateCard_plany_client', scope: 'client', sourceType: 'resource', sourceId: 'resource_4', unit: 'jour', costUnitMinor: '19000', saleUnitMinor: '42000', active: true, version: 1, createdAt: timestamp, updatedAt: timestamp });
   const conflictCapacity = seed.resources.find(value => value.id === 'resource_1').capacity;
   seed.reservations.push({ id: 'reservation_plany_conflict_a', companyId: 'company_northlight', siteId: 'site_paris', projectId: 'project_1', title: 'Conflit Plany A', startsAt: '2026-10-05T09:00:00.000Z', endsAt: '2026-10-05T12:00:00.000Z', status: 'confirmed', resources: [{ resourceId: 'resource_1', quantity: conflictCapacity }], planningMode: 'continuous', cellOverrides: [], version: 1 });
   seed.reservations.push({ id: 'reservation_plany_conflict_b', companyId: 'company_northlight', siteId: 'site_paris', projectId: 'project_2', title: 'Conflit Plany B', startsAt: '2026-10-05T10:00:00.000Z', endsAt: '2026-10-05T11:00:00.000Z', status: 'option', resources: [{ resourceId: 'resource_1', quantity: 1 }], planningMode: 'continuous', cellOverrides: [], version: 1 });
@@ -61,8 +62,13 @@ test('PlanyBot répond à l’aide et conserve une conversation privée', async 
 test('la recherche de disponibilité ne modifie aucune réservation', async () => {
   const before = readDb().reservations.length;
   const result = await ask('Quelles salles de montage sont libres du 06/10/2026 au 07/10/2026 ?', 'availability-1', { siteId: 'site_paris' });
-  assert.equal(result.response.status, 201); assert.equal(result.data.intent, 'availability'); assert.equal(result.data.facts.from, '2026-10-06'); assert.ok(result.data.facts.resources.every(value => value.siteId === 'site_paris')); assert.deepEqual(result.data.facts.ranking, ['availability', 'continuity', 'projectSite', 'stableNameAndId']); assert.ok(result.data.facts.resources.every(value => value.reasons.includes('Disponible sur toute la période')));
+  assert.equal(result.response.status, 201); assert.equal(result.data.intent, 'availability'); assert.equal(result.data.facts.from, '2026-10-06'); assert.ok(result.data.facts.resources.every(value => value.siteId === 'site_paris')); assert.deepEqual(result.data.facts.ranking, ['availability', 'continuity', 'clientPreference', 'projectSite', 'configuredCost', 'stableNameAndId']); assert.ok(result.data.facts.resources.every(value => value.reasons.includes('Disponible sur toute la période')));
   assert.equal(readDb().reservations.length, before);
+});
+
+test('le classement ne révèle pas le coût interne à un lecteur sans finance.read', async () => {
+  const result = await ask('Quelles salles de montage sont libres du 06/10/2026 au 07/10/2026 ?', 'availability-viewer-cost', { projectId: 'project_1', siteId: 'site_paris' }, undefined, viewer);
+  assert.equal(result.response.status, 201); const preferred = result.data.facts.resources.find(value => value.id === 'resource_4'); assert.equal(preferred.clientPreference, true); assert.equal(Object.hasOwn(preferred, 'configuredCost'), false); assert.ok(!preferred.reasons.some(reason => reason.includes('Coût interne')));
 });
 
 test('le résumé utilise uniquement le projet accessible du contexte', async () => {
@@ -81,7 +87,7 @@ test('PlanyBot détecte un chevauchement visible sans l’arbitrer', async () =>
 test('une demande de réservation produit une proposition persistée sans mutation', async () => {
   const before = readDb().reservations.length;
   const result = await ask('Prépare une salle de montage du 12/10/2026 au 14/10/2026', 'draft-1', { projectId: 'project_1', siteId: 'site_paris' });
-  assert.equal(result.response.status, 201); assert.equal(result.data.intent, 'bookingDraft'); assert.equal(result.data.actions[0].type, 'confirmProposal'); assert.ok(result.data.actions[0].proposalId); assert.ok(result.data.actions[0].proposalDigest); assert.equal(result.data.actions[0].preview.projectName, 'Horizons — Saison 2'); assert.ok(result.data.facts.recommendations[0].reasons.length >= 2);
+  assert.equal(result.response.status, 201); assert.equal(result.data.intent, 'bookingDraft'); assert.equal(result.data.actions[0].type, 'confirmProposal'); assert.ok(result.data.actions[0].proposalId); assert.ok(result.data.actions[0].proposalDigest); assert.equal(result.data.actions[0].preview.projectName, 'Horizons — Saison 2'); assert.ok(result.data.facts.recommendations[0].reasons.length >= 2); const preferred = result.data.facts.recommendations.find(value => value.id === 'resource_4'); assert.equal(preferred.clientPreference, true); assert.ok(preferred.reasons.includes('Tarif dédié actif pour ce client')); assert.equal(Object.hasOwn(preferred, 'configuredCost'), false);
   const proposal = await request(`/api/v1/plany/proposals/${result.data.actions[0].proposalId}`, {}, admin); assert.equal(proposal.response.status, 200); assert.equal(proposal.data.status, 'prepared'); assert.equal(proposal.data.command.status, 'option');
   const hidden = await request(`/api/v1/plany/proposals/${result.data.actions[0].proposalId}`, {}, viewer); assert.equal(hidden.response.status, 404);
   assert.equal(readDb().reservations.length, before);

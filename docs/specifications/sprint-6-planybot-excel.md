@@ -143,9 +143,11 @@ Le rollback du Sprint 6 désactive les nouvelles routes et l’interface, restau
 
 Preuves fraîches : tests ciblés 12/12, suite complète 265/265, lint et build verts. Cet état est un lot DEV ; il ne constitue pas le Gate G6 et ne couvre pas encore S6-B/C/D.
 
-### S6-B/C — classement initial intégré le 2026-08-22
+### S6-B/C — classement explicable intégré le 2026-08-23
 
-Les intentions Disponibilité et Préparation produisent un tableau `recommendations` explicable. Les candidats sont d’abord filtrés par disponibilité, compatibilité, société, site, Projet et scopes d’entité, puis triés par continuité Projet, site du Projet, nom et identifiant stable. Les raisons utilisées sont retournées avec chaque candidat. Aucun coût n’est exposé et aucune préférence client n’est inventée lorsque le modèle n’en contient pas. La première recommandation alimente la prévisualisation persistée ; elle ne contourne pas la confirmation S6-A.
+Les intentions Disponibilité et Préparation produisent un tableau `recommendations` explicable. Les candidats sont d’abord filtrés par disponibilité, compatibilité, société, site, Projet et scopes d’entité, puis triés par continuité Projet, préférence client structurée portée par une grille tarifaire active, site du Projet, coût interne autorisé et identifiant stable. La préférence client n’est lue qu’avec `quote.read` et le coût ne participe au départage qu’avec `finance.read` ; sa valeur n’est jamais renvoyée dans la recommandation. Les raisons effectivement utilisées sont retournées avec chaque candidat. La première recommandation alimente la prévisualisation persistée ; elle ne contourne pas la confirmation S6-A.
+
+Preuves ciblées : classement stable, préférence client active, raison explicite et absence du coût brut dans la réponse. Ce classement reste une aide déterministe : il ne réserve rien et ne remplace ni la disponibilité ni la confirmation humaine.
 
 ### S6-D — clarification versionnée intégrée le 2026-08-23
 
