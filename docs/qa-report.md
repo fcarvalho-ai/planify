@@ -1,3 +1,72 @@
+# QA indépendante terminale S7-B — import grille client et permissions Finance
+
+Date : 2026-08-23
+
+Commit applicatif exact : `37a133762bc7626cc9b51bc9577a52a44c3820ec` (`fix(clients): align rate import permissions`)
+
+Reviewer QA : agent indépendant `g7b_review`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 limites non bloquantes.**
+
+Ce verdict couvre S7-B et l'alignement frontend final de l'import de grilles client. Il ne vaut pas validation E2E visuelle ni release globale.
+
+## État exact et empreintes
+
+Environnement : macOS/Darwin arm64, Node `v26.6.0`, package `0.3.0-rc1`.
+
+```text
+HEAD                                     37a133762bc7626cc9b51bc9577a52a44c3820ec
+server.js                                d5e7adefdde78db2cc9ebdd53613edf5d7abf17d89e7844f0d98e971a397c5e7
+app.js                                   2af7b4560d9ecd650c7c847ad957b1b702df86f133d79c075b3116cc8d2cf34d
+tests/clients.test.js                    5ff3d19c19c3da9565e168ff8a0747cd6a15a1209c42147a8d4de30d3e4815cd
+tests/sprint7-finance.test.js            041df67f0e9e976566105030ff09529df06b6b093b44711b4090bb0f1c550662
+```
+
+Le répertoire contenait au démarrage des modifications concurrentes limitées aux rapports indépendants `docs/code-review.md`, `docs/security-review.md` et `docs/performance-report.md`. Elles n'ont pas été modifiées par cette QA et ne changent aucune empreinte applicative ci-dessus.
+
+## Commandes et résultats frais
+
+- `node --test tests/clients.test.js tests/sprint7-finance.test.js` : **24/24 réussis**, 0 échec, 0 ignoré, code 0, durée `689 ms`.
+- `npm test` : **297/297 réussis**, 0 échec, 0 annulé, 0 ignoré, code 0, durée `8,217 s`.
+- `npm run lint` : **PASS**, code 0 ; syntaxe backend, frontend, modules partagés et scripts de benchmark contrôlée.
+- `npm run build` : **PASS**, code 0 ; `5 actifs runtime` vérifiés.
+- `git diff --check` : **PASS**, code 0.
+
+Aucun test n'a été désactivé et aucun serveur de démonstration/smoke long n'a été lancé.
+
+## Matrice rôles — import de grille client
+
+| Rôle / permissions | UI attendue | API attendue | Preuve fraîche |
+|---|---|---|---|
+| Administrateur (`client.manage` + `finance.cost.manage`) | bouton et parcours disponibles | preview `200`, activation `201`, création tarif `201` | ciblés Clients verts ; parcours positif administrateur exécuté |
+| Planner (`client.manage`, sans `finance.cost.manage`) | bouton absent ; open/preview/confirm refusés | activation `403 FINANCE_COST_MANAGE_REQUIRED` | test frontend statique + requête négative ciblée ; persistance Rates inchangée |
+| Viewer (sans les deux permissions) | bouton absent ; actions refusées | mutation refusée `403` | conjonction fail-closed inspectée ; matrice RBAC complète verte dans `npm test` |
+| Utilisateur Finance sans `client.manage` | bouton absent ; actions refusées | import client non autorisé | même conjonction UI et contrôles serveur indépendants ; suite Finance verte |
+
+Le frontend ne constitue pas l'autorité : les refus serveur persistent lorsqu'un appel contourne l'interface.
+
+## Critères fonctionnels vérifiés
+
+- Import client : prévisualisation valide sans persistance ; format invalide refusé ; lecture BUBBLE normalisée et remise ignorée.
+- Activation : rôle Planner refusé avant écriture ; rôle Administrateur accepté ; replay idempotent sans duplication ; version obsolète refusée sans fichier résiduel.
+- Tarification : grille privée consultable, prioritaire dans le catalogue et appliquée selon l'unité ; tarif direct de même portée non écrasé.
+- Confidentialité Finance : DTO commerciaux, versions, catalogue et grilles masquent coûts/marges sans `finance.read` ; Planner ne peut ni ajouter un coût de ligne ni créer un tarif interne.
+- Régressions S7-B : coûts datés, scopes Site/Client/Projet, dépenses append-only, snapshots historiques, marges filtrées, audit redacted, tamper et rollback restent verts.
+- Frontend : les tokens des quatre gardes import (`detail`, `open`, `preview`, `confirm`) et la conjonction des deux permissions sont présents ; syntaxe et build valides.
+
+## Limites non bloquantes
+
+1. Le test frontend de la matrice d'import est statique ; aucun navigateur/DOM réel n'a vérifié visuellement les quatre combinaisons de permissions, le focus ou l'absence de bouton.
+2. Les rôles Viewer et Finance-sans-client n'ont pas chacun une requête d'import dédiée dans la sous-suite Clients ; leur refus repose sur les contrôles RBAC communs couverts par la suite complète et sur l'inspection de la conjonction serveur/UI.
+
+## Conclusion
+
+Le candidat exact satisfait les tests ciblés et la non-régression complète avec zéro échec. Aucun P0/P1 QA n'est ouvert. L'intégrateur doit reporter ce verdict et ses limites dans `docs/project-status.md`.
+
+---
+
 # Re-QA indépendante terminale S7-B — scopes, cache et écritures bornées
 
 Date : 2026-08-23

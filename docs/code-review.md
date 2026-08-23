@@ -1,3 +1,417 @@
+# Gate re-REVIEW indépendante terminale S7-B — import de grille Client
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7b_review_terminal`
+
+Candidat Git exact : `37a133762bc7626cc9b51bc9577a52a44c3820ec` (`fix(clients): align rate import permissions`)
+
+Diff correctif contrôlé : `3819b0d3490531082fc4efe26c44fffed44f388d..37a133762bc7626cc9b51bc9577a52a44c3820ec`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert. Trois P2 restent suivis sans bloquer cette re-REVIEW.**
+
+Le P1 d'alignement du consommateur Clients est fermé. L'action « Importer Excel » n'est rendue que si l'acteur possède simultanément `client.manage` et `finance.cost.manage`; les fonctions d'ouverture, de prévisualisation et de confirmation répètent toutes le même contrôle avant de toucher l'état du drawer ou d'appeler l'API. Les gardes serveur SEC-S7B-11 du candidat précédent restent inchangées et la suite complète ne révèle aucune régression.
+
+## Fermeture confirmée
+
+1. **Visibilité de l'import : FERMÉ.** La surcharge finale de `clientDetailProfessionalPage()` retourne la vue complète seulement avec les deux permissions. Sinon, elle retire le bouton `data-client-rate-import` et remplace l'invitation à importer par un message indiquant que l'activation est réservée aux responsables des coûts (`app.js:636-643`).
+2. **Ouverture directe : FERMÉ.** `openClientRateDrawer()` refuse sans `client.manage` ou sans `finance.cost.manage` avant d'appeler l'ancienne fonction ; aucun éditeur, fichier ou handler n'est alors initialisé (`app.js:644-648`).
+3. **Prévisualisation : FERMÉ.** `previewClientRates()` refait le double contrôle, neutralise l'événement et n'appelle pas `/rate-card-import/preview` lorsque l'autorité manque (`app.js:649-653`). Cela protège aussi un drawer ancien resté ouvert après réduction dynamique de permissions.
+4. **Confirmation : FERMÉ.** `confirmClientRates()` refait le double contrôle avant de lire la sélection ou d'appeler `/rate-card-imports` (`app.js:654-658`). La garde serveur indépendante continue d'exiger `finance.cost.manage` avant lecture du corps, stockage et mutation.
+5. **Ordre des consommateurs : COHÉRENT.** Ces quatre surcharges sont déclarées après les implémentations Clients et avant le dernier wrapper `render()` qui appelle dynamiquement `clientDetailProfessionalPage()`. Aucune réaffectation ultérieure ne les contourne. `bindClientsProfessional()` ne trouve plus de bouton à lier pour un rôle non autorisé.
+6. **Parcours autorisé : CONSERVÉ.** Avec `client.manage && finance.cost.manage`, le HTML original et les trois fonctions originales sont appelés sans modification. Les tests Clients existants avec l'administrateur continuent à prévisualiser, activer, relire et rejouer une grille.
+7. **SEC-S7B-11 et historique : SANS RÉGRESSION.** Les refus serveur d'une ligne Devis avec coût forgé, de `POST /rates` et de l'activation de grille par Planner restent verts. Projection financière, Audit `rate`, scopes, snapshots, cache JSON, tamper, rollback et atomicité restent verts dans la suite complète.
+
+## P2 — importants non bloquants isolément
+
+1. **Test UI encore statique.** Le test Clients affirme la présence des wrappers et du double prédicat dans le source, sans rendre réellement la fiche avec Planner puis Admin ni déclencher ouverture/prévisualisation/confirmation. Une matrice DOM/browser protégerait le comportement observé et les messages accessibles.
+2. **Retrait du bouton par expression régulière.** La visibilité dépend d'une correspondance exacte de classe, attribut et libellé HTML. Une modification cosmétique pourrait faire réapparaître le bouton, même si les trois gardes d'action empêcheraient toujours l'appel API. Construire conditionnellement le bouton serait plus robuste.
+3. **Documentation API toujours partielle.** L'OpenAPI documente `POST /rates`, mais ne publie pas encore les opérations de mutation de lignes Devis et d'activation `rate-card-imports` ni leur 403 `FINANCE_COST_MANAGE_REQUIRED`. Ce manque de découvrabilité ne remet pas en cause les gardes exécutées.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `37a133762bc7626cc9b51bc9577a52a44c3820ec` |
+| `node --test tests/clients.test.js tests/sprint7-finance.test.js` | **PASS, 24/24**, 0 échec/skip/todo, `1,206 s` |
+| `npm test` | **PASS, 297/297**, 0 échec/skip/todo, `8,675 s` |
+| `npm run lint` | **PASS** |
+| `git diff --check 3819b0d3490531082fc4efe26c44fffed44f388d 37a133762bc7626cc9b51bc9577a52a44c3820ec` | **PASS** |
+| Inspection ciblée visibilité, open, preview, confirm, ordre des wrappers et gardes serveur | P1 fermé ; aucun nouveau P0/P1 |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                           d5e7adefdde78db2cc9ebdd53613edf5d7abf17d89e7844f0d98e971a397c5e7
+app.js                              2af7b4560d9ecd650c7c847ad957b1b702df86f133d79c075b3116cc8d2cf34d
+tests/clients.test.js               5ff3d19c19c3da9565e168ff8a0747cd6a15a1209c42147a8d4de30d3e4815cd
+tests/sprint7-finance.test.js       041df67f0e9e976566105030ff09529df06b6b093b44711b4090bb0f1c550662
+```
+
+## Handoff
+
+- Gate re-REVIEW terminale S7-B : **APPROVED** sur `37a133762bc7626cc9b51bc9577a52a44c3820ec` ; 0 P0/P1, 3 P2 suivis.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée, statut ni autre rapport modifié.
+- `docs/project-status.md` reste sous responsabilité de l'intégrateur conformément à l'exception de tâche limitée à un fichier.
+
+---
+
+# Gate re-REVIEW finale S7-B — autorité d'écriture des coûts commerciaux
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7b_review_terminal`
+
+Candidat Git exact : `3819b0d3490531082fc4efe26c44fffed44f388d` (`fix(finance): authorize internal cost writes`)
+
+Diff correctif contrôlé : `4c6c2aea1c6b540f427a1a2e9ceb9d2e05c17854..3819b0d3490531082fc4efe26c44fffed44f388d`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 1 P1 ouvert, 2 P2 ouverts.**
+
+SEC-S7B-11 est fermé côté serveur : une valeur `costUnitMinor` fournie dans une ligne de Devis, `POST /rates` et l'activation d'une grille Client exigent tous `finance.cost.manage` avant `mutate()`, stockage de fichier, audit ou SSE. Les négatifs Planner obtiennent le code stable `FINANCE_COST_MANAGE_REQUIRED` et démontrent l'absence de mutation métier. Le lot ne peut cependant pas être approuvé : le consommateur Clients continue d'exposer le parcours complet « Importer Excel » avec le seul `client.manage`, puis échoue désormais en 403 au dernier clic. L'UI n'est donc pas alignée avec la nouvelle autorité serveur.
+
+## P1 — bloquant
+
+### P1-1 — L'import de grille Client reste proposé à un rôle qui ne peut plus l'activer
+
+`clientDetailProfessionalPage()` affiche le bouton `data-client-rate-import` dès que `can('client.manage')` est vrai (`app.js:622`). `bindClientsProfessional()` ouvre ensuite le drawer sans contrôle Finance (`app.js:635`), puis `previewClientRates()` autorise l'upload, l'analyse et présente le bouton « Confirmer et activer la grille » (`app.js:632-633`). Le droit `finance.cost.manage` n'est vérifié nulle part dans ce consommateur ; seul le serveur refuse finalement `confirmClientRates()` (`app.js:634`).
+
+Le rôle Planner possède `client.manage` mais pas `finance.cost.manage`. Il peut donc sélectionner et analyser un fichier, parcourir les correspondances et croire l'activation possible, avant de recevoir le nouveau 403. C'est une régression fonctionnelle directe du correctif et une violation du contrat frontend « permissions visibles et serveur » d'`AGENTS.md`.
+
+Correction attendue : afficher l'action d'import/activation seulement avec `client.manage && finance.cost.manage`, ou conserver une prévisualisation explicitement en lecture seule et masquer/désactiver la confirmation avec une explication accessible. Ajouter un test consommateur réel pour Planner et un positif administrateur.
+
+## Fermetures confirmées
+
+1. **Ligne de Devis forgée : FERMÉ côté serveur.** `quoteLineFromInput()` teste la présence propre de `costUnitMinor` et refuse sans `finance.cost.manage` avant validation, résolution du tarif et mutation (`server.js:2270-2272`). Cela couvre création de document, ajout et modification de ligne, puisque tous ces chemins passent par cette fonction. La résolution automatique d'un coût depuis un tarif autorisé reste possible lorsqu'aucune valeur de coût n'est fournie par le client.
+2. **`POST /rates` : FERMÉ.** `createRateCommand()` exige `finance.cost.manage` avant d'entrer dans `mutate()` (`server.js:3541-3544`). Le rôle Planner reçoit 403 avec `FINANCE_COST_MANAGE_REQUIRED`; aucun tarif, marqueur, audit ou événement ne peut être créé par ce chemin.
+3. **Activation de grille Client : FERMÉ côté serveur.** La garde est exécutée avant lecture du corps, création de fichier temporaire et mutation (`server.js:3064-3068`). Le négatif vérifie 403 et un nombre de tarifs inchangé. La prévisualisation reste non mutante et accessible avec `client.manage`.
+4. **UI Devis : TOUJOURS FERMÉE.** Le correctif précédent masque/désactive `costUnit` et n'ajoute `costUnitMinor` au payload qu'avec `finance.cost.manage`. La nouvelle autorité serveur empêche désormais aussi le contournement par requête forgée.
+5. **Spécification : ALIGNÉE.** La spécification Sprint 7 explicite que toute création/modification de coût interne via ligne de Devis, tarif commercial ou activation de grille Client exige `finance.cost.manage`, et que `quote.manage`/`client.manage` seuls ne suffisent pas (`docs/specifications/sprint-7-actuals-finance-engine.md:277-282`).
+6. **Régressions historiques : ABSENTES dans les campagnes.** Projection des DTO, Audit `rate`, dashboard Projet, scopes Finance, snapshots, cache JSON, tamper, rollback et atomicité restent verts.
+
+## P2 — importants non bloquants isolément
+
+1. **OpenAPI partiellement aligné.** Le contrat documente correctement le double droit et `costUnitMinor` pour `POST /rates`, mais ne publie toujours pas les opérations de mutation de lignes Devis ni `rate-card-imports`; leurs nouveaux 403 et l'exigence `finance.cost.manage` ne sont donc pas découvrables dans l'OpenAPI.
+2. **Preuves négatives d'effets secondaires partielles.** Le refus de ligne vérifie version et nombre de lignes inchangés, et le refus d'import vérifie le nombre de tarifs. Les tests ne comptent pas explicitement marqueurs idempotents, audit, SSE et fichiers d'upload avant/après les trois refus. Les gardes sont statiquement antérieures à ces effets, mais une matrice d'absence totale figerait mieux le contrat.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `3819b0d3490531082fc4efe26c44fffed44f388d` |
+| `node --test tests/sprint7-finance.test.js tests/quotes.test.js tests/clients.test.js tests/sprint7-actuals.test.js` | **PASS, 86/86**, 0 échec/skip/todo, `4,435 s` |
+| `npm test` | **PASS, 297/297**, 0 échec/skip/todo, `9,017 s` |
+| `npm run lint` | **PASS** |
+| `git diff --check 4c6c2aea1c6b540f427a1a2e9ceb9d2e05c17854 3819b0d3490531082fc4efe26c44fffed44f388d` | **PASS** |
+| Inspection ciblée des gardes, consommateurs, OpenAPI et spécification | SEC-S7B-11 serveur fermé ; 1 P1 UI ouvert |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                                               d5e7adefdde78db2cc9ebdd53613edf5d7abf17d89e7844f0d98e971a397c5e7
+app.js                                                  abf8882c11b07f132ce8cdcb8e4ce480225194d7be34bb4f7ad06d31e0881d8d
+tests/sprint7-finance.test.js                           041df67f0e9e976566105030ff09529df06b6b093b44711b4090bb0f1c550662
+tests/clients.test.js                                   04e6a093ac944e51fbc7b5cfd901b88988137914dd9aca977fcf606645c77a14
+docs/api/openapi-v1.yaml                                5491260431b6d8869fc6a3cf8a3e43371a169e746d37047eeb7474ceea9acc25
+docs/specifications/sprint-7-actuals-finance-engine.md  3c9d664dfd541eb550168e9e459f0b8a0e1f429b21b412ca0392c150ea28b74e
+```
+
+## Handoff
+
+- Gate re-REVIEW finale S7-B : **CHANGES REQUIRED** sur `3819b0d3490531082fc4efe26c44fffed44f388d` ; 0 P0, 1 P1, 2 P2.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée, statut ni autre rapport modifié.
+- `docs/project-status.md` reste sous responsabilité de l'intégrateur conformément à l'exception de tâche limitée à un fichier.
+
+---
+
+# Gate re-REVIEW terminale S7-B — consommateurs commerciaux et RateResponse
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7b_review_terminal`
+
+Candidat Git exact : `4c6c2aea1c6b540f427a1a2e9ceb9d2e05c17854` (`fix(finance): align commercial UI permissions`)
+
+Diff correctif contrôlé : `d7661b7849179c5f04c1652f5b7082259c17c9bf..4c6c2aea1c6b540f427a1a2e9ceb9d2e05c17854`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert. Deux P2 restent suivis sans bloquer cette re-REVIEW.**
+
+Les deux P1 de la REVIEW précédente sont fermés dans le périmètre correctif demandé. Les rôles sans `finance.read` ne voient plus les agrégats Projet, l'onglet Rentabilité ni les outils internes de coût/marge du Devis. La saisie de coût de ligne est masquée/désactivée et le payload navigateur n'inclut `costUnitMinor` qu'avec `finance.cost.manage`. Le contrat `/rates` distingue désormais la réponse complète de sa projection sans coût au moyen de `RateResponse`.
+
+## Fermetures des P1
+
+1. **Vues Projet/Devis sans `finance.read` : FERMÉ.** La surcharge finale de `projectDetailPage()` retire les cartes « Coût estimé » et « Marge estimée » ainsi que le bouton Rentabilité. `projectTabContent()` refuse également ce panneau en défense secondaire. La surcharge finale de `quoteWorkspacePage()` retire le bloc complet `quote-editor-internals`, qui contenait le suivi coût/marge. Les wrappers sont déclarés après les surcharges commerciales antérieures et aucune réaffectation ultérieure ne les contourne (`app.js:668-686`).
+2. **Saisie/envoi du coût : FERMÉ dans le consommateur.** Après construction du drawer, `openQuoteLineDrawer()` masque et désactive `costUnit` lorsque `finance.cost.manage` manque. La surcharge finale de `submitQuoteLine()` ajoute `costUnitMinor` au payload uniquement si `can('finance.cost.manage')` et si la donnée existe ; un champ désactivé n'est en outre pas inclus dans `FormData` (`app.js:687-704`). Le fallback zéro qui pouvait écraser un coût depuis le navigateur disparaît donc pour Planner.
+3. **Conservation Finance : FERMÉ.** Avec `finance.read`, les wrappers retournent le HTML commercial complet, incluant coûts, marges et rentabilité. Avec `finance.cost.manage`, le champ de coût reste actif et son envoi est conservé. Le correctif n'altère pas les DTO serveur complets déjà validés pour l'administrateur.
+4. **OpenAPI conditionnel : FERMÉ.** `POST /rates` référence désormais `RateResponse`; son `oneOf` décrit soit `Rate` complet, soit une projection commerciale exigeant les champs de vente et interdisant explicitement la présence de `costUnitMinor`. La description rattache clairement la variante au droit `finance.read` (`docs/api/openapi-v1.yaml:208-220`, `:1285-1306`).
+5. **SEC-S7B-10 et non-régression : SANS RÉGRESSION.** La projection récursive des réponses Devis/catalogue/grilles n'est pas modifiée. Audit `rate`, dashboard API Projet, scopes Finance, snapshots historiques, cache JSON, tamper, rollback et atomicité restent couverts par la suite complète.
+
+## P2 — importants non bloquants isolément
+
+1. **Test consommateur encore statique.** Le nouveau test vérifie les marqueurs source des wrappers et du contrat, mais ne rend pas réellement les vues dans un DOM avec les deux matrices de permissions. Un test navigateur devrait confirmer l'absence des libellés financiers, du champ de coût et de `costUnitMinor` dans le payload, puis leur présence pour Finance.
+2. **Masquage UI fondé sur des expressions régulières HTML.** Les wrappers retirent les blocs après génération par correspondance de chaînes. Le comportement actuel est correct, mais une modification de balise/classe/libellé peut rendre le filtre inopérant sans erreur. Construire conditionnellement ces fragments au niveau des fonctions de rendu serait plus robuste.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `4c6c2aea1c6b540f427a1a2e9ceb9d2e05c17854` |
+| `node --test tests/sprint7-finance.test.js tests/quotes.test.js tests/clients.test.js tests/sprint7-actuals.test.js` | **PASS, 86/86**, 0 échec/skip/todo, `4,261 s` |
+| `npm test` | **PASS, 297/297**, 0 échec/skip/todo, `8,542 s` |
+| `npm run lint` | **PASS** |
+| `git diff --check d7661b7849179c5f04c1652f5b7082259c17c9bf 4c6c2aea1c6b540f427a1a2e9ceb9d2e05c17854` | **PASS** |
+| Inspection ordre des surcharges UI, permissions, payload et schéma OpenAPI | 2 P1 fermés ; aucun nouveau P0/P1 dans le diff |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                           5b16de4759502126ed8151ffedf8f92e7f91683605d003c07374c33ffe028fcf
+app.js                              abf8882c11b07f132ce8cdcb8e4ce480225194d7be34bb4f7ad06d31e0881d8d
+tests/sprint7-finance.test.js       05bbfd5a804fe3d5173d1549104390d53cbdce3af9df43caf200434cf4fb9895
+docs/api/openapi-v1.yaml            6a817faf7ded9c942b32a528887c11e1ff37ea275ea986c28945902db59cbc81
+```
+
+## Limite d'exécution
+
+Une tentative supplémentaire de smoke API isolé a été interrompue avant résultat exploitable ; elle n'est pas comptée comme preuve. Le verdict repose sur les campagnes ciblée et complète terminées, plus l'inspection statique ciblée demandée.
+
+## Handoff
+
+- Gate re-REVIEW terminale S7-B : **APPROVED** sur `4c6c2aea1c6b540f427a1a2e9ceb9d2e05c17854` ; 0 P0/P1, 2 P2 suivis.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée, statut ni autre rapport modifié.
+- `docs/project-status.md` reste sous responsabilité de l'intégrateur conformément à l'exception de tâche limitée à un fichier.
+
+---
+
+# Gate re-REVIEW indépendante ultime S7-B — DTO commerciaux Finance
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7b_review_terminal`
+
+Candidat Git exact : `d7661b7849179c5f04c1652f5b7082259c17c9bf` (`fix(finance): restrict commercial cost responses`)
+
+Diff correctif contrôlé : `01e1246ce6083d9a5d060ebc38f4d1f3a369bfed..d7661b7849179c5f04c1652f5b7082259c17c9bf`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 2 P1 ouverts, 2 P2 ouverts.**
+
+Le canal serveur SEC-S7B-10 est fermé sur les réponses JSON inspectées : sans `finance.read`, la projection récursive supprime les coûts, marges et snapshots des listes/détails/versions/mutations Devis, de `quote-catalog`, de `rate-cards`, de `/rates` et des imports de grilles Client ; avec `finance.read`, les objets complets sont conservés. La re-REVIEW ne peut toutefois pas approuver le lot : les consommateurs navigateur interprètent les propriétés supprimées comme des zéros et affichent ainsi des coûts/marges faux, tandis que l'OpenAPI promet toujours un `Rate.costUnitMinor` obligatoire même quand le serveur l'omet.
+
+## P1 — bloquants
+
+### P1-1 — Le frontend affiche des coûts et marges fictifs aux rôles sans `finance.read`
+
+La nouvelle projection serveur omet correctement les propriétés financières, mais les vues commerciales ne vérifient jamais `can('finance.read')` avant de les consommer :
+
+- le dashboard Projet affiche toujours « Coût estimé » et « Marge estimée » en agrégeant `value.costTotal || '0'` et `value.marginAmount || '0'` (`app.js:478`) ;
+- l'onglet « Rentabilité » est toujours proposé et calcule la marge comme vente moins coût remplacé par zéro (`app.js:478`, `:497`) ;
+- l'espace Devis affiche toujours colonnes, totaux et détail « Coût/Marge » avec les mêmes fallbacks zéro (`app.js:481`) ;
+- la vue A4 conserve le bloc « Outils internes / Suivi interne » et rend coût/marge à zéro (`app.js:522`) ;
+- l'éditeur reste accessible à `quote.manage`, expose « Coût unitaire », initialise ce coût à zéro lorsque le catalogue projeté n'en fournit plus et renvoie ce zéro dans `costUnitMinor` (`app.js:486-487`, `:505-507`).
+
+Pour un planificateur sans `finance.read`, un Devis réellement coûteux devient donc visuellement un Devis à coût nul ; certaines vues annoncent une marge gonflée, d'autres une marge nulle, et une édition peut écraser le coût interne avec la valeur de fallback. C'est une régression de cohérence et de permission visible, bloquante pour une release Finance.
+
+Correction attendue : conditionner toutes les sections et colonnes financières à `can('finance.read')`, ne jamais fabriquer de zéro quand une propriété est absente, et ne proposer/envoyer `costUnitMinor` qu'avec l'autorité métier décidée pour la gestion de coûts. Ajouter un test frontend négatif avec rôle `quote.manage` sans `finance.read`, ainsi qu'un positif Finance.
+
+### P1-2 — Le contrat OpenAPI contredit la projection conditionnelle de `/rates`
+
+`POST /api/v1/rates` exige `quote.manage`, pas `finance.read` (`server.js:2660`), et sa réponse est maintenant projetée pour un gestionnaire commercial sans Finance (`server.js:2663`). Pourtant l'OpenAPI annonce toujours une réponse `Rate` (`docs/api/openapi-v1.yaml:208-220`) qui hérite de `RateCreateCommand`, où `costUnitMinor` est obligatoire (`:1253-1277`). Le contrat ne documente pas non plus la projection conditionnelle des listes Devis, versions, catalogue et grilles.
+
+Un client strict ou généré conformément au contrat rejettera donc une réponse serveur valide pour ce rôle. La modification de forme n'est ni décrite, ni versionnée, ni représentée par deux schémas selon permission.
+
+Correction attendue : publier des schémas de réponse commerciaux explicites, avec une variante restreinte sans coût/marge et une variante Finance complète (ou rendre la permission requise non ambiguë), puis couvrir leur conformité. La commande d'entrée peut conserver son propre schéma distinct de la réponse.
+
+## Fermetures confirmées
+
+1. **Listes, détails et versions Devis : FERMÉ côté API.** `route.startsWith('/api/v1/quotes')` couvre la liste, le détail, l'historique, le snapshot de version et toutes les sous-commandes. `send()` applique la projection récursive au dernier moment, y compris aux objets imbriqués, replays et détails d'erreur.
+2. **Mutations Devis : FERMÉ côté réponse API.** Le PATCH exercé avec le rôle Planner ne contient aucun coût, marge ou snapshot. L'inspection confirme que POST, lignes, statuts, successeurs, conversion et contrôle Planning passent par le même `send()` après que le drapeau de restriction a été fixé.
+3. **Catalogue, grilles et tarifs : FERMÉ côté API.** `quote-catalog`, `rate-cards`, `/rates` et les routes Client `rates|rate-card-import*` sont couverts. Le filtre retire `costUnitMinor` à toute profondeur tout en conservant les prix de vente et métadonnées commerciales.
+4. **Lecteur Finance : CONSERVATION CONFIRMÉE.** Lorsque `finance.read` est présent, `res.planifyRestrictFinancials` reste faux et `send()` sérialise l'objet original. Le test administrateur retrouve `lines[].costUnitMinor` et `marginAmount`.
+5. **Correctifs antérieurs et cache : SANS RÉGRESSION.** Audit `rate`, dashboard Projet, scopes Finance, snapshots historiques, cache JSON immuable, tamper, rollback et atomicité ne sont pas modifiés par ce diff et restent verts dans la suite complète.
+
+## P2 — importants non bloquants isolément
+
+1. **Matrice HTTP négative incomplète.** Le test ajouté exerce liste, détail, liste/détail de versions, catalogue, grilles et un PATCH. Il n'exerce pas explicitement création/replay, ajout/suppression de ligne, changement de statut, successeur, `/rates` POST ni import/preview Client sous un rôle sans `finance.read`; la couverture statique commune est solide, mais ces sorties devraient être figées par une matrice automatisée.
+2. **Projection fondée sur une denylist de noms.** Tout futur champ financier portant un autre nom sera publié par défaut. Une construction explicite des DTO restreints, ou au minimum une assertion exhaustive sur les clés financières du modèle, réduirait ce risque d'évolution.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `d7661b7849179c5f04c1652f5b7082259c17c9bf` |
+| `node --test tests/sprint7-finance.test.js tests/quotes.test.js tests/clients.test.js tests/sprint7-actuals.test.js` | **PASS, 85/85**, 0 échec/skip/todo, `3,580 s` |
+| `npm test` | **PASS, 296/296**, 0 échec/skip/todo, `8,510 s` |
+| `npm run lint` | **PASS** |
+| `git diff --check 01e1246ce6083d9a5d060ebc38f4d1f3a369bfed d7661b7849179c5f04c1652f5b7082259c17c9bf` | **PASS** |
+| Inspection ciblée serveur, consommateurs navigateur et OpenAPI | fuite JSON SEC-S7B-10 fermée ; 2 P1 de cohérence/contrat ouverts |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                           5b16de4759502126ed8151ffedf8f92e7f91683605d003c07374c33ffe028fcf
+tests/sprint7-finance.test.js       2c065fdc416e7913dad10b1fc96db32d3efabf26ab785462938c1d94ff24ac57
+app.js                              67b80cac99763abd2d5dbfe57fadefe5612504978a156b29343d30ce03a6277d
+docs/api/openapi-v1.yaml            b3d48360e946ac3d854c22a6915dc398a2fc6951e2f880b6122a882c88a5cb8e
+```
+
+## Handoff
+
+- Gate re-REVIEW ultime S7-B : **CHANGES REQUIRED** sur `d7661b7849179c5f04c1652f5b7082259c17c9bf` ; 0 P0, 2 P1, 2 P2.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée, statut ni autre rapport modifié.
+- `docs/project-status.md` reste sous responsabilité de l'intégrateur conformément à l'exception de tâche limitée à un fichier.
+
+---
+
+# Gate re-REVIEW ultime S7-B — canaux résiduels Audit et dashboard Projet
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7b_review_terminal`
+
+Candidat Git exact : `01e1246ce6083d9a5d060ebc38f4d1f3a369bfed` (`fix(finance): close residual read channels`)
+
+Diff correctif contrôlé : `cf89c30b6568ebfa44efa4c6c26531213f15864f..01e1246ce6083d9a5d060ebc38f4d1f3a369bfed`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert. Trois P2 restent suivis sans bloquer cette re-REVIEW.**
+
+Les deux derniers canaux de lecture financière identifiés sont fermés. Un lecteur `audit.read` dépourvu de `finance.read` reçoit désormais aussi une projection neutralisée pour les événements historiques `entityType: rate`. Un lecteur du dashboard Projet dépourvu de `finance.read` ne reçoit plus `estimatedCost`, `estimatedMargin`, `actualCost` ni `actualMargin`; ces quatre champs restent présents pour le lecteur Finance. Le correctif est localisé, ne modifie pas la persistance ni le cache validé et conserve les fermetures antérieures de scopes, snapshots, tamper, rollback et atomicité.
+
+## Fermetures confirmées
+
+1. **Audit `rate` sans `finance.read` : FERMÉ.** `FINANCE_AUDIT_ENTITY_TYPES` comprend maintenant `rate` aux côtés de `actualRecord`, `costRate` et `projectCost`. Le chemin partagé `auditEventDto()` neutralise `before`/`after`, réduit `details` à la liste blanche non monétaire et ajoute `financialDetailsRestricted: true`. Le test exige la présence effective d'au moins un événement `rate`, puis vérifie la projection de tous les types Finance et l'absence sérialisée de `costSnapshot`, `costUnitMinor`, `amountMinor` et `totalMinor`.
+2. **Détail Audit avec `finance.read` : CONSERVÉ.** Le premier branchement de `auditEventDto()` retourne toujours l'événement original pour un lecteur Finance. Le test administrateur retrouve le `costSnapshot` de la révision Actual ; l'ajout de `rate` à l'ensemble de projection n'affecte donc pas les lecteurs autorisés ni le registre persistant.
+3. **Dashboard Projet sans `finance.read` : FERMÉ.** Les quatre agrégats de coût/marge sont construits dans un fragment conditionné par `has(auth, 'finance.read')`. Le rôle Viewer obtient encore le dashboard et ses indicateurs non financiers/commerciaux, mais aucune des quatre propriétés sensibles. Le test administrateur confirme symétriquement que les quatre propriétés restent publiées avec `finance.read`.
+4. **Consommateurs et contrats internes : SANS RÉGRESSION.** La projection Audit reste appliquée uniquement à la réponse de `/api/v1/audit`; elle ne mutile ni la preuve persistée ni le SSE. Le dashboard conserve ses champs d'identité, de planning, de capacité et de devis. Aucun autre consommateur applicatif n'est modifié par ce diff.
+5. **Cache JSON, atomicité, tamper et rollback : SANS RÉGRESSION.** Le diff ne touche pas `readDb()`, `atomicWriteFile()`, `atomicWrite()` ni le rollback. La suite conserve la preuve qu'un hit reparse le JSON exact dans un nouvel arbre, que le cache n'est publié qu'après rename réussi, que les falsifications financières rendent la base indisponible et que le rollback restaure exactement la source après export privé.
+6. **P1 historiques Finance : TOUJOURS FERMÉS.** Les négatifs de mutation personne/Projet/Client hors scope, le gel incrémental des snapshots planifiés, la conservation des coûts Actual historiques et le filtrage des marges restent verts dans les campagnes ciblée et complète.
+
+## P2 — importants non bloquants isolément
+
+1. **Matrice positive Audit Finance encore partielle.** Le négatif sans `finance.read` couvre maintenant explicitement les quatre `entityType`, dont `rate`, mais le positif avec `finance.read` affirme le détail complet seulement pour `actualRecord`. Le branchement commun conserve statiquement `rate`, `costRate` et `projectCost`; des assertions positives sur chacun protégeraient mieux ce contrat.
+2. **Métadonnées Audit à portée société.** `/api/v1/audit` filtre historiquement par société, pas par site/Projet/entité. Les montants sont neutralisés sans `finance.read`, mais un rôle `audit.read` limité à un site peut encore recevoir des identifiants de provenance autorisés par la liste blanche pour un autre site. Il reste à documenter `audit.read` comme permission société ou à filtrer la provenance avant projection.
+3. **Fenêtre de signature concurrente du cache.** Le cache détecte les altérations séquentielles, mais `readDb()` ne démontre pas encore l'égalité entre une signature prise avant lecture et une signature reprise après validation avant publication. Un remplacement externe précisément concurrent reste théoriquement possible ; une double lecture de signature avec égalité exigée fermerait ce cas.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `01e1246ce6083d9a5d060ebc38f4d1f3a369bfed` |
+| `node --test tests/sprint7-finance.test.js tests/api.test.js tests/sprint7-actuals.test.js` | **PASS, 65/65**, 0 échec/skip/todo, `2,244 s` |
+| `npm test` | **PASS, 295/295**, 0 échec/skip/todo, `8,610 s` |
+| `npm run lint` | **PASS** |
+| `git diff --check cf89c30b6568ebfa44efa4c6c26531213f15864f 01e1246ce6083d9a5d060ebc38f4d1f3a369bfed` | **PASS** |
+| Inspection ciblée du diff, Audit, dashboard, consommateurs et cache | deux canaux résiduels fermés ; aucun nouveau P0/P1 |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                           a883b6993d7753360cb153c557e1ea9bfd3f1175e5dfb2a250b524616f952e2d
+tests/sprint7-finance.test.js       08c1e92878357c0df2fd16eb92a994768e1cd5da7fbfffa3514b8d66c4103986
+app.js                              67b80cac99763abd2d5dbfe57fadefe5612504978a156b29343d30ce03a6277d
+docs/api/openapi-v1.yaml            b3d48360e946ac3d854c22a6915dc398a2fc6951e2f880b6122a882c88a5cb8e
+```
+
+## Handoff
+
+- Gate re-REVIEW ultime S7-B : **APPROVED** sur `01e1246ce6083d9a5d060ebc38f4d1f3a369bfed` ; 0 P0/P1, 3 P2 suivis.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée, statut ni autre rapport modifié.
+- `docs/project-status.md` reste sous responsabilité de l'intégrateur conformément à l'exception de tâche limitée à un fichier.
+
+---
+
+# Gate re-REVIEW indépendante S7-B — projection Audit Finance et cache JSON
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7b_review_terminal`
+
+Candidat Git exact : `cf89c30b6568ebfa44efa4c6c26531213f15864f` (`fix(finance): protect audit data and stabilize writes`)
+
+Diff correctif contrôlé : `0aec6303c9b9f5672be4c512277cfca6a6e99988..cf89c30b6568ebfa44efa4c6c26531213f15864f`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert. Trois P2 restent suivis sans bloquer cette re-REVIEW.**
+
+Le P1 de confidentialité Audit Finance est fermé. La route `/api/v1/audit` projette désormais les événements `actualRecord`, `costRate` et `projectCost` selon l'autorité du lecteur : sans `finance.read`, `before` et `after` sont neutralisés, les détails sont réduits à quatre identifiants de provenance non monétaires et un marqueur explicite indique la restriction ; avec `finance.read`, l'événement complet reste inchangé. Le cache validé conserve maintenant le JSON sérialisé exact, reparsé à chaque hit : aucun appelant ne peut muter l'état caché, et le cache n'est publié qu'après le rename atomique réussi.
+
+## Fermetures confirmées
+
+1. **Audit sans `finance.read` : FERMÉ.** `auditEventDto()` couvre les trois agrégats Finance qui transportent des coûts (`actualRecord`, `costRate`, `projectCost`). La projection supprime entièrement les snapshots `before/after`, filtre `details` par liste blanche et ajoute `financialDetailsRestricted: true` (`server.js:1102-1107`). Le test HTTP d'un rôle possédant uniquement `audit.read` confirme l'absence de `costSnapshot`, `costUnitMinor`, `amountMinor` et `totalMinor` sur toutes les entrées Finance retournées (`tests/sprint7-finance.test.js:113-118`).
+2. **Audit avec `finance.read` : FERMÉ.** Le premier branchement de `auditEventDto()` restitue l'événement original lorsque `finance.read` est présent. Le test administrateur retrouve la révision Actual et son `costSnapshot`, démontrant que la projection ne détruit pas la preuve financière pour un lecteur habilité. Les anciens consommateurs Audit administrateur de `tests/api.test.js` continuent à lire `before/after` complets.
+3. **Consommateur unique cohérent : FERMÉ.** La projection est appliquée juste avant pagination dans le seul endpoint public d'audit (`server.js:3124`). Elle ne modifie ni le registre persistant, ni les événements de domaine, ni le SSE. Les événements non Finance restent inchangés, préservant les parcours d'audit Organisation, Planning, Stock et RBAC.
+4. **Cache immuable et isolé : FERMÉ.** Un hit de cache exécute `JSON.parse(validatedDatabaseCache.raw)` ; chaque lecteur obtient donc un nouvel arbre, sans référence partagée (`server.js:1052-1084`). Le test modifie localement un Client issu de `readDb()` puis vérifie qu'une nouvelle lecture conserve la valeur persistée (`tests/sprint7-finance.test.js:31-37`).
+5. **Cache aligné sur les octets écrits : FERMÉ.** `atomicWriteFile()` sérialise une fois, écrit le temporaire privé, effectue le rename puis retourne exactement le JSON écrit. `atomicWrite()` publie ce même texte dans le cache uniquement après succès (`server.js:825-831`, `:1086-1092`). Un échec avant rename ne peut donc pas exposer un état non persisté via le cache.
+6. **Tamper, rollback et non-régression : SANS RÉGRESSION.** La signature device/inode/taille/mtime/ctime invalide les altérations séquentielles ; les falsifications de révisions, snapshots, références de taux, marqueurs et chaînes restent refusées. Le rollback relit et valide le fichier, exige l'export privé puis remplace atomiquement la source. Scopes Finance, snapshots historiques, marges et écritures Actual bornées restent verts dans les campagnes ciblée et complète.
+
+## P2 — importants non bloquants isolément
+
+1. **Matrice de conservation Audit Finance partielle.** Le négatif sans `finance.read` inspecte les trois types Finance, mais le positif avec `finance.read` affirme explicitement le détail complet seulement pour `actualRecord`. Le branchement est commun et conserve statiquement `costRate`/`projectCost`; ajouter des assertions positives sur leurs montants protégerait mieux ce contrat.
+2. **Métadonnées Audit à portée société.** `/api/v1/audit` filtre historiquement par société, pas par site/Projet/entité. La nouvelle projection empêche toute fuite de montant, mais un rôle `audit.read` limité à un site peut encore recevoir des identifiants de provenance autorisés par la liste blanche pour un événement d'un autre site. Clarifier si `audit.read` est volontairement une permission d'audit société ; sinon filtrer les événements selon leur provenance avant projection.
+3. **Fenêtre de signature concurrente conservée.** Le cache détecte les altérations séquentielles, mais `readDb()` ne vérifie pas encore que la signature initiale est identique à celle publiée après validation. Un remplacement externe précisément concurrent entre lecture/validation et mise en cache reste théoriquement possible. Exiger deux signatures égales fermerait ce cas sans modifier le modèle JSON.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `cf89c30b6568ebfa44efa4c6c26531213f15864f` |
+| `node --test tests/sprint7-finance.test.js tests/api.test.js tests/sprint7-actuals.test.js` | **PASS, 65/65**, 0 échec/skip/todo, `2,234 s` |
+| `npm test` | **PASS, 295/295**, 0 échec/skip/todo, `8,769 s` |
+| `npm run lint` | **PASS** |
+| `git diff --check 0aec6303..cf89c30b` | **PASS** |
+| Inspection projection Audit, consommateurs, cache JSON, tamper, rollback et atomicité | P1 Audit fermé ; aucun nouveau P0/P1 |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                           e48715d640ae9fb9094e60a89d959da2713313abb21ab4972163328fe7a3a5c8
+tests/sprint7-finance.test.js       c15668044402c27700347d1bccb2dc977570dc8281b9ca19e4c8a2388170a2cb
+app.js                              67b80cac99763abd2d5dbfe57fadefe5612504978a156b29343d30ce03a6277d
+docs/api/openapi-v1.yaml            b3d48360e946ac3d854c22a6915dc398a2fc6951e2f880b6122a882c88a5cb8e
+```
+
+## Handoff
+
+- Gate re-REVIEW S7-B : **APPROVED** sur `cf89c30b6568ebfa44efa4c6c26531213f15864f` ; 0 P0/P1, 3 P2 suivis.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée, statut ni autre rapport modifié.
+- `docs/project-status.md` reste sous responsabilité de l'intégrateur conformément à l'exception de tâche limitée à un fichier.
+
+---
+
 # Gate re-REVIEW indépendante S7-B — scopes Finance, snapshots incrémentaux et cache validé
 
 Date : 2026-08-23

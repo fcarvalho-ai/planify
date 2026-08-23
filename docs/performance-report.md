@@ -1,3 +1,300 @@
+# Revalidation PERFORMANCE indépendante S7-B — garde frontend import tarifaire
+
+Date : 2026-08-23
+
+Candidat exact : `37a133762bc7626cc9b51bc9577a52a44c3820ec`
+
+Reviewer : agent indépendant `g7b_review`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 4 P2 ouverts.**
+
+Le serveur, les chemins Actual/Finance, le cache et la projection des réponses sont inchangés depuis `3819b0d`. Le diff ajoute uniquement des contrôles frontend constants et, pour une fiche client non autorisée, un passage linéaire sur la chaîne HTML déjà construite.
+
+## Analyse d'impact
+
+- **Utilisateur autorisé :** après le rendu existant, deux appels `can()` décident d'un retour immédiat. Les handlers ajoutent le même contrôle uniquement lors d'une action d'import.
+- **Utilisateur non autorisé :** deux substitutions parcourent le HTML de la fiche en `O(H)`, où `H` est la taille du rendu déjà produit. Aucune copie de données métier, requête réseau ou mutation supplémentaire n'est déclenchée.
+- **Action refusée :** ouverture/prévisualisation/confirmation s'arrêtent avant encodage du fichier et appel API ; ce chemin consomme moins de CPU, mémoire et I/O que le parcours autorisé.
+- **Backend :** hash identique au candidat approuvé ; les mesures Actual/Finance et l'analyse de la projection commerciale restent directement applicables.
+
+## Références conservées
+
+| Campagne | Lecture p95 max | Confirmation p95 | Correction p95 | Seuil |
+|---|---:|---:|---:|---:|
+| Actual isolée 1 | `68,74 ms` | `179,15 ms` | `163,13 ms` | reads `<300`, writes `<250` |
+| Actual isolée 2 | `73,28 ms` | `142,16 ms` | `145,77 ms` | reads `<300`, writes `<250` |
+
+Finance représentatif : 250 ressources, 10 000 réservations, 2 000 documents, 2 000 ActualRecords et 2 000 ProjectCosts ; marge p95 `37,52 ms` pour un seuil `<300 ms`.
+
+Ces chiffres sont des références sur les chemins byte-identiques, pas une nouvelle campagne sur `37a1337`. Aucun comportement du diff ne peut augmenter leur latence serveur.
+
+## P2 importants / limites
+
+1. Le rendu non autorisé construit d'abord le HTML complet avant suppression du bouton ; intégrer la permission directement au template éviterait ce passage linéaire supplémentaire.
+2. Aucun profil navigateur ne mesure une fiche client très volumineuse en contacts/cartes tarifaires.
+3. Aucun benchmark HTTP représentatif n'isole encore la projection commerciale proche de 200 documents × 500 lignes.
+4. Le critère global navigateur « exploitable et interactif < 2 s » n'a pas été remesuré sur ce diff frontend mineur.
+
+## Preuves
+
+- Candidat exact : `37a133762bc7626cc9b51bc9577a52a44c3820ec`.
+- Hashes : `server.js` `d5e7adefdde78db2cc9ebdd53613edf5d7abf17d89e7844f0d98e971a397c5e7`; `app.js` `2af7b4560d9ecd650c7c847ad957b1b702df86f133d79c075b3116cc8d2cf34d`.
+- `node --check app.js && node --check tests/clients.test.js` : **PASS**.
+- `git diff --check 3819b0d..37a1337` : **PASS**.
+- Inspection fraîche : aucun changement serveur, aucune nouvelle boucle métier, I/O, sérialisation ou dépendance.
+- Aucun serveur ni benchmark long supplémentaire lancé.
+
+L'intégrateur doit reporter ce verdict dans `docs/project-status.md`.
+
+---
+
+# Revalidation finale PERFORMANCE indépendante S7-B — contrôles d'écriture de coûts
+
+Date : 2026-08-23
+
+Candidat exact : `3819b0d3490531082fc4efe26c44fffed44f388d`
+
+Reviewer : agent indépendant `g7b_review`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 4 P2 ouverts.**
+
+Le diff applicatif depuis `4c6c2ae` ajoute exactement trois contrôles de permission constants sur des mutations de coûts. Il ne modifie ni lecture/persistance, ni calcul Finance/Actual, ni projection récursive, ni cache, ni volumétrie de réponse. Aucune nouvelle campagne longue n'est justifiée pour ce correctif d'autorisation.
+
+## Analyse d'impact
+
+- **Ligne Devis :** un `Object.prototype.hasOwnProperty.call` et, seulement lorsque le coût est fourni, un `has()` sur une petite liste de permissions. Le contrôle précède les recalculs et l'écriture ; le refus réduit donc le travail.
+- **Tarif :** un `has()` avant `mutate`; le refus évite lecture transactionnelle, validation métier complète, écriture atomique, audit et SSE.
+- **Import grille client :** un `has()` avant parsing du corps et XLSX, stockage du fichier et mutation ; le chemin non autorisé est nettement allégé.
+- **Chemins autorisés administrateur :** trois recherches linéaires dans une liste de permissions de taille bornée, négligeables devant parsing, résolution tarifaire, sérialisation et écriture disque.
+- **Lectures :** aucun changement. Les conclusions et mesures de projection, Actual et Finance du candidat précédent restent objectivement applicables.
+
+## Références de performance conservées
+
+| Campagne | Lecture p95 max | Confirmation p95 | Correction p95 | Seuil |
+|---|---:|---:|---:|---:|
+| Actual isolée 1 | `68,74 ms` | `179,15 ms` | `163,13 ms` | reads `<300`, writes `<250` |
+| Actual isolée 2 | `73,28 ms` | `142,16 ms` | `145,77 ms` | reads `<300`, writes `<250` |
+
+Finance représentatif : 250 ressources, 10 000 réservations, 2 000 documents, 2 000 ActualRecords et 2 000 ProjectCosts ; marge p95 `37,52 ms` pour un seuil `<300 ms`.
+
+Ces mesures ne sont pas revendiquées comme une exécution fraîche de `3819b0d`; elles restent applicables par absence de changement des chemins mesurés. Le seul effet courant est un contrôle d'autorisation constant, avant les traitements coûteux.
+
+## P2 importants / limites
+
+1. Aucun benchmark HTTP représentatif n'isole encore la projection commerciale proche de la borne 200 × 500 lignes.
+2. La projection récursive n'a pas de budget explicite de profondeur/nœuds et les tarifs imbriqués dans une grille n'ont pas de pagination indépendante.
+3. Les campagnes Actual utilisent cinq confirmations et cinq corrections par série ; le p95 y correspond au maximum.
+4. Le critère navigateur « exploitable et interactif < 2 s » n'a pas été remesuré sur les derniers changements UI mineurs.
+
+## Preuves
+
+- Candidat : `3819b0d3490531082fc4efe26c44fffed44f388d`.
+- `node --check server.js && node --check app.js && node --check tests/sprint7-finance.test.js && node --check tests/clients.test.js` : **PASS**.
+- `git diff --check 4c6c2ae..3819b0d` : **PASS**.
+- Inspection fraîche du diff : trois gardes de permission, aucune boucle, allocation proportionnelle, I/O ou changement du chemin chaud autorisé.
+- Aucun serveur ou benchmark long supplémentaire lancé conformément au périmètre demandé.
+
+L'intégrateur doit reporter ce verdict dans `docs/project-status.md`.
+
+---
+
+# Revalidation PERFORMANCE indépendante S7-B — projection commerciale récursive
+
+Date : 2026-08-23
+
+Candidat exact : `4c6c2aea1c6b540f427a1a2e9ceb9d2e05c17854`
+
+Reviewer : agent indépendant `g7b_review`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 4 P2 ouverts.**
+
+Le candidat ajoute une projection des réponses commerciales pour les utilisateurs sans `finance.read`, plus des garde-fous d'affichage dans l'UI et l'alignement OpenAPI. L'algorithme parcourt une fois le graphe JSON sérialisable : temps `O(N)` et allocation `O(N)`. Il n'ajoute ni lecture disque, ni mutation, ni requête réseau et reste du même ordre que `JSON.stringify`. Avec `finance.read`, le corps est envoyé directement sans parcours.
+
+## Analyse d'impact ciblée
+
+- **Périmètre :** la projection s'active uniquement sur les familles Devis/Budgets, catalogue/grilles/tarifs, imports client et dashboard Projet. Les routes Actual et Finance mesurées ne sont pas traversées.
+- **Bornes métier :** la liste commerciale est bornée à 200 documents et un document à 500 lignes, soit un pire cas de 100 000 lignes avant pagination suivante. Les listes de versions omettent leur snapshot. Les objets sont produits par le serveur et acycliques.
+- **Écritures :** contrôle, persistance atomique, audit et SSE ont lieu selon le chemin existant ; la projection ne fait que préparer la réponse. Elle peut ajouter une latence linéaire de réponse sur une mutation commerciale, sans élargir la section critique de persistance.
+- **UI/OpenAPI :** les conditions `finance.read` / `finance.cost.manage` sont des tests constants et ne changent pas la volumétrie DOM des vues autorisées. Le changement de schéma OpenAPI n'a aucun coût runtime.
+
+## Mesures antérieures objectivement réutilisables
+
+Les chemins benchmarkés et leurs scripts sont byte-identiques au candidat mesuré ; la nouvelle projection ne s'applique pas à leurs routes.
+
+| Campagne | Jeu représentatif | Lecture p95 max | Confirmation p95 | Correction p95 | Seuil |
+|---|---|---:|---:|---:|---:|
+| Actual isolée 1 | 161 ressources, 10 011 réservations, 2 500 actuals | `68,74 ms` | `179,15 ms` | `163,13 ms` | reads `<300`, writes `<250` |
+| Actual isolée 2 | même volumétrie isolée | `73,28 ms` | `142,16 ms` | `145,77 ms` | reads `<300`, writes `<250` |
+
+Finance représentatif : **250 ressources, 10 000 réservations, 2 000 documents, 2 000 ActualRecords et 2 000 ProjectCosts** ; marge p95 `37,52 ms` pour un seuil `<300 ms`.
+
+Hashes des scripts inchangés : `scripts/benchmark-actuals.js` `6bd427…`; `scripts/benchmark-finance.js` `1d0b472…`. Hash applicatif courant : `server.js` `5b16de4759502126ed8151ffedf8f92e7f91683605d003c07374c33ffe028fcf`; `app.js` `abf8882c11b07f132ce8cdcb8e4ce480225194d7be34bb4f7ad06d31e0881d8d`.
+
+## P2 importants / limites
+
+1. Aucun benchmark HTTP représentatif n'isole encore le surcoût de projection sur une réponse commerciale proche de la borne 200 × 500 lignes ; ajouter ce scénario à un harness sans serveur externe.
+2. La projection ne possède pas de budget explicite de profondeur/nœuds. Les données actuelles sont acycliques et bornées par le domaine, mais les tarifs imbriqués dans une grille ne disposent pas d'une pagination indépendante.
+3. Les campagnes Actual n'utilisent que cinq confirmations et cinq corrections ; leur p95 est donc le maximum et caractérise imparfaitement la variance.
+4. Le critère navigateur « exploitable et interactif < 2 s » n'a pas été remesuré sur cette modification UI mineure.
+
+## Preuves et limites d'exécution
+
+- `node --check server.js && node --check app.js` : **PASS** sur `4c6c2ae`.
+- La tentative fraîche de la sous-suite HTTP a été arrêtée par `listen EPERM` avant assertions dans le sandbox ; aucun résultat de performance n'en est déduit.
+- La campagne ciblée précédente sur le `server.js` byte-identique avait passé `12/12`, avec les petites réponses commerciales observées dans l'ordre de `1–3 ms`; cette mesure de seed n'est pas assimilée à une preuve représentative 100 000 lignes.
+- Aucun nouveau serveur ni benchmark long n'a été lancé conformément à la demande terminale. L'approbation repose sur les mesures applicables aux chemins inchangés et sur l'analyse de complexité du chemin ajouté.
+
+## Conclusion
+
+Aucun élément n'indique un dépassement P0/P1 des seuils RC1 : les références Actual/Finance restent largement sous leurs budgets et le nouveau travail est un parcours linéaire en mémoire, adjacent à la sérialisation existante. Les limites P2 doivent être instrumentées avant d'augmenter les plafonds de pagination ou d'imbriquer davantage les grilles. L'intégrateur doit reporter ce verdict dans `docs/project-status.md`.
+
+---
+
+# Revalidation ultime PERFORMANCE indépendante S7-B — analyse d'impact
+
+Date : 2026-08-23
+
+Candidat exact : `01e1246ce6083d9a5d060ebc38f4d1f3a369bfed`
+
+Reviewer : agent indépendant `g7b_review`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 3 P2 ouverts.**
+
+Le diff applicatif depuis le candidat mesuré `cf89c30b…` contient exactement deux changements de lecture : ajout de `rate` à un `Set` de quatre types pour la projection audit et construction conditionnelle de quatre champs dans le dashboard Projet. Il ne modifie ni cache/persistance, ni Actual, ni moteur Finance, ni benchmarks. Les mesures isolées fraîches immédiatement précédentes sont donc réutilisables objectivement ; une nouvelle campagne longue n'apporterait pas de preuve sur les deux lignes touchées.
+
+## Analyse d'impact ciblée
+
+- **Audit :** `Set.has()` passe de trois à quatre valeurs ; complexité constante, hors chemins Actual/Finance benchmarkés.
+- **Dashboard Projet :** sans `finance.read`, quatre sommes sur les documents ne sont plus calculées, donc le chemin est strictement allégé. Avec Finance, le travail est identique au candidat mesuré.
+- **Actual/Finance :** aucun changement dans `readDb`, `mutate`, snapshots, confirmation/correction, `financeMargins`, indexes ou scripts de benchmark.
+- **Tests ciblés :** les deux branches dashboard (`viewer`/admin) et la projection audit `rate` terminent en `1–2 ms` dans la campagne fonctionnelle fraîche.
+
+## Mesures réutilisées du candidat immédiatement précédent
+
+Ces mesures ont été exécutées le même jour, dans le même environnement, sur `cf89c30b…`; les fichiers de benchmark sont byte-identiques sur `01e1246c…`.
+
+| Campagne | Lecture p95 max | Confirmation p95 | Correction p95 | Seuil |
+|---|---:|---:|---:|---:|
+| Actual isolée 1 | `68,74 ms` | `179,15 ms` | `163,13 ms` | reads `<300`, writes `<250` |
+| Actual isolée 2 | `73,28 ms` | `142,16 ms` | `145,77 ms` | reads `<300`, writes `<250` |
+
+Finance représentatif : **250 ressources, 10 000 réservations, 2 000 documents, 2 000 ActualRecords, 2 000 ProjectCosts**, marge p95 `37,52 ms` pour un seuil `<300 ms`.
+
+## P2 importants / limites
+
+1. Cinq confirmations et cinq corrections par campagne rendent le p95 égal au maximum ; une campagne longue caractériserait mieux la variance.
+2. Le benchmark Actual contient 161 ressources et le dataset Finance complet est mesuré séparément.
+3. Aucun profil navigateur/SSE frais ne démontre l'interactivité UI `<2 s`; le diff actuel ne touche toutefois pas l'UI.
+
+## Preuves
+
+| Contrôle | Résultat |
+|---|---|
+| `git diff cf89c30b…01e1246c -- server.js` | 2 lignes fonctionnelles modifiées, sans chemin benchmarké affecté |
+| `node --test tests/sprint7-finance.test.js` | **PASS, 11/11**, `600,04 ms`; dashboard ciblé `2 ms`, audit ciblé `4,47 ms` |
+| SHA-256 `scripts/benchmark-actuals.js` | `6bd42742306e65ce72db3ac62c1d80cbaa20c7df93116cfaf1884fdf56741873` (inchangé) |
+| SHA-256 `scripts/benchmark-finance.js` | `1d0b4726837026923736bdb27210ea9a5262b429afa9771b665ecc3aee715e11` (inchangé) |
+
+Empreinte applicative :
+
+```text
+server.js                           a883b6993d7753360cb153c557e1ea9bfd3f1175e5dfb2a250b524616f952e2d
+```
+
+## Handoff
+
+- Gate PERFORMANCE S7-B : **APPROVED** sur `01e1246c…` par analyse d'impact et mesures précédentes objectivement applicables.
+- Fichier modifié : `docs/performance-report.md` uniquement pour l'axe Performance.
+- Mise à jour `docs/project-status.md` à réaliser par l'intégrateur.
+
+---
+
+# Revalidation PERFORMANCE indépendante S7-B — cache brut, Actuals et Finance
+
+Date : 2026-08-23
+
+Candidat exact : `cf89c30b6568ebfa44efa4c6c26531213f15864f`
+
+Reviewer : agent indépendant `g7b_review`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 3 P2 ouverts.**
+
+Deux campagnes Actual isolées successives respectent toutes les lectures `< 300 ms` et toutes les écritures `< 250 ms`. Le benchmark Finance représentatif reste très inférieur à `300 ms`. Le passage du cache validé à une chaîne JSON immuable, reparsée à chaque lecture, stabilise les mutations tout en préservant l'isolation entre consommateurs.
+
+## Campagnes Actual isolées
+
+Commande exécutée deux fois séquentiellement : `npm run benchmark:actuals`.
+
+Dataset par campagne : **161 ressources, 10 011 réservations, 2 500 ActualRecords**.
+
+| Campagne | Liste p95 | Pending p95 | Détail p95 | Confirmation p95 | Correction p95 | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| isolée 1 | `57,69 ms` | `68,74 ms` | `58,07 ms` | `179,15 ms` | `163,13 ms` | PASS |
+| isolée 2 | `59,96 ms` | `73,28 ms` | `55,74 ms` | `142,16 ms` | `145,77 ms` | PASS |
+
+La marge minimale observée sur le seuil d'écriture est `70,85 ms`. Les deux processus terminent avec code `0`.
+
+## Benchmark Finance représentatif
+
+Commande : `npm run benchmark:finance`.
+
+Dataset : **250 ressources, 10 000 réservations, 2 000 documents commerciaux, 2 000 ActualRecords et 2 000 ProjectCosts**.
+
+| Chemin | p50 | p95 | max | Seuil |
+|---|---:|---:|---:|---:|
+| `financeMargins()` | `24,74 ms` | `37,52 ms` | `37,52 ms` | `< 300 ms` |
+
+Résultat réconcilié : 2 000 items, CA signé `20 000 000`, coût planifié `25 200 000`, coût réel `5 200 000` unités mineures. Processus terminé avec code `0`.
+
+## Analyse du correctif
+
+- Un hit du cache ne lance plus `structuredClone` sur le graphe validé : il parse la chaîne JSON immuable, ce qui fournit un graphe privé à la mutation/lecture.
+- Après écriture atomique, le cache reçoit exactement la chaîne compacte écrite ; aucun second clone profond n'est conservé.
+- Les confirmations/corrections Actual conservent `trackReservationCosts: false` et ne relancent pas le backfill global.
+- La persistance reste une réécriture atomique du document complet ; la marge mesurée est désormais reproductible sur les deux campagnes demandées.
+
+## P2 importants / limites
+
+1. Cinq confirmations et cinq corrections par campagne rendent le p95 égal au maximum ; une campagne longue d'au moins 20 écritures par chemin caractériserait mieux la variance.
+2. Le benchmark Actual ne comprend que 161 ressources et n'embarque pas simultanément les 2 000 documents commerciaux ; Finance couvre séparément le jeu de référence complet.
+3. Le benchmark Finance mesure le moteur directement, sans HTTP ni profil navigateur/SSE ; l'interactivité UI `< 2 s` n'est pas remesurée dans ce gate.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande | Résultat |
+|---|---|
+| `npm run benchmark:actuals` — isolé 1 | **PASS**, p95 lectures max `68,74 ms`, écritures max `179,15 ms` |
+| `npm run benchmark:actuals` — isolé 2 | **PASS**, p95 lectures max `73,28 ms`, écritures max `145,77 ms` |
+| `npm run benchmark:finance` | **PASS**, marge p95 `37,52 ms` |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           e48715d640ae9fb9094e60a89d959da2713313abb21ab4972163328fe7a3a5c8
+scripts/benchmark-actuals.js        6bd42742306e65ce72db3ac62c1d80cbaa20c7df93116cfaf1884fdf56741873
+scripts/benchmark-finance.js        1d0b4726837026923736bdb27210ea9a5262b429afa9771b665ecc3aee715e11
+```
+
+## Handoff
+
+- Gate PERFORMANCE S7-B : **APPROVED** sur `cf89c30b…`.
+- Fichier de gate modifié : `docs/performance-report.md` uniquement pour l'axe Performance.
+- Mise à jour `docs/project-status.md` à réaliser par l'intégrateur.
+
+---
+
 # Gate PERFORMANCE indépendant S7-B — Actuals, Finance, cache et snapshots
 
 Date : 2026-08-23

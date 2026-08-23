@@ -1,3 +1,291 @@
+# Revalidation SECURITY indépendante S7-B — alignement frontend import tarifaire
+
+Date : 2026-08-23
+
+Candidat exact : `37a133762bc7626cc9b51bc9577a52a44c3820ec`
+
+Reviewer : agent indépendant `g7b_review`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 3 P2 ouverts.**
+
+Le serveur est byte-identique au candidat `3819b0d` déjà approuvé (`server.js` `d5e7adef…`). Le diff courant ajoute une défense UX cohérente avec l'autorité serveur : l'import d'une grille client n'est visible et invocable que si l'utilisateur possède simultanément `client.manage` et `finance.cost.manage`.
+
+## Contrôles ciblés
+
+- **Fail-closed UI :** le bouton est retiré lorsque l'une des deux permissions manque. Trois entrées programmatiques sont également enveloppées (`open`, `preview`, `confirm`) et refusent avant ouverture ou appel API. Ainsi, une régression du masquage visuel ne suffit pas à déclencher le parcours depuis le frontend.
+- **RBAC serveur :** aucune autorité n'est déplacée vers le navigateur. `POST /clients/:id/rate-card-imports` conserve le contrôle serveur `finance.cost.manage` avant parsing, fichier, mutation, audit et SSE ; `client.manage` reste appliqué par le routeur/handler. Un client HTTP direct ne contourne donc pas les wrappers.
+- **Session/permissions :** `can()` consulte les permissions de la session chargée. En mode API, une permission absente ou un utilisateur absent produit `false`. Le mode prototype explicite conserve son comportement historique local et ne devient pas un fallback commercial API.
+- **XSS :** le diff n'introduit aucune donnée utilisateur, interpolation HTML ou nouveau sink. Il ne fait que supprimer une chaîne HTML statique et substituer un texte statique. Les données de la fiche restent échappées par le rendu de base.
+- **CSRF/isolation :** aucune modification ; les appels continuent de passer par le client API commun et le serveur approuvé.
+
+## P2 importants / limites
+
+1. Le masquage du bouton repose sur une substitution de chaîne exacte après rendu. Les gardes d'action maintiennent la sécurité, mais un rendu déclaratif par permission serait moins fragile pour l'UX.
+2. Le test ajouté est une inspection statique de tokens/regex ; il ne monte pas le DOM avec les quatre matrices de permissions pour vérifier bouton, focus et absence de requête.
+3. La révocation dynamique d'une permission pendant qu'un drawer déjà ouvert reste affiché n'a pas de test navigateur. La garde `preview`/`confirm` relit toutefois `can()` au moment de l'action et le serveur reste autoritaire.
+
+## Preuves
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- Hashes : `server.js` `d5e7adefdde78db2cc9ebdd53613edf5d7abf17d89e7844f0d98e971a397c5e7`; `app.js` `2af7b4560d9ecd650c7c847ad957b1b702df86f133d79c075b3116cc8d2cf34d`; `tests/clients.test.js` `5ff3d19c19c3da9565e168ff8a0747cd6a15a1209c42147a8d4de30d3e4815cd`.
+- `node --check app.js && node --check tests/clients.test.js` : **PASS**.
+- `git diff --check 3819b0d..37a1337` : **PASS**.
+- Inspection fraîche du diff exact, de `can()`, des bindings de formulaire et de l'autorité serveur inchangée.
+- Aucun test HTTP ou serveur long relancé : le seul test modifié ajoute une assertion statique frontend et le backend exact est celui du gate précédent.
+
+L'intégrateur doit reporter ce verdict dans `docs/project-status.md`.
+
+---
+
+# Revalidation finale SECURITY indépendante S7-B — autorité d'écriture des coûts
+
+Date : 2026-08-23
+
+Candidat exact : `3819b0d3490531082fc4efe26c44fffed44f388d`
+
+Reviewer : agent indépendant `g7b_review`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 3 P2 ouverts.**
+
+`SEC-S7B-11` est fermé sur les trois voies d'écriture identifiées. La permission `finance.cost.manage` est désormais contrôlée côté serveur, indépendamment de l'UI, avant toute modification persistante du coût interne.
+
+## Fermeture de SEC-S7B-11
+
+- **Lignes Devis — POST/PATCH :** `quoteLineFromInput` refuse tout payload possédant explicitement `costUnitMinor` sans `finance.cost.manage`. Pour POST et PATCH, ce contrôle s'exécute avant insertion/remplacement de ligne, recalcul, version commerciale et audit. Il se trouve dans la fonction atomique `mutate`; une exception empêche `atomicWrite`, puis la branche rejetée n'exécute ni `emit` ni `send` de succès.
+- **Création de tarif — `POST /api/v1/rates` :** `createRateCommand` vérifie `finance.cost.manage` avant l'appel à `mutate`; aucun marqueur d'idempotence, tarif, audit, persistance ou SSE n'est créé lors du refus.
+- **Activation d'une grille client — `POST /clients/:id/rate-card-imports` :** après le contrôle d'existence/scoping du client, la permission Finance est vérifiée avant lecture du corps, prévisualisation, création de fichier, marqueur d'idempotence, mutation, audit et SSE.
+- **Conservation administrateur :** le rôle `organizationAdmin` possède `finance.cost.manage` dans la matrice et la migration S7 Finance l'ajoute aux rôles existants. Les parcours positifs administrateur de création de tarif et d'activation de grille restent présents dans `tests/clients.test.js`; les mutations Finance dédiées restent également couvertes.
+- **Absence de contournement UI :** l'UI continue de masquer et d'omettre `costUnitMinor` sans `finance.cost.manage`; le serveur refuse maintenant un client HTTP direct.
+
+## Isolation, réponses et contrats inchangés
+
+- La projection commerciale sans `finance.read`, l'audit Finance redacted, le dashboard Projet restreint et le SSE compact validés sur `4c6c2ae` ne sont pas modifiés par ce correctif.
+- Le contrôle d'import conserve le 404 d'isolation client avant le 403 de permission, sans révéler l'existence d'un client hors périmètre.
+- L'OpenAPI décrit maintenant explicitement l'exigence conjointe `quote.manage` + `finance.cost.manage` pour créer un tarif et marque `costUnitMinor` comme donnée interne.
+
+## P2 importants / limites
+
+1. Les tests négatifs frais couvrent la ligne Devis, la création de tarif et l'import client, ainsi que l'absence de modification des collections principales ; ils ne comptent pas explicitement audit, SSE et marqueurs d'idempotence avant/après pour les trois refus.
+2. La blacklist récursive de réponse dépend des noms actuels de champs ; des DTO positifs typés resteraient plus robustes face à un futur alias financier.
+3. La révocation dynamique de permission/scope Finance après création n'a toujours pas de matrice exhaustive GET/PATCH/replay/SSE.
+
+## Preuves
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- Hashes : `server.js` `d5e7adefdde78db2cc9ebdd53613edf5d7abf17d89e7844f0d98e971a397c5e7`; `app.js` `abf8882c11b07f132ce8cdcb8e4ce480225194d7be34bb4f7ad06d31e0881d8d`; `tests/sprint7-finance.test.js` `041df67f0e9e976566105030ff09529df06b6b093b44711b4090bb0f1c550662`; `docs/api/openapi-v1.yaml` `5491260431b6d8869fc6a3cf8a3e43371a169e746d37047eeb7474ceea9acc25`.
+- `node --check server.js && node --check app.js && node --check tests/sprint7-finance.test.js && node --check tests/clients.test.js` : **PASS**.
+- `git diff --check 4c6c2ae..3819b0d` : **PASS**.
+- Inspection fraîche du diff exact, de `mutate`, de la matrice/migration des permissions, des handlers et consommateurs de tests.
+- Aucune campagne HTTP longue n'a été relancée ; les preuves fonctionnelles complètes du candidat doivent rester celles du gate QA/intégration portant sur ce même hash.
+
+L'intégrateur doit reporter ce verdict dans `docs/project-status.md`.
+
+---
+
+# Revalidation SECURITY indépendante S7-B — projection commerciale et autorité serveur
+
+Date : 2026-08-23
+
+Candidat exact : `4c6c2aea1c6b540f427a1a2e9ceb9d2e05c17854`
+
+Reviewer : agent indépendant `g7b_review`
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 1 P1, 3 P2 ouverts.**
+
+`SEC-S7B-10` est fermé pour les **lectures** : la projection centralisée couvre les Devis/Budgets, leurs versions et replays, le catalogue, les grilles et tarifs, les imports client et le dashboard Projet ; elle retire récursivement les coûts, marges et snapshots internes lorsqu'il manque `finance.read`. L'interface masque également les vues Finance sans `finance.read` et la saisie de coût sans `finance.cost.manage`; `RateResponse` documente l'absence possible de `costUnitMinor`.
+
+Un contournement bloquant subsiste cependant sur les **mutations directes de l'API** : masquer la réponse ne protège pas l'intégrité des coûts enregistrés.
+
+## P1 bloquant
+
+### SEC-S7B-11 — mutation de coûts internes sans `finance.cost.manage`
+
+Un rôle commercial/planning sans `finance.read` ni `finance.cost.manage` peut encore écrire des coûts internes en appelant directement l'API :
+
+- l'ajout ou la modification d'une ligne Devis accepte `costUnitMinor` sous la seule autorité `quote.manage`; le contrôle `quote.overridePrice` ne concerne que le prix de vente ;
+- `POST /api/v1/rates` accepte `costUnitMinor` sous `quote.manage` via `createRateCommand` ;
+- l'import d'une grille client peut persister la colonne de coût sous `client.manage`.
+
+Le DTO de réponse retire ensuite le coût, mais la mutation est déjà atomiquement enregistrée et influence `costTotal` et les marges. L'UI du candidat exige correctement `finance.cost.manage`; le serveur, qui reste l'autorité, ne reproduit pas cette règle. Un client HTTP peut donc contourner l'interface et altérer aveuglément les données Finance.
+
+Correction requise : refuser tout champ de coût explicite sans `finance.cost.manage` (ou préserver strictement le coût résolu existant lorsque le cas d'usage ne l'autorise pas), sur lignes Devis, tarifs et imports. Ajouter des tests HTTP négatifs pour les rôles commercial/planning et vérifier qu'un refus ne produit ni écriture, ni audit métier, ni SSE, ni résultat d'idempotence rejouable.
+
+## Fermetures confirmées
+
+- **Lectures et replays commerciaux :** `send()` applique une projection récursive aux familles de routes commerciales identifiées ; `finance.read` conserve la réponse complète.
+- **Audit et dashboard :** les entités Finance sont redacted sans `finance.read`; le dashboard Projet ne construit pas les quatre indicateurs coût/marge dans ce cas.
+- **SSE :** les événements restent des invalidations compactes sans valeur financière.
+- **UI :** visibilité Finance liée à `finance.read`; champ et payload de coût liés à `finance.cost.manage`. Aucun droit UI n'est considéré comme une autorisation serveur.
+- **OpenAPI :** `RateResponse` distingue correctement la réponse complète de la projection sans `costUnitMinor`; ce contrat de sortie ne ferme pas le défaut d'autorisation d'entrée ci-dessus.
+- **Cache brut, tamper et atomicité :** aucun nouveau chemin de fichier piloté par l'utilisateur ; le cache reste privé et lié à la signature du fichier validé. La projection intervient après la mutation/persistance et ne modifie pas le rollback.
+
+## P2 importants
+
+1. La blacklist récursive dépend des noms actuels de champs ; un futur alias financier pourrait être exposé si le DTO n'évolue pas avec le schéma. Des DTO positifs typés/allowlistés seraient plus robustes.
+2. La cohérence arithmétique interne de chaque entrée de snapshot de coût n'est pas recalculée indépendamment de son digest.
+3. La révocation dynamique de permission/scope Finance après création reste sans matrice exhaustive GET/PATCH/replay/SSE.
+
+## Preuves et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- Hashes : `server.js` `5b16de4759502126ed8151ffedf8f92e7f91683605d003c07374c33ffe028fcf`; `app.js` `abf8882c11b07f132ce8cdcb8e4ce480225194d7be34bb4f7ad06d31e0881d8d`; `tests/sprint7-finance.test.js` `05bbfd5a804fe3d5173d1549104390d53cbdce3af9df43caf200434cf4fb9895`; `docs/openapi-sprint7.yaml` `6a817faf7ded9c942b32a528887c11e1ff37ea275ea986c28945902db59cbc81`.
+- `node --check server.js && node --check app.js` : **PASS** sur le candidat exact.
+- `node --test tests/sprint7-finance.test.js` : tentative fraîche interrompue avant assertions par `listen EPERM` dans le sandbox (13 tests signalés en échec d'environnement, aucun échec métier interprété). Le serveur du candidat est byte-identique à celui de `d7661b7`, dont la campagne ciblée précédente avait passé `12/12`; les changements propres à `4c6c2ae` (UI/OpenAPI/test statique) ont été inspectés, mais cette preuve antérieure n'est pas présentée comme un test frais du candidat.
+- Inspection ciblée des autorisations, constructeurs de commandes, projection `send()`, réponses audit/SSE, UI et OpenAPI. Aucun serveur ni campagne longue supplémentaire n'a été lancé.
+
+## Condition de revalidation
+
+Fermer `SEC-S7B-11`, publier les tests négatifs de mutation sur le même hash candidat, puis rejouer SECURITY. L'intégrateur doit reporter ce verdict dans `docs/project-status.md`.
+
+---
+
+# Revalidation ultime SECURITY indépendante S7-B — canaux financiers résiduels
+
+Date : 2026-08-23
+
+Candidat exact : `01e1246ce6083d9a5d060ebc38f4d1f3a369bfed`
+
+Reviewer : agent indépendant `g7b_review`
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 1 P1, 3 P2 ouverts.**
+
+Les deux P1 du candidat précédent sont fermés : les audits `rate` sont maintenant redacted sans `finance.read`, et le dashboard Projet omet ses quatre champs de coût/marge pour un lecteur commercial non Finance. La recherche des canaux adjacents montre toutefois que les contrats commerciaux principaux restituent encore les mêmes coûts internes et marges à `quote.read`, ce qui maintient une voie de contournement directe.
+
+## P1 bloquant
+
+### SEC-S7B-10 — les DTO commerciaux exposent encore coûts et marges sans `finance.read`
+
+Le routeur exige seulement `quote.read` pour `/api/v1/quotes`, `/api/v1/quote-catalog`, `/api/v1/rate-cards` et `GET /api/v1/rates` (`server.js:2652-2654`). Or aucune projection financière n'est appliquée :
+
+- liste et détail Devis renvoient les objets bruts (`server.js:2893-2895`, `3038`), dont chaque ligne contient `costUnitMinor`, `costTotal`, `marginAmount`, `marginBps`, et le document `costTotal`, `marginAmount`, `marginBps` ;
+- le détail d'une version renvoie le snapshot commercial complet (`server.js:3037`) ;
+- le catalogue Devis inclut `rate.costUnitMinor` (`server.js:2882-2889`) ;
+- les grilles tarifaires imbriquent les objets `rates` bruts, eux-mêmes porteurs de `costUnitMinor` (`server.js:2890`).
+
+Ainsi, masquer le dashboard n'empêche pas un lecteur `quote.read` sans `finance.read` d'obtenir directement le coût interne et la marge du même Projet/Devis.
+
+Correction requise : centraliser un DTO commercial contextualisé par `finance.read` et l'utiliser sur liste, détail, versions, mutations/replays, catalogue et grilles. Sans Finance, supprimer tous les champs `cost*`, `margin*` et coûts des snapshots tarifaires, tout en conservant les prix de vente nécessaires. Ajouter une matrice HTTP avec rôle `quote.read` sans `finance.read` sur chacun de ces canaux.
+
+## Fermetures confirmées
+
+- **Audit Rate :** `rate` appartient maintenant à `FINANCE_AUDIT_ENTITY_TYPES`; `before/after` et détails non sûrs sont masqués pour audit-only. Le test vérifie la présence d'un événement `rate` et l'absence de `costUnitMinor`.
+- **Dashboard Projet :** les champs `estimatedCost`, `estimatedMargin`, `actualCost`, `actualMargin` ne sont construits que si `has(auth, 'finance.read')`; le lecteur commercial reçoit les autres indicateurs sans ces clés.
+- **Canaux Finance dédiés :** Actual, CostRate, ProjectCost et marges conservent leurs permissions, scopes et redactions précédemment validés.
+- **Cache/tamper/atomicité :** le diff ne touche pas le cache brut, les digests, l'écriture atomique ni le rollback ; les conclusions du candidat `cf89c30b…` restent applicables.
+
+## P2 importants
+
+1. La cohérence arithmétique interne de chaque entrée de snapshot de coût n'est pas recalculée indépendamment de son digest.
+2. La révocation dynamique de permission/scope Finance après création reste sans matrice complète GET/PATCH/replay/SSE.
+3. La signature cache n'est pas comparée explicitement avant/après la lecture validée, laissant une course théorique de remplacement concurrent.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `01e1246ce6083d9a5d060ebc38f4d1f3a369bfed` |
+| `node --check server.js` | **PASS** |
+| `node --test tests/sprint7-finance.test.js` | **PASS, 11/11**, 0 échec/skip/todo, `600,04 ms` |
+| Inspection audit, dashboard, quotes, versions, catalogue et rate-cards | 2 P1 précédents fermés ; SEC-S7B-10 confirmé |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           a883b6993d7753360cb153c557e1ea9bfd3f1175e5dfb2a250b524616f952e2d
+tests/sprint7-finance.test.js       08c1e92878357c0df2fd16eb92a994768e1cd5da7fbfffa3514b8d66c4103986
+```
+
+## Handoff
+
+- Gate SECURITY S7-B : **REJECTED** sur `01e1246c…`; retour DEV requis pour SEC-S7B-10.
+- Fichier modifié : `docs/security-review.md` uniquement pour l'axe Sécurité.
+- Mise à jour `docs/project-status.md` à réaliser par l'intégrateur.
+
+---
+
+# Revalidation SECURITY indépendante S7-B — confidentialité Finance et cache brut
+
+Date : 2026-08-23
+
+Candidat exact : `cf89c30b6568ebfa44efa4c6c26531213f15864f`
+
+Reviewer : agent indépendant `g7b_review`
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 2 P1, 3 P2 ouverts.**
+
+Le correctif ferme la fuite audit ciblée pour `actualRecord`, `costRate` et `projectCost` : un acteur `audit.read` sans `finance.read` reçoit désormais `before/after = null` et seulement des identifiants de contexte. Le cache validé conserve maintenant une chaîne JSON immuable et chaque lecture retourne un nouveau graphe par `JSON.parse`, ce qui ferme l'altération en mémoire du cache partagé. Deux canaux financiers hors de cette liste restent cependant accessibles sans `finance.read` et bloquent le gate.
+
+## P1 bloquants
+
+### SEC-S7B-08 — les audits `rate` exposent encore le coût interne
+
+`createRateCommand()` crée un objet `rate` contenant `costUnitMinor`, puis l'insère intégralement dans `after` de l'audit avec `entityType = "rate"` (`server.js:3529-3542`). Or `FINANCE_AUDIT_ENTITY_TYPES` ne contient que `actualRecord`, `costRate` et `projectCost` (`server.js:1102-1107`). La projection retourne donc cet événement brut à tout acteur possédant `audit.read`, même sans `finance.read`.
+
+Correction requise : classifier les champs financiers par contenu/DTO plutôt que par trois seuls types, ou inclure au minimum `rate` et tester un tarif dont `costUnitMinor` est non nul avec le rôle audit-only.
+
+### SEC-S7B-09 — le dashboard Projet retourne coûts et marges avec `quote.read`
+
+`GET /api/v1/projects/:id/dashboard` est classé `commercialReadRoute` et n'exige que `quote.read` (`server.js:2653`). Sa réponse contient pourtant `estimatedCost = sum(costTotal)` et `estimatedMargin = sum(marginAmount)` (`server.js:3062`) sans projection `finance.read`. Un rôle commercial non Finance peut ainsi lire directement coût et marge agrégés.
+
+Correction requise : exiger `finance.read` pour ces champs ou les omettre/nullifier lorsque la permission manque, avec un test HTTP négatif `quote.read` sans Finance.
+
+## Correctifs conformes
+
+- **Audit ciblé :** Actual, CostRate et ProjectCost sont expurgés sans `finance.read`; l'administrateur Finance conserve les snapshots complets.
+- **Cache brut isolé :** `validatedDatabaseCache` stocke une chaîne JSON, et chaque hit exécute `JSON.parse`; modifier le résultat d'une lecture ne modifie plus la lecture suivante.
+- **Tamper :** la clé `dev:ino:size:mtimeNs:ctimeNs` invalide les altérations/remplacements séquentiels ; révisions, snapshots, marqueurs et chaînes falsifiés sont refusés.
+- **Atomicité/rollback :** écriture temporaire privée, `fsync`, rename, cache publié après succès ; export/rollback `0600` et restauration byte-exacte restent couverts.
+- **Scopes Finance :** mutations et replays CostRate/ProjectCost repassent par les résolveurs société/site/Client/Projet.
+
+## P2 importants
+
+1. `financeCostSnapshotValid()` ne recalcule toujours pas chaque `amountMinor` depuis quantité × allocation × coût unitaire ; une falsification arithmétiquement cohérente avec digest recalculé reste hors preuve.
+2. La révocation dynamique de `finance.read`/scopes après création n'est pas couverte de bout en bout pour GET, PATCH, replay et SSE.
+3. La signature du cache est reprise après validation sans comparer explicitement une signature avant/après lecture ; une course de remplacement entre ces étapes reste théoriquement possible.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `cf89c30b6568ebfa44efa4c6c26531213f15864f` |
+| `node --check server.js` | **PASS** |
+| `node --test tests/sprint7-finance.test.js tests/sprint7-actuals.test.js tests/migration-sprint7.test.js` | **PASS, 25/25**, 0 échec/skip/todo, `665,50 ms` |
+| Inspection routes audit/dashboard, DTO, cache, tamper et rollback | correctif ciblé confirmé ; deux canaux P1 confirmés |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           e48715d640ae9fb9094e60a89d959da2713313abb21ab4972163328fe7a3a5c8
+tests/sprint7-finance.test.js       c15668044402c27700347d1bccb2dc977570dc8281b9ca19e4c8a2388170a2cb
+tests/sprint7-actuals.test.js       d83667ecd893ed88046f95474dd33bf1f5b508cbd83676db774e349f0742a7c9
+tests/migration-sprint7.test.js     129f32023259f7eb98d2f845c5cfcd11f28199ba378bcb5b8eff6fbb88e72a94
+```
+
+## Handoff
+
+- Gate SECURITY S7-B : **REJECTED** sur `cf89c30b…`; retour DEV requis pour SEC-S7B-08 et SEC-S7B-09.
+- Fichier de gate modifié : `docs/security-review.md` uniquement pour l'axe Sécurité.
+- Mise à jour `docs/project-status.md` à réaliser par l'intégrateur.
+
+---
+
 # Gate SECURITY indépendant S7-B — scopes Finance, cache et confidentialité
 
 Date : 2026-08-23
