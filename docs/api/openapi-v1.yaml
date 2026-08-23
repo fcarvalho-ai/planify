@@ -1175,6 +1175,8 @@ components:
       oneOf:
         - $ref: '#/components/schemas/ConcreteAllocation'
         - $ref: '#/components/schemas/GenericAllocation'
+    ReservationAllocation:
+      $ref: '#/components/schemas/Allocation'
     ConcreteAllocation:
       type: object
       additionalProperties: false

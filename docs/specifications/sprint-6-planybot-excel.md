@@ -174,3 +174,11 @@ Preuves DEV fraîches : Clients + PlanyBot 24/24, Devis 49/49, suite complète 2
 La provenance persistée est versionnée et inclut les permissions effectivement mobilisées ainsi que les identifiants sources des agrégats. Une réponse commerciale exige donc encore `quote.read` lors d’un rejeu, et un résumé Projet devient inaccessible si les scopes Réservation ou Ressource ayant servi à son calcul sont retirés, même lorsque le Projet reste autorisé. Une ancienne entrée qui ne démontre pas cette provenance reste conservée mais n’est pas restituée : le contrôle échoue fermé. Les opérations OpenAPI contenant `{quoteId}` déclarent toutes ce paramètre de chemin comme requis et un test vérifie cette propriété pour chaque template.
 
 Preuves DEV fraîches : PlanyBot 14/14, suite complète 270/270, lint, build, validation sémantique des 46 chemins OpenAPI et diff-check verts. Revalidation indépendante requise.
+
+### Provenance compacte et revalidable — intégré le 2026-08-23
+
+La provenance PlanyBot est portée en `schemaVersion: 3`. Elle conserve les permissions effectivement utilisées et, pour les agrégats potentiellement volumineux, une empreinte déterministe des scopes d’entité courants au lieu de recopier toutes les réservations et ressources sources. Le rejeu et l’historique comparent cette empreinte aux droits courants et échouent fermés après toute réduction ou modification de périmètre. Les faits directement exposés restent contrôlés par leurs identifiants bornés. Une recommandation utilisant la préférence tarifaire client requiert explicitement `quote.read`; la continuité et la disponibilité revalident les scopes Réservation et Ressource.
+
+Le contrat OpenAPI déclare également `ReservationAllocation` comme alias explicite de l’union d’allocations. La validation sémantique résout les 228 références de schéma et les paramètres requis des 46 chemins.
+
+Preuves DEV fraîches : PlanyBot 14/14, suite complète 270/270, lint et build verts ; la provenance d’un résumé Projet reste inférieure à 2 000 caractères dans le test de non-régression. Revalidation indépendante obligatoire avant approbation G6.
