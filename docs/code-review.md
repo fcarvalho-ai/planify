@@ -1,3 +1,87 @@
+# Gate REVIEW S7-A — registre du réalisé
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7a_review`
+
+Candidat Git exact : `5c613d3f683b73fd14830ad76e165dfa641f5749`
+
+Diff contrôlé : `80c29ce..5c613d3f683b73fd14830ad76e165dfa641f5749`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 2 P1 ouverts, 2 P2 ouverts.**
+
+Le registre append-only, les révisions chaînées, l'idempotence, l'audit, le SSE après commit, les scopes et le rollback byte-exact sont correctement structurés et les 12 tests ciblés frais sont verts. Deux défauts fonctionnels empêchent toutefois d'approuver S7-A : une unité réelle incompatible peut être comparée directement à l'unité commerciale sans conversion, et la lecture singulière d'une réservation peut restituer un ancien réalisé alors que sa version courante est de nouveau à confirmer.
+
+## P1 — bloquants
+
+### P1-1 — Une confirmation/correction accepte une unité différente sans conversion versionnée
+
+`actualRevisionInput()` accepte toute unité de `SERVICE_OFFERING_UNITS` transmise par le client, sans exiger qu'elle soit égale à l'unité du snapshot planifié et sans résoudre de conversion (`server.js:1254-1260`). `actualCommercialSummary()` remet ensuite `sold`, `planned` et `actual` directement au même calcul entier (`server.js:1231-1236`, `packages/quote-consumption/index.js:49-65`). L'interface expose elle-même toutes les unités dans un sélecteur modifiable (`app.js:954-956`) et l'OpenAPI autorise ce champ (`docs/api/openapi-v1.yaml:840-861`).
+
+Il est donc possible de confirmer, par exemple, `8 heure` face à `1 jour`; le moteur compare `8000` à `1000` comme si les unités étaient identiques et produit un écart/facturable faux. Cela contredit explicitement la SPEC §4.2 (« une conversion explicite et versionnée est nécessaire si elle diffère ») et compromet la chaîne Finance.
+
+Correction attendue : pour S7-A, verrouiller l'unité réelle sur l'unité canonique du snapshot planifié/commercial, côté serveur et UI. Si une conversion doit réellement être supportée, introduire d'abord un contrat de conversion identifié/versionné, conserver son identifiant dans la révision et convertir avant toute réconciliation. Ajouter des tests négatifs confirmation **et** correction sur unité différente.
+
+### P1-2 — `GET /reservations/{id}/actual` peut retourner un réalisé obsolète au lieu de l'état de la version courante
+
+Le modèle autorise à juste titre un `ActualRecord` par couple `reservationId:sourceReservationVersion`, afin qu'une réservation modifiée puisse réapparaître dans la file. Mais la route singulière sélectionne le premier enregistrement du tableau avec `find()` sans comparer `sourceReservationVersion` à `reservation.version` (`server.js:2427`). Après confirmation de la version 1, modification de la réservation en version 2, puis consultation de cette route, l'API renvoie encore le réalisé V1 alors que `pendingActualItems()` classe correctement V2 « à confirmer ». Après confirmation de V2, elle peut toujours renvoyer V1.
+
+Impact : deux endpoints donnent des états contradictoires pour la même réservation et un consommateur peut considérer à tort le réalisé courant comme confirmé. Correction attendue : sélectionner exclusivement le record de la version opérationnelle courante ; s'il n'existe pas, retourner l'état `pending` de cette version. Conserver l'historique multi-version via `/actuals?reservationId=...`. Ajouter les régressions V1 confirmée → réservation V2 pending, puis V2 confirmée → détail V2.
+
+## P2 — importants non bloquants isolément
+
+1. **La file publique accepte un `asOf` arbitrairement futur.** La SPEC §4.1 définit l'éligibilité selon l'instant serveur, tandis que `/actuals/pending?asOf=...` accepte toute date ISO (`server.js:2423`, OpenAPI `:424-436`). La mutation reste protégée par `Date.now()`, mais la lecture peut annoncer comme confirmable une réservation future. Supprimer ce paramètre public, le borner à `now`, ou documenter une permission explicite de simulation.
+2. **Nom accessible du dialogue incomplet.** Le `<dialog>` natif ne porte ni `aria-labelledby` ni `aria-label`; son titre change dynamiquement mais ne lui est pas relié (`app.js:954-955`). Ajouter un identifiant stable au titre et `aria-labelledby`, puis un test d'accessibilité sémantique. Les labels de champs, le focus initial et les statuts textuels sont par ailleurs présents.
+
+## Contrôles conformes
+
+- **Append-only et concurrence :** création d'un record distinct, révisions numérotées, `priorRevisionId`, contrôle `actualVersion`/`reservationVersion`, absence d'écrasement des anciennes révisions.
+- **Intégrité structurale :** unicité réservation/version, chaîne de révisions contiguë, digest des valeurs réalisées et refus d'une révision falsifiée au rejeu de migration.
+- **Lecture dérivée :** la file ne crée ni Actual, ni audit; tri déterministe et filtrage société/site/projet/entités.
+- **Idempotence :** rejeu exact sans seconde écriture; corps divergent en conflit; permissions et scopes revalidés avant restitution.
+- **Audit et événements :** audit canonique et `ActualConfirmed` dans la transaction; invalidation SSE seulement après succès, sans émission sur erreur ou rejeu.
+- **Confidentialité :** sans `finance.read`, la valeur facturable est masquée; un réalisé non relié commercialement reste `unmapped` et reçoit un facturable nul, sans montant inventé.
+- **Migration/rollback :** ordre Sprint 6 → Sprint 7, sauvegarde privée `0600`, marqueur/digest vérifiés, export obligatoire et restauration byte-exacte.
+- **UI :** échappement des données injectées, états chargement/vide/erreur/lecture seule, focus visible et libellés textuels non fondés uniquement sur la couleur.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `5c613d3f683b73fd14830ad76e165dfa641f5749` |
+| `node --check server.js && node --check app.js` | **PASS** |
+| `node --test tests/migration-sprint7.test.js tests/sprint7-actuals.test.js` | **PASS, 12/12**, 0 échec/skip/todo, 0,9 s |
+| Inspection indépendante du diff `80c29ce..5c613d3` et de ses consommateurs | **2 P1, 2 P2** |
+| Tentative de reproduction API isolée de P1-1 | bind localhost refusé par le sandbox; la preuve statique est directe dans les contrats serveur/UI/OpenAPI |
+
+La suite complète `npm test` n'a pas été rejouée dans cette passe interrompue; la preuve DEV annoncée reste 281/281, mais elle ne ferme pas les scénarios absents ci-dessus.
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                                      f81919705c8d5522580cc3a279ea56ca18756f399b34ee8e054cd8058e2e929f
+app.js                                         9387d6913f1cbe934b61e548908f7015aecd59a175201a39f19e4fa1939a9d6e
+packages/quote-consumption/index.js            58bba2239793950530f93392794b0e71ac388c9be7670bd2ee70a176afa1f63b
+docs/api/openapi-v1.yaml                       3a84d89420a734fb663483537abf39a1e4e3229feffdabfb40aa72ad5c607e44
+tests/sprint7-actuals.test.js                   c94f884fc1f0f7a12ba6797e36f9507a1505d522d5e755509f01e6f3077e22f1
+tests/migration-sprint7.test.js                 129f32023259f7eb98d2f845c5cfcd11f28199ba378bcb5b8eff6fbb88e72a94
+docs/specifications/sprint-7-actuals-finance-engine.md 9a0d63334a98d544f648dd9394149704c2cc1ab4ae83cb92111f95f73673a304
+```
+
+## Handoff
+
+- Gate REVIEW S7-A : **non approuvé** jusqu'à correction des deux P1 et re-REVIEW indépendante sur le nouveau commit.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée ou autre rapport modifié.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur.
+
+---
+
 # Gate G6 — re-REVIEW ultime du garde multisite
 
 Date : 2026-08-23

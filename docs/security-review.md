@@ -1,62 +1,68 @@
-# Revue SECURITY indépendante — G6, revalidation ultime
+# Revue SECURITY indépendante — S7-A Réalisé fiable
 
 Date : 2026-08-23
 
-Candidat Git : `1eab12023a44d65bb9d63dc3bfeba6e04399826f`
+Candidat Git : `5c613d3f683b73fd14830ad76e165dfa641f5749`
 
-Verdict : **APPROVED — 0 P0, 0 P1, 0 P2**
+Verdict : **NOT APPROVED — 0 P0, 1 P1, 1 P2**
 
 ## Périmètre et empreintes
 
 | Fichier | SHA-256 |
 |---|---|
-| `server.js` | `d24ef8b32d18ee6b68a9c995d6cbefe6949b26ae3cd24a431e55c5ad2a4e0c84` |
-| `app.js` | `d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54` |
-| `tests/plany.test.js` | `c4359eacd062967523a1b0197f8470f40719514bc2239123c3d9c82093c4cc5d` |
-| `tests/quotes.test.js` | `16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a` |
-| `docs/api/openapi-v1.yaml` | `0632ef9e0c18adf793e662e883398701146c9a55a7a5fd73801ffe6ecd6a61fb` |
-| `docs/specifications/sprint-6-planybot-excel.md` | `626f41549f742a203caf2a4d495e5d1f8a8cf457ee5afe51a3ac5a7ad848fa77` |
+| `server.js` | `f81919705c8d5522580cc3a279ea56ca18756f399b34ee8e054cd8058e2e929f` |
+| `app.js` | `9387d6913f1cbe934b61e548908f7015aecd59a175201a39f19e4fa1939a9d6e` |
+| `packages/auth/rbac.js` | `068cb8cffb79be89a9c09d0aed81e98e5f971e8d45d4d3f5dfd2d70fdf5ee55b` |
+| `packages/quote-consumption/index.js` | `58bba2239793950530f93392794b0e71ac388c9be7670bd2ee70a176afa1f63b` |
+| `tests/sprint7-actuals.test.js` | `c94f884fc1f0f7a12ba6797e36f9507a1505d522d5e755509f01e6f3077e22f1` |
+| `tests/migration-sprint7.test.js` | `129f32023259f7eb98d2f845c5cfcd11f28199ba378bcb5b8eff6fbb88e72a94` |
+| `docs/api/openapi-v1.yaml` | `3a84d89420a734fb663483537abf39a1e4e3229feffdabfb40aa72ad5c607e44` |
+| `docs/specifications/sprint-7-actuals-finance-engine.md` | `9a0d63334a98d544f648dd9394149704c2cc1ab4ae83cb92111f95f73673a304` |
 
-La revue couvre la fermeture de `SEC-G6-04`, le rejeu et l'historique après révocation multi-site, les autres réponses agrégées, les permissions commerciales, la provenance compacte, l'isolation et les contrôles fail-closed.
+La revue couvre authentification, origine/CSRF, RBAC `actual.read`/`actual.confirm`, isolation société/site/Projet/entités, rejeu et historique, SSE, validation, idempotence, audit, intégrité append-only, migration/rollback, XSS et abus.
 
-## Fermeture de SEC-G6-04
+## Constats bloquants
 
-Le garde v3 sait désormais empreinter le périmètre effectif de sites. Les réponses agrégées qui dépendent de la visibilité Planning déclarent `site` dans `sourceAccess.scopeTypes` : disponibilité du personnel, conflits, résumé Projet, préparation de réservation et disponibilité des ressources. Les gardes Réservation/Ressource restent associés aux agrégats concernés.
+### SEC-S7A-01 — P1 — le scope commercial du Devis source n'est pas revalidé
 
-Reproduction fraîche sur le scénario exact demandé :
+`actualRecordAllowed()` revalide société, site, Projet, Réservation, ressource et scope `actual`, mais jamais `quote.read`, `entityScopes.quote` ni `quoteAllowed()` pour le Devis de `plannedSnapshot`. `actualCommercialSummary()` charge ensuite directement le Devis accepté et expose identifiants Devis/ligne, quantité vendue, état commercial et devise. Le DTO restitue aussi `sourceQuoteId`, `sourceQuoteVersionId` et `sourceQuoteLineId`.
 
-1. utilisateur limité à Paris et Boulogne, Projet autorisé, scopes d'entités non restreints ;
-2. résumé du Projet sans site explicite, alimenté par une réservation Paris et une réservation Boulogne : `reservationCount: 2` ;
-3. provenance : garde de site SHA-256 présent, taille totale `334 o` ;
-4. retrait de Boulogne tout en conservant Paris et le Projet ;
-5. revalidation de l'instantané : `false`.
+Un rôle personnalisé avec `planning.read` obtient implicitement `actual.read` même sans `quote.read`. Après retrait du scope Devis, un utilisateur peut encore consulter l'historique, obtenir la réconciliation commerciale ou rejouer une commande, puisque le rejeu ne revalide que `actualRecordAllowed()`.
 
-Le test HTTP de non-régression exécute le même parcours et obtient `404` sur le rejeu idempotent ainsi que sur l'historique après retrait de Boulogne. L'ancienne réponse ne peut donc plus être restituée.
+Correction requise : intégrer la provenance commerciale dans l'autorisation du DTO et du rejeu. Si le Devis n'est plus visible, répondre `404` ou retourner une projection opérationnelle expurgée selon un contrat explicite. Ajouter les tests de retrait de `quote.read`, réduction `entityScopes.quote`, liste, détail, historique, rejeu et SSE.
 
-## Autres contrôles satisfaisants
+## Constat important
 
-- `schemaVersion: 3` est obligatoire. Une provenance absente, ancienne ou dont une permission/garde diffère échoue fermée.
-- `quote.read` est requis pour un Devis directement exposé et pour une recommandation utilisant une préférence tarifaire client. Sa révocation bloque replay et historique.
-- Les réductions des scopes Projet, Réservation et Ressource sont revalidées et masquent les conversations concernées.
-- Les faits directement exposés restent liés à leurs identifiants bornés. Les agrégats volumineux utilisent des gardes compacts ; aucun retour à la persistance de toutes les réservations/ressources n'a été constaté.
-- `companyId` reste issu de la session ; les contrôles société, site, Projet et entité sont exécutés côté serveur. Aucun nouveau bypass tenant/RBAC, XSS ou idempotence n'a été identifié dans le diff.
-- Les flux client-planning et contrôle de devis restent protégés par les permissions et l'accès au Devis courant ; le contrôle de site d'un Devis est assuré par `quoteAllowed` lors de la revalidation de `quoteIds`.
+### SEC-S7A-02 — P2 — l'empreinte append-only omet l'identité et la date de confirmation
+
+`sourceDigest` couvre les valeurs opérationnelles et la chaîne, mais pas `companyId`, `confirmedAt`, `confirmedBy`, `createdAt` ni `createdBy`. Le validateur exige seulement une date ISO et un identifiant non vide; il ne vérifie pas le confirmeur dans la société. Une altération locale de l'auteur ou de la date reste acceptée au redémarrage.
+
+Correction recommandée : versionner l'empreinte, inclure ces métadonnées immuables et vérifier les références utilisateur/société, avec migration/rollback.
+
+## Contrôles satisfaisants
+
+- Session et permissions dédiées sur toutes les routes; mutation réservée à `actual.confirm`.
+- Origine stricte et CSRF sur les mutations; corps générique plafonné à 1 Mio.
+- Champs tenant client refusés; société issue de la session.
+- Scopes site, Projet, Réservation et ressources vérifiés côté serveur avec `404` hors scope.
+- Rejeu exact borné à l'acteur et aux scopes opérationnels; contenu divergent en `409`.
+- Versions Réservation/Actual contrôlées; correction append-only.
+- Audit et événement dans la mutation atomique; SSE seulement après commit, revalidé, limité à une connexion/session et 256 globales.
+- Données UI échappées via `esc()`; aucun nouveau HTML utilisateur non échappé trouvé.
+- Migration ordonnée S6→S7, sauvegarde `0600`, marqueur vérifié, export obligatoire et rollback exact.
 
 ## Preuves fraîches
 
-- `node --test tests/plany.test.js`, Node `v26.6.0`, exécution locale autorisée : **14/14 PASS**, 0 échec, durée `906,11 ms`.
-- Reproduction directe déterministe du scénario Paris/Boulogne : garde présent et `allowedAfterRemoval: false`.
-- Inspection indépendante du diff `b25c61d…1eab120` et des cinq réponses agrégées Planning.
-- Benchmark 10 000 réservations : provenance constante à `438 o` avec scopes explicites, sans liste source volumineuse.
+- `node --test tests/sprint7-actuals.test.js tests/migration-sprint7.test.js`, Node `v26.6.0` : **11/11 PASS**, 0 échec, `572,36 ms`; migration `258,24 ms`.
+- Inspection des routes Actual, de `actualRecordAllowed`, `actualCommercialSummary`, des gardes de mutation, de l'idempotence, du SSE et des invariants.
+- Les tests couvrent la réduction de scope site au rejeu, pas la révocation du Devis source décrite par `SEC-S7A-01`.
 
 ## Limites
 
-- La reproduction directe complète le test HTTP mais n'est pas elle-même conservée comme test automatisé distinct.
-- Aucun fuzzing externe n'a été exécuté dans cette revalidation d'impact.
-- Les parseurs d'import et leurs plafonds sont inchangés depuis leur précédente approbation ; ils n'ont pas été remesurés ici.
-- Le garde de sites invalide aussi un ancien message lors d'un élargissement de périmètre. Ce comportement conservateur est fail-closed et ne crée aucune fuite.
-- `docs/project-status.md` reste à mettre à jour par l'intégrateur conformément à l'ownership limité demandé.
+- Aucun fuzzing externe ni test de saturation hostile.
+- Revue limitée à S7-A; coûts et agrégats S7-B/C/D absents.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur.
 
 ## Verdict
 
-Le correctif couvre le retrait multi-site qui bloquait G6, y compris pour replay et historique, et étend le garde aux autres agrégats Planning. Aucun P0/P1 n'est ouvert. **SECURITY APPROVED** pour G6 sur `1eab12023a44d65bb9d63dc3bfeba6e04399826f`.
+La provenance commerciale traverse le registre Actual sans revalidation du droit et du scope Devis. Ce P1 bloque le gate. **SECURITY NOT APPROVED** sur `5c613d3f683b73fd14830ad76e165dfa641f5749`.

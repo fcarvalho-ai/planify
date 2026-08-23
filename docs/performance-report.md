@@ -1,55 +1,66 @@
-# Revue PERFORMANCE indépendante — G6, revalidation ultime
+# Revue PERFORMANCE indépendante — S7-A Réalisé fiable
 
 Date : 2026-08-23
 
-Candidat Git : `1eab12023a44d65bb9d63dc3bfeba6e04399826f`
+Candidat Git : `5c613d3f683b73fd14830ad76e165dfa641f5749`
 
-Verdict : **APPROVED — 0 P0, 0 P1, 1 P2**
+Verdict : **NOT APPROVED — 0 P0, 1 P1, 1 P2**
 
-## Périmètre et empreintes
+## Périmètre et seuils
 
-| Fichier | SHA-256 |
-|---|---|
-| `server.js` | `d24ef8b32d18ee6b68a9c995d6cbefe6949b26ae3cd24a431e55c5ad2a4e0c84` |
-| `app.js` | `d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54` |
-| `tests/plany.test.js` | `c4359eacd062967523a1b0197f8470f40719514bc2239123c3d9c82093c4cc5d` |
-| `tests/quotes.test.js` | `16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a` |
-| `docs/api/openapi-v1.yaml` | `0632ef9e0c18adf793e662e883398701146c9a55a7a5fd73801ffe6ecd6a61fb` |
-| `docs/specifications/sprint-6-planybot-excel.md` | `626f41549f742a203caf2a4d495e5d1f8a8cf457ee5afe51a3ac5a7ad848fa77` |
+Le gate couvre file, liste, détail, confirmation, correction, persistance atomique, UI et SSE. Référence : 100 ressources/10 000 réservations, lecture API p95 `< 300 ms`, conflit + écriture p95 `< 250 ms`, UI exploitable `< 2 s` et interactive.
 
-Le chemin modifié ajoute un hash canonique des sites aux gardes compacts. La mesure fraîche couvre un résumé Projet à 10 000 réservations, avec scopes explicites de même cardinal, puis snapshot, revalidation et fusion.
+Les empreintes sont celles de la revue SECURITY S7-A; commit exact `5c613d3f683b73fd14830ad76e165dfa641f5749`.
 
-## Benchmark frais 10 000
+## Constat bloquant
 
-Environnement : Node `v26.6.0`, seed déterministe local, **10 000 réservations**, scope explicite de 10 000 réservations, huit itérations mesurées après deux échauffements.
+### PERF-S7A-01 — P1 — validation et projection quadratiques du registre
 
-| Chemin mesuré | p50 | p95 | max | Taille provenance |
-|---|---:|---:|---:|---:|
-| Résumé + snapshot + gardes site/entités + revalidation + fusion | `67,69 ms` | `69,36 ms` | `69,36 ms` | `438 o` |
+Deux chemins communs croissent quadratiquement :
 
-L'ajout du garde de sites maintient la provenance à taille constante vis-à-vis du nombre de réservations. À titre de contrôle, le scénario multi-site fonctionnel produit une provenance de `334 o`. Les copies dans messages, conversation et idempotence restent donc bornées et ne recréent pas l'amplification supprimée au commit précédent.
+1. `sprint7ActualsStateValid()` parcourt tous les records puis filtre toutes les révisions pour chacun. `readDb()` rejoue ce validateur sur chaque requête.
+2. `GET /api/v1/actuals` projette tous les records visibles avant `list()`; chaque `actualRecordDto()` refiltre toutes les révisions. `pageSize=200` ne borne donc pas le calcul.
 
-## Non-régression ciblée
+Avec 5 000 records et 5 000 révisions, chaque boucle approche 25 millions de comparaisons; à 10 000, environ 100 millions. Les mutations ajoutent la sérialisation/écriture atomique du fichier complet. Cette complexité invalide la garantie des seuils représentatifs.
 
-- `node --test tests/plany.test.js` : **14/14 PASS**, durée `906,11 ms`.
-- Les cinq réponses agrégées ajoutent un type de garde de cardinal fixe ; aucune boucle sur les réservations n'est ajoutée par ce commit.
-- `app.js`, les parseurs CSV/XLSX/PDF et le moteur planning lecture/conflit/écriture sont inchangés.
-- Les dernières mesures des chemins inchangés restent informatives : import XLSX représentatif p95 `28,42 ms`, retard de boucle max `29,57 ms`; planning 250 ressources/10 000 réservations, lecture p95 `125,35 ms`, conflit p95 `180,97 ms`, écriture p95 `230,37 ms`. Elles ne sont pas présentées comme nouvelles mesures du candidat.
+Correction requise : indexer une fois `revisionsByActualRecordId`/`currentRevisionById`, valider en O(A+R), paginer les records autorisés avant projection, puis mesurer HTTP sur 100 ressources/10 000 réservations avec un volume représentatif de réalisations. Inclure validation, audit, événement et persistance dans les mesures d'écriture.
 
-## P2 non bloquant conservé
+## Constat important
 
-### PERF-G6-02 — double parcours de la première feuille générique
+### PERF-S7A-02 — P2 — double agrégat complet à chaque invalidation
 
-`parseClientPlanningXlsx` tente le format spécialisé puis reparcourt la première feuille lorsqu'il ne le reconnaît pas. Le coût reste strictement borné, mais une feuille générique consomme deux fois certains compteurs et duplique du travail. Ce chemin est inchangé par le candidat. Recommandation : analyser une seule fois vers une représentation intermédiaire, ou séparer budget physique et compteurs fonctionnels.
+`loadActuals()` appelle en parallèle `/actuals/pending` et `/actuals`. Chaque événement SSE Actual relance les deux après 250 ms. Il n'existe ni annulation de requête précédente, ni chargement différentiel. Plusieurs confirmations répètent donc scans et reconstruction UI.
+
+Recommandation : invalidation avec curseur/version, requêtes annulables ou rafraîchissement ciblé, en préservant focus et position.
+
+## Mesures fraîches disponibles
+
+Le petit seed fonctionnel donne seulement un contrôle informatif :
+
+| Chemin observé | Durée serveur |
+|---|---:|
+| File pending | `4–5 ms` |
+| Confirmation | `9 ms` (rejeu `8 ms`) |
+| Correction | `7 ms` |
+| Détail Actual | `5 ms` |
+
+Commande : `node --test tests/sprint7-actuals.test.js tests/migration-sprint7.test.js`, Node `v26.6.0`, **11/11 PASS**, durée totale `572,36 ms`; migration `258,24 ms`.
+
+Ces valeurs concernent quelques réservations et une à deux révisions. Elles ne démontrent pas le dataset contractuel; l'analyse de complexité interdit une extrapolation linéaire.
+
+## Parcours sans nouveau blocage constaté
+
+- Le traitement propre de `pendingActualItems()` est O(R+A) avec index et `Set`, hors coût global de `readDb()`.
+- `actualIndexes()` utilise des `Map` pour Réservations/Ressources/Devis.
+- Réponses bornées à 200 éléments et invalidations SSE compactes.
+- Le coût serveur avant pagination reste toutefois bloquant.
 
 ## Limites
 
-- Le benchmark 10 000 appelle directement les fonctions serveur ; il n'inclut pas HTTP ni l'écriture atomique du fichier. Il mesure précisément le calcul de provenance modifié et la taille sérialisée qui constituaient le risque antérieur.
-- Huit itérations caractérisent l'ordre de grandeur local mais ne constituent pas une campagne de charge longue.
-- Les mesures import/planning reprises concernent des chemins inchangés et servent uniquement à l'analyse de non-régression.
-- Aucun chronométrage navigateur supplémentaire : le frontend est inchangé et aucune donnée supplémentaire n'est rendue.
-- `docs/project-status.md` reste à mettre à jour par l'intégrateur conformément à l'ownership limité demandé.
+- La campagne représentative a été interrompue avant un résultat reproductible; aucun p95 10 000 n'est revendiqué.
+- Aucun profil CPU/heap navigateur; le seuil UI `< 2 s` n'est pas démontré.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur.
 
 ## Verdict
 
-Le garde de sites ferme le défaut de sécurité sans réintroduire de liste volumineuse ni de coût significatif. À 10 000 réservations, le chemin complet mesuré reste sous 70 ms et la provenance sous 500 octets. Aucun P0/P1 de performance n'est ouvert ; seul le double parcours générique historique reste P2. **PERFORMANCE APPROVED** pour G6 sur `1eab12023a44d65bb9d63dc3bfeba6e04399826f`.
+Le petit seed est rapide, mais les boucles quadratiques et la pagination tardive empêchent toute garantie G7. **PERFORMANCE NOT APPROVED** sur `5c613d3f683b73fd14830ad76e165dfa641f5749`.

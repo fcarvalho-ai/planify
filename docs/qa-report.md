@@ -1,3 +1,67 @@
+# QA indépendante S7-A — registre du réalisé fiable
+
+Date : 2026-08-23
+Commit contrôlé : `5c613d3f683b73fd14830ad76e165dfa641f5749` (`feat: add Sprint 7 actuals ledger`)
+Verdict : **APPROVED — 0 P0 / 0 P1**
+
+Ce verdict couvre uniquement l'incrément S7-A (`US-077` à `US-080`). Il ne vaut ni approbation du Sprint 7 complet ni approbation G7, qui restent dépendants de S7-B, S7-C, S7-D et des gates aval sur un candidat unique.
+
+## État exact et environnement
+
+Le dépôt était propre au démarrage de la passe et `HEAD` correspondait exactement au commit demandé. Environnement : Node `v26.6.0`, macOS/Darwin arm64.
+
+```text
+server.js                              f81919705c8d5522580cc3a279ea56ca18756f399b34ee8e054cd8058e2e929f
+app.js                                 9387d6913f1cbe934b61e548908f7015aecd59a175201a39f19e4fa1939a9d6e
+index.html                             4ac45df1a1890cb9fe563915a811831dc7ef744a043adceaa4bf6cec1a2b7070
+planning.css                           ca36b29e44c81e2befddfa14da335df6cbc50a2410d373b5127d80fbdeaf831f
+packages/auth/rbac.js                  068cb8cffb79be89a9c09d0aed81e98e5f971e8d45d4d3f5dfd2d70fdf5ee55b
+packages/quote-consumption/index.js    58bba2239793950530f93392794b0e71ac388c9be7670bd2ee70a176afa1f63b
+docs/api/openapi-v1.yaml               3a84d89420a734fb663483537abf39a1e4e3229feffdabfb40aa72ad5c607e44
+tests/sprint7-actuals.test.js           c94f884fc1f0f7a12ba6797e36f9507a1505d522d5e755509f01e6f3077e22f1
+tests/migration-sprint7.test.js         129f32023259f7eb98d2f845c5cfcd11f28199ba378bcb5b8eff6fbb88e72a94
+```
+
+## Commandes et résultats frais
+
+- `node --test tests/migration-sprint7.test.js tests/sprint7-actuals.test.js` : **11/11 réussis**, 0 échec, 0 ignoré, code 0, durée 0,572 s.
+- `npm test` : **281/281 réussis**, 0 échec, 0 ignoré, code 0, durée 9,035 s.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés, code 0.
+- `git diff --check` : **PASS**, code 0.
+
+## Critères S7-A validés
+
+- La file des sessions terminées est dérivée sans créer de réalisé, de révision ou d'audit pendant la lecture ; son filtrage par site masque la réservation Boulogne au lecteur Paris.
+- La confirmation conserve l'instantané planifié et crée un registre versionné avec une première révision `confirmed`, un digest de source et une chaîne de révisions explicite.
+- La correction ajoute une révision `corrected`, conserve la précédente et exige un motif lorsque quantité ou période diffère.
+- Le moteur réconcilie vendu, planifié, réalisé, écarts et facturable avec des chaînes d'entiers en milli-unités ; une quantité négative est refusée. Un réalisé non mappé reste opérationnel sans valeur financière inventée.
+- Le rejeu idempotent identique ne produit ni nouvelle révision, ni nouvel audit, ni nouvel événement ; un corps divergent retourne `409 IDEMPOTENCY_CONFLICT`.
+- Une version Réservation ou Actual obsolète retourne respectivement `409 ACTUAL_SOURCE_STALE` ou `409 VERSION_CONFLICT`, sans écriture partielle.
+- Après retrait du scope site, le rejeu d'une confirmation précédemment autorisée retourne `404 NOT_FOUND` et ne duplique pas le registre.
+- Un lecteur doté de `actual.read` consulte les quantités mais ne peut ni confirmer ni corriger ; les valeurs Finance restent masquées sans `finance.read`.
+- Audit, événement `ActualConfirmed`, invalidation SSE et compteurs techniques sont émis une seule fois après succès.
+- La migration additive est rejouable, crée une sauvegarde privée `0600`, refuse un marqueur ou un digest de révision falsifié et restaure les octets sources exactement après export de reprise privé `0600`.
+- Le contrat frontend expose la navigation Réalisations, la confirmation et la correction avec libellés explicites.
+
+## Smoke UI déterministe
+
+Serveur isolé lancé sur `127.0.0.1:8213` avec `PLANIFY_DATA_FILE=/private/tmp/planify-s7-a-smoke.json`, puis arrêté proprement.
+
+- Connexion administrateur de démonstration réussie ; page « Réalisations à confirmer » visible avec 3 éléments et aucun historique initial.
+- Dialogue natif accessible : début, fin, quantité, unité, motif et actions sont correctement nommés ; le focus initial arrive sur « Début réel ».
+- Une confirmation inchangée fait passer la file de 3 à 2 et l'historique de 0 à 1 ; la ligne affiche `Révision 1`, quantité `1 unite`, écart `0 unite`, statut textuel `Conforme` et action `Corriger`.
+- Après rechargement puis reconnexion, la révision reste présente : la persistance applicative est démontrée.
+- Aucun avertissement ni erreur console n'a été relevé.
+
+## Limites non bloquantes
+
+- Le rechargement du navigateur de smoke a demandé une reconnexion avant de relire la donnée persistée ; la persistance du réalisé est confirmée, mais cette passe S7-A ne qualifie pas la conservation de session navigateur.
+- Le smoke couvre le parcours nominal de confirmation. Les erreurs version, RBAC, scope, idempotence et intégrité sont couvertes au niveau API/migration par les tests ciblés, pas répétées visuellement.
+- Les seuils volumétriques relèvent du gate Performance indépendant. Les coûts, marges, backlog, forecast, occupation et rentabilité relèvent des incréments S7-B à S7-D.
+
+Conclusion : aucun P0/P1 fonctionnel ou de non-régression n'est ouvert sur S7-A au commit exact `5c613d3…`. Le gate QA indépendant S7-A est **APPROVED**.
+
 # Re-QA ultime indépendante G6 — revalidation multisite
 
 Date : 2026-08-23
