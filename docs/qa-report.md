@@ -2304,3 +2304,107 @@ Aucun navigateur contrôlable n'était attaché à cette tâche de re-QA. Le con
 ## Verdict terminal
 
 La re-QA finale de la page Équipe est **APPROVED**. Le P1 est fermé sans promouvoir le planificateur vers la gouvernance : l'annuaire minimal est lisible et scopé, les sélecteurs sont alimentés, les données sensibles restent absentes et le lien d'administration est masqué sans `membership.read`. Les suites ciblées et les **262/262** tests complets passent ; aucun P0/P1 QA n'est ouvert.
+
+---
+
+# Gate QA indépendant G6 — PlanyBot et import Excel
+
+Date : 2026-08-23 10:21 CEST
+
+Verdict : **APPROVED — 0 P0/P1 QA ouvert**
+
+Périmètre : candidat Git exact `cdc475c9ff015531e662327dbdc9d7c2e82f6aa8`, US-057 à US-060 et US-062 à US-064, non-régression des modules antérieurs.
+
+Indépendance : aucun code, test, contrat ou statut modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Candidat exact
+
+```text
+server.js                                           2c8b7d270daee986524a6011dc1aa9551312af0a4c3dcab8dffe031fc116f372
+app.js                                              2bef5de38aa129788b35b6e05a767390635d368984a02609079b0d8fa309c480
+planning.css                                        788b3e981245b1927ce2f726b980ac2772848a16ca2c42d69f12c81a7ef1f99d
+tests/plany.test.js                                 9ea6407fb3b76b756584c2666d9e184a52f6ad9fcfc0380853baab1529f72687
+tests/quotes.test.js                                20a28dc983e91b8aa0219ed79d8cac3739c0588d9ef19c19126f81accd86e9e2
+tests/api.test.js                                   f5c788f3cf74e1fb810b0730a8d18269922179eca7576eeec6ff02bbeb08d2f3
+tests/sprint6-plany-migration.test.js               317fbbf11e4e341be7220d7893e3f59c7f45f970c4e357ea721912949d6f801b
+docs/specifications/sprint-6-planybot-excel.md      f498e70b697950cbf687d0ddcb9abb8c804114112505f9aef8a7e38adc9437a5
+docs/api/openapi-v1.yaml                            8eb7cba34b35f9600d4f64bc76993d3cbbc27bc22e59382343e92356b58d2bf3
+```
+
+Environnement : Node `v26.6.0`, Darwin `25.5.0` arm64.
+
+Le dépôt contenait avant cette passe une modification non QA de `docs/project-status.md`. Elle n'a été ni modifiée ni restaurée par le reviewer ; l'intégrateur doit mettre le statut G6 à jour sur le candidat figé.
+
+## Preuves fraîches
+
+| Commande exacte | Résultat observé |
+|---|---|
+| `node --test tests/plany.test.js` | PASS, **12/12**, 0 échec/annulé/ignoré/TODO |
+| `node --test tests/quotes.test.js` | PASS, **48/48**, 0 échec/annulé/ignoré/TODO |
+| `node --test tests/sprint6-plany-migration.test.js` | PASS, **1/1**, 0 échec/annulé/ignoré/TODO |
+| `node --test tests/api.test.js` | PASS, **41/41**, 0 échec/annulé/ignoré/TODO |
+| `npm test` | PASS, **267/267**, 0 échec/annulé/ignoré/TODO, 8 858,19 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` | PASS, code 0 |
+
+## Vérification des critères G6
+
+### US-057 / US-058 — interface et dialogue contextualisé
+
+- PlanyBot est présenté comme un panneau distinct, repliable, attaché au Planning et non comme une mutation implicite du calendrier ;
+- le dialogue restitue des faits structurés issus des objets autorisés : disponibilités, résumé projet, conflits, personnel et phases d'analyse du planning client ;
+- les quantités et périodes annoncées sont calculées depuis les données visibles, sans fabrication de réservation ou de montant ;
+- les messages et états d'analyse sont exposés dans des zones `aria-live="polite"`, les commandes sont des boutons natifs, l'ouverture place le focus dans la saisie, `Échap` ferme le panneau et le focus revient à l'élément déclencheur.
+
+Statut : **conforme sur contrat et tests de source**.
+
+### US-059 — recommandations explicables et déterministes
+
+- les ressources occupées ou hors société/site/scope sont exclues avant classement ;
+- l'ordre observé est : disponibilité, continuité projet, préférence tarifaire client, site projet, coût interne configuré, puis nom/identifiant stable ;
+- chaque recommandation expose ses raisons métier ;
+- le coût interne ne figure pas dans la réponse d'un acteur dépourvu de `finance.read`, et la préférence commerciale n'est calculée qu'avec `quote.read`.
+
+Statut : **conforme**, y compris le négatif de non-divulgation du coût.
+
+### US-060 — prévisualisation, confirmation et concurrence
+
+- une demande de réservation crée une proposition persistée et auditée mais laisse le nombre de réservations inchangé ;
+- la réservation n'est créée qu'après confirmation explicite avec digest exact et `planning.write` ; le serveur revalide société, acteur, projet, site, ressource, versions sources, disponibilité et capacité au moment de confirmer ;
+- digest divergent : `409 PLANY_PROPOSAL_CHANGED` sans mutation ; même clé et même corps : replay unique ; même clé avec corps divergent : `409 IDEMPOTENCY_CONFLICT` ;
+- lecture d'une proposition d'un autre acteur : `404` ; confirmation par lecteur : `403` ; refus : aucune réservation créée ;
+- un seul audit d'exécution et une seule réservation subsistent après rejeu.
+
+Statut : **conforme**. Le contrôle explicite de version source est présent dans le chemin canonique ; le corpus automatise le digest obsolète, le replay et la divergence, mais ne modifie pas artificiellement une ressource entre préparation et confirmation.
+
+### US-062 / US-063 — import borné et clarification humaine
+
+- l'analyse Excel/CSV/PDF est bornée à 5 Mo et 250 lignes ; elle produit une analyse sans réservation ni mutation commerciale automatique ;
+- une ligne `ambiguous` ou `unmatched` bloque la prévisualisation par `409 CLIENT_PLANNING_CLARIFICATION_REQUIRED` ;
+- la correction humaine exige une ligne de devis, une ressource, dates/heures/durée valides, une confirmation et un motif ;
+- la prévisualisation consomme exclusivement la dernière révision et refuse toute sélection qui diverge d'une correction confirmée ;
+- l'analyse initiale reste inchangée, les révisions sont append-only, numérotées, digérées, attribuées et datées ; replay identique unique, divergence refusée ;
+- un import dans un budget reste préparatoire et ne crée aucun planning ; un import dans un devis brouillon résout les tarifs côté serveur et ne crée aucune réservation.
+
+Statut : **conforme**.
+
+### US-064 — RBAC, scopes, audit et rollback
+
+- authentification et CSRF sont exigés sur les mutations ; les permissions `planning.read`, `planning.write`, `quote.read`, `quote.manage`, `finance.read` et `audit.read` sont appliquées au serveur ;
+- les contrôles société, site, projet, ressource et propriétaire de conversation/proposition sont rejoués aux lectures et confirmations ;
+- l'audit couvre la proposition préparée, exécutée ou refusée ainsi que la clarification d'import, avec identifiants, digests, versions et acteur ; la consultation générale reste sous `audit.read` ;
+- la migration est additive et idempotente, crée une sauvegarde privée, vérifie son digest et restaure les octets d'origine à l'identique.
+
+Statut : **conforme**.
+
+## Non-régression et limites
+
+- les **267/267** tests complets confirment la non-régression Auth/CSRF/RBAC, isolation société/site, Organisation, Ressources, Stock, Commercial/Devis, Planning, présence/SSE, batch, DST, audit et migrations ;
+- aucun navigateur contrôlable n'était attaché à cette tâche (`agent.browsers.list()` vide). Le verdict QA ne revendique donc pas de recette visuelle réelle, de contraste calculé ni de navigation assistive complète ; le contrôle porte sur le contrat DOM/CSS, les gestionnaires clavier/focus et les tests automatisés. La recette navigateur et l'acceptation esthétique PO restent à exécuter au gate E2E ;
+- la campagne QA ne remplace pas les verdicts indépendants REVIEW, SECURITY et PERFORMANCE ;
+- aucun P0/P1 fonctionnel n'a été observé. La simulation explicite d'une modification de ressource entre préparation et confirmation renforcerait la couverture automatisée du `PLANY_PROPOSAL_STALE`, sans remettre en cause le contrôle serveur inspecté.
+
+## Verdict terminal
+
+Le gate QA indépendant G6 du candidat Git `cdc475c9ff015531e662327dbdc9d7c2e82f6aa8` est **APPROVED** : les critères US-057..060 et US-062..064 sont couverts, aucune réservation n'est créée avant confirmation, les ambiguïtés imposent une clarification versionnée, les replays/divergences et droits/scopes sont correctement traités, la migration est réversible byte-exact et les **267/267** tests passent. Aucun P0/P1 QA n'est ouvert. Ce verdict ne vaut pas approbation des gates REVIEW, SECURITY, PERFORMANCE, INTEGRATION, E2E ou RELEASE.

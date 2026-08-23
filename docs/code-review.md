@@ -1,3 +1,104 @@
+# Gate G6 — REVIEW indépendante Sprint 6 PlanyBot & import Excel
+
+Date : 2026-08-23
+Reviewer : agent indépendant `g5_review`
+Candidat Git : `cdc475c9ff015531e662327dbdc9d7c2e82f6aa8`
+Périmètre : `US-057` à `US-060`, `US-062` à `US-064`
+Nature : revue seule ; aucun code, test, statut ni autre rapport modifié
+
+## Verdict
+
+**NOT APPROVED — Gate REVIEW G6 bloqué**
+
+**0 P0, 4 P1 ouverts.** Les tests existants sont verts et le cycle nominal « proposition → confirmation → moteur » est correctement séparé, mais le candidat ne satisfait pas encore les exigences de confidentialité historique, de clarification obligatoire, de bornage Excel et de contrat API du Sprint 6.
+
+## Constats bloquants
+
+### P1 — Les faits historiques ne sont pas systématiquement revalidés après réduction de scope
+
+`planyFindProject()` permet de résoudre un Projet depuis le texte sans `context.projectId` (`server.js:1240-1243`), mais la conversation ne mémorise ensuite que les identifiants explicitement présents dans `context` (`server.js:1337`). Une conversation créée par « Résume Horizons » peut donc contenir des faits et noms liés au Projet tout en conservant `projectId: null`. La lecture d'historique accepte alors cette conversation, car `projectAllowed(auth, null)` est vrai (`server.js:1012`, `server.js:2706`). Le rejeu idempotent retourne également le résultat persisté avant toute revalidation des entités contenues dans ses faits lorsque la requête d'origine n'avait pas de contexte (`server.js:1330-1331`).
+
+Impact : après retrait d'un scope Projet/ressource, un utilisateur peut encore relire ou rejouer des faits historiques devenus hors périmètre, contrairement à la règle explicite de la section 3.1 de la spécification G6.
+
+Attendu : persister les scopes effectifs réellement utilisés par chaque réponse (Projet, site, Devis, import, ressources), puis les revalider sur lecture et rejeu ; masquer ou invalider tout message/résultat qui n'est plus autorisé. Ajouter un test de réduction de droits après une résolution de Projet par texte, sans contexte explicite.
+
+### P1 — Le chemin « import Excel → Devis brouillon » contourne la clarification obligatoire
+
+L'interface exclut explicitement `quoteClientPlanningImport` du wrapper de clarification et affiche directement « Ajouter au devis » (`app.js:646-652`). Côté serveur, `POST .../client-planning/apply-lines` lit toujours `imported.analysis.rows`, et non `clientPlanningCurrentAnalysis(imported)`, puis accepte n'importe quelle ligne source sans refuser les statuts `ambiguous` ou `unmatched` (`server.js:2504-2505`). Le client peut fournir lui-même `sourceId`, libellé et quantité et créer une ligne commerciale sans révision humaine ni motif audité.
+
+Impact : `US-063` et la règle « aucune donnée incertaine appliquée avant validation humaine » sont contournables précisément sur le parcours de création directe d'un Devis depuis Excel. La protection présente dans `quotePlanningPreview()` ne couvre que la conversion Planning ultérieure.
+
+Attendu : faire consommer à `apply-lines` la dernière révision, refuser les lignes ambiguës/non reconnues, vérifier qu'une ligne `confirmed` correspond exactement à la correction courante et faire passer l'interface de Devis direct par la même clarification versionnée. Ajouter les cas négatifs et le rejeu idempotent après révision.
+
+### P1 — Le parseur XLSX n'applique pas les bornes structurelles et peut bloquer le serveur
+
+Le fichier compressé est limité à 5 Mo, mais le lecteur ZIP autorise jusqu'à 2 000 entrées et gonfle chacune synchroniquement jusqu'à 20 Mo, sans plafond agrégé (`server.js:1961-1966`). La variante LES 50 parcourt ensuite toutes les feuilles correspondantes et matérialise leurs lignes (`server.js:1969-1991`). Il n'existe pas de limite explicite sur le nombre de feuilles exploitées, le total décompressé, les lignes, colonnes, cellules ou cellules fusionnées avant analyse.
+
+Impact : un petit classeur fortement compressé peut provoquer une consommation CPU/mémoire très élevée et bloquer la boucle Node locale. Cela contredit les sections 3.4, 5 et 7 de la spécification, qui imposent des bornes serveur et une analyse non bloquante.
+
+Attendu : imposer des plafonds globaux avant/durant la décompression (entrées utiles, octets cumulés, feuilles, lignes, colonnes, cellules, chaînes et fusions), interrompre dès dépassement avec une erreur stable, et ajouter des tests de bombe ZIP/feuilles et dimensions excessives ainsi qu'une mesure de réactivité.
+
+### P1 — Le contrat OpenAPI G6 ne décrit pas tout le parcours exposé
+
+Le document ajoute `/plany/messages`, la consultation/confirmation/refus d'une proposition et la création d'une révision. Il omet toutefois la lecture de conversation réellement exposée par `GET /api/v1/plany/conversations/{id}/messages`, ainsi que les routes d'analyse Excel, d'application vers le Devis et de prévisualisation/confirmation Planning sur lesquelles repose le parcours G6. La recherche ne trouve aucun chemin `client-planning/analyze`, `client-planning/apply-lines` ni `planning-conversion/preview` dans `docs/api/openapi-v1.yaml`.
+
+Impact : le contrat ne sépare pas complètement conversation, analyse sans mutation, clarification et application confirmée comme l'exige la section 4. Les consommateurs ne disposent pas d'un contrat versionné suffisant pour vérifier le workflow ou les erreurs.
+
+Attendu : documenter toutes les routes G6 effectivement consommées, leurs permissions, idempotence, erreurs stables, limites et schémas de réponse, puis ajouter une validation de cohérence OpenAPI/implémentation.
+
+## P2 non bloquants
+
+- Le classement de disponibilité traite toute ressource ayant un chevauchement comme entièrement occupée (`server.js:1294`, `server.js:1299`), même lorsque sa capacité résiduelle serait suffisante. Le moteur de confirmation reste autoritaire, mais les recommandations peuvent omettre des candidats valides.
+- Le tri ajoute le nom avant l'identifiant comme départage (`server.js:1235-1238`), alors que la spécification définit l'identifiant opaque comme dernier critère stable. Ce choix doit être aligné ou documenté.
+- Une proposition expirée reste persistée avec le statut `prepared`; la confirmation la refuse correctement, mais le statut `expired` documenté n'est jamais matérialisé. L'interface ne possède pas non plus l'action clavier distincte « Voir la prévisualisation », la prévisualisation étant toujours développée.
+- `storeClientPlanningFile()` est exécuté avant la transaction de persistance de l'analyse (`server.js:2500-2501`) : une concurrence ou un échec tardif peut laisser un fichier privé orphelin. Prévoir nettoyage ou rattachement transactionnel.
+
+## Points conformes vérifiés
+
+- La préparation d'une proposition ne crée pas de réservation ; la confirmation exige `planning.write`, un digest et une clé d'idempotence, puis appelle `createReservationCommand()` qui revalide disponibilité/capacité.
+- Les propositions sont privées par utilisateur, société, Projet, site et ressources ; les replays de confirmation divergents sont refusés.
+- Le classement ne retourne jamais le coût brut et n'utilise ce critère qu'avec `finance.read`; la préférence client requiert `quote.read`.
+- Les révisions Excel sont additives et immuables, portent digest, acteur, date et audit ; la conversion Planning compare la sélection à la dernière correction confirmée.
+- La migration Sprint 6 crée une sauvegarde privée `0600`, vérifie son marqueur et dispose d'un rollback byte-exact précédé d'un export de récupération.
+- L'interface échappe les contenus injectés, utilise des contrôles natifs clavier, annonce l'activité via `aria-live` et restaure le focus à la fermeture du panneau.
+
+## Preuves fraîches
+
+Environnement : macOS, Node `v26.6.0`, 2026-08-23.
+
+| Commande | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `cdc475c9ff015531e662327dbdc9d7c2e82f6aa8` |
+| `node --test tests/plany.test.js tests/quotes.test.js tests/sprint6-plany-migration.test.js` | **PASS, 61/61**, 0 échec/skip/todo, 4,757 s |
+| `npm test` | **PASS, 267/267**, 0 échec/skip/todo, 8,647 s |
+| `node --check server.js` | PASS |
+| `node --check app.js` | PASS |
+| `git diff --check` | PASS sur le candidat au lancement de REVIEW ; un rejeu final signale ensuite des espaces ajoutés concurremment dans `docs/qa-report.md`, hors ownership REVIEW |
+
+Les tests verts démontrent les parcours nominaux mais ne couvrent aucun des quatre cas bloquants ci-dessus ; ils ne suffisent donc pas à approuver le gate.
+
+## Empreintes du candidat revu
+
+```text
+server.js                                      2c8b7d270daee986524a6011dc1aa9551312af0a4c3dcab8dffe031fc116f372
+app.js                                         2bef5de38aa129788b35b6e05a767390635d368984a02609079b0d8fa309c480
+planning.css                                   788b3e981245b1927ce2f726b980ac2772848a16ca2c42d69f12c81a7ef1f99d
+tests/plany.test.js                             9ea6407fb3b76b756584c2666d9e184a52f6ad9fcfc0380853baab1529f72687
+tests/quotes.test.js                            20a28dc983e91b8aa0219ed79d8cac3739c0588d9ef19c19126f81accd86e9e2
+tests/sprint6-plany-migration.test.js           317fbbf11e4e341be7220d7893e3f59c7f45f970c4e357ea721912949d6f801b
+docs/api/openapi-v1.yaml                        8eb7cba34b35f9600d4f64bc76993d3cbbc27bc22e59382343e92356b58d2bf3
+docs/specifications/sprint-6-planybot-excel.md  f498e70b697950cbf687d0ddcb9abb8c804114112505f9aef8a7e38adc9437a5
+README.md                                       7186c0e926a58e6c461b18a1586eb59602eb63726331eeb7c0d97ea500410b75
+```
+
+## Limites et handoff
+
+- Aucun test navigateur E2E du panneau, du focus et de la persistance après rechargement n'a été exécuté par REVIEW ; ce sera une preuve aval obligatoire après fermeture des P1.
+- `docs/project-status.md` présente une modification concurrente non incluse dans le commit `cdc475c`; REVIEW ne l'a ni modifiée ni restaurée. L'intégrateur doit y consigner `G6 REVIEW = NOT APPROVED — 4 P1` après stabilisation du candidat.
+- Le dernier `git diff --check` global est rendu rouge uniquement par des espaces finaux ajoutés concurremment dans `docs/qa-report.md`; `docs/code-review.md` ne contient pas d'erreur de whitespace dans le diff de cette REVIEW.
+
+---
+
 # Gate G5 — Re-REVIEW finale de la page Équipe autonome
 
 Date : 2026-08-22
