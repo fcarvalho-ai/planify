@@ -750,6 +750,69 @@ paths:
         '200': { description: Forecast commercial réconcilié, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceForecastResponse' } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /analytics/occupancy:
+    get:
+      operationId: getFinanceOccupancy
+      tags: [Analytics, Finance]
+      description: Capacité brute, indisponibilités, capacité nette et occupation planifiée/réelle. Requiert finance.read.
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: groupBy, in: query, schema: { type: string, enum: [day, week, month] } }
+        - { name: dimension, in: query, schema: { type: string, enum: [resource, resourceCategory, site] } }
+        - { name: siteId, in: query, schema: { type: string } }
+        - { name: resourceId, in: query, schema: { type: string } }
+        - { name: resourceCategoryId, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Occupation réconciliée à la capacité nette, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceAnalyticsResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /analytics/profitability:
+    get:
+      operationId: getFinanceProfitability
+      tags: [Analytics, Finance]
+      parameters:
+        - { name: asOf, in: query, schema: { type: string, format: date } }
+        - { name: projectId, in: query, schema: { type: string } }
+        - { name: dimension, in: query, schema: { type: string, enum: [resourceId, serviceOfferingId, clientId, projectId, siteId] } }
+      responses:
+        '200': { description: Rentabilité multidimensionnelle, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceAnalyticsResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /analytics/unbilled-overages:
+    get:
+      operationId: getFinanceUnbilledOverages
+      tags: [Analytics, Finance]
+      parameters:
+        - { name: asOf, in: query, schema: { type: string, format: date } }
+        - { name: projectId, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Réalisé non couvert à traiter commercialement, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceAnalyticsResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /analytics/rate-discounts:
+    get:
+      operationId: getFinanceRateDiscounts
+      tags: [Analytics, Finance]
+      responses:
+        '200': { description: Comparaison des prix figés et du catalogue applicable, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceAnalyticsResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /finance/occupancy-thresholds:
+    get:
+      operationId: listOccupancyThresholds
+      tags: [Finance]
+      responses:
+        '200': { description: Seuils accessibles, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: upsertOccupancyThreshold
+      tags: [Finance]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OccupancyThresholdCommand' } } } }
+      responses:
+        '201': { description: Seuil créé ou mis à jour, content: { application/json: { schema: { $ref: '#/components/schemas/OccupancyThreshold' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /search:
     get:
       operationId: universalSearch
@@ -2038,6 +2101,38 @@ components:
               plannedMarginMinor: { type: string, pattern: '^-?\d+$' }
               actualMarginMinor: { type: string, pattern: '^-?\d+$' }
         itemCount: { type: integer, minimum: 0 }
+    FinanceAnalyticsResponse:
+      type: object
+      required: [definitionVersion, generatedAt, items]
+      properties:
+        definitionVersion: { type: string }
+        generatedAt: { type: string, format: date-time }
+        period: { type: object, additionalProperties: true }
+        filters: { type: object, additionalProperties: true }
+        totals: { type: object, additionalProperties: true }
+        items: { type: array, maxItems: 1000, items: { type: object, additionalProperties: true } }
+        itemCount: { type: integer, minimum: 0 }
+      additionalProperties: true
+    OccupancyThresholdCommand:
+      type: object
+      additionalProperties: false
+      required: [underutilizedBps, saturatedBps]
+      properties:
+        siteId: { type: [string, 'null'] }
+        underutilizedBps: { type: integer, minimum: 0, maximum: 19999 }
+        saturatedBps: { type: integer, minimum: 1, maximum: 20000 }
+        version: { type: integer, minimum: 1 }
+    OccupancyThreshold:
+      allOf:
+        - { $ref: '#/components/schemas/OccupancyThresholdCommand' }
+        - type: object
+          required: [id, companyId, version, createdAt, updatedAt]
+          properties:
+            id: { type: string }
+            companyId: { type: string, readOnly: true }
+            version: { type: integer, minimum: 1 }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
     ReservationPresenceCommand:
       type: object
       additionalProperties: false
