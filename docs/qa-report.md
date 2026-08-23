@@ -1,3 +1,50 @@
+# Re-QA ultime indépendante G6 — revalidation multisite
+
+Date : 2026-08-23
+
+Commit contrôlé : `1eab12023a44d65bb9d63dc3bfeba6e04399826f` (`fix: revalidate PlanyBot source sites`)
+
+Verdict : **APPROVED — 0 P0 / 0 P1**
+
+Environnement : Node `v26.6.0`, macOS/Darwin arm64
+
+## État exact et empreintes
+
+Le dépôt était propre au démarrage de la passe et `HEAD` correspondait exactement au commit demandé.
+
+```text
+server.js                    d24ef8b32d18ee6b68a9c995d6cbefe6949b26ae3cd24a431e55c5ad2a4e0c84
+app.js                       d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54
+docs/api/openapi-v1.yaml     0632ef9e0c18adf793e662e883398701146c9a55a7a5fd73801ffe6ecd6a61fb
+tests/plany.test.js          c4359eacd062967523a1b0197f8470f40719514bc2239123c3d9c82093c4cc5d
+tests/quotes.test.js         16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a
+tests/clients.test.js        03ca7a1531a49792dcb1af54147dba2b8dd8b402a02661add6c9c58ac86fb7fe
+```
+
+## Commandes et résultats frais
+
+- `node --test tests/plany.test.js` : **14/14 réussis**, 0 échec, 0 ignoré, code 0, durée 0,772 s.
+- `node --test tests/plany.test.js tests/quotes.test.js tests/clients.test.js` : **74/74 réussis**, 0 échec, 0 ignoré, code 0, durée 4,832 s.
+- `npm test` : **270/270 réussis**, 0 échec, 0 ignoré, code 0, durée 9,071 s.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés, code 0.
+- `git diff --check` : **PASS**, code 0.
+- validation sémantique indépendante de `docs/api/openapi-v1.yaml` : **PASS** — OpenAPI 3.1.0, 46 chemins, 62 schémas, 110 références locales (58 distinctes) toutes résolues, 57 `operationId` uniques et tous les paramètres de chemin valides.
+
+## Correctif multisite validé
+
+- Le résumé d'un Projet contenant des réservations sur Paris et Boulogne est accessible tant que le lecteur conserve les deux sites ; la réponse persiste une garde compacte `scopeGuards.site` en plus des gardes Réservation et Ressource.
+- Après réduction du périmètre à Paris uniquement, sans retirer le Projet, le rejeu idempotent du résumé multisite répond `404` et l'historique de sa conversation répond également `404`.
+- La réduction de site ne réexpose aucune donnée de Boulogne et ne nécessite pas d'énumérer tous les objets sources dans la provenance.
+- Les négatifs antérieurs restent verts : révocation de `quote.read`, réduction des scopes Réservation/Ressource, import ambigu bloqué jusqu'à révision humaine, application exacte sans réservation et provenance bornée à moins de 2 000 caractères dans le scénario représentatif.
+- Le contrat OpenAPI est inchangé et non régressé : toutes ses références locales restent résolubles et tous les paramètres de chemin sont requis.
+
+## Limites non bloquantes
+
+Un premier rejeu isolé dans le bac à sable a rencontré `listen EPERM` sur `127.0.0.1`. La même commande, autorisée uniquement à ouvrir un port local éphémère, a ensuite réussi à 14/14 ; le ciblé combiné et la suite complète avaient également réussi. Aucun accès réseau externe n'a été utilisé. Cette passe ne remplace ni l'E2E navigateur ni le gate Performance.
+
+Conclusion : le dernier défaut de revalidation des sites sources est fermé sur le candidat exact `1eab120…`. Le gate QA G6 reste **APPROVED**.
+
 # Re-QA terminale indépendante G6 — provenance compacte et contrat complet
 
 Date : 2026-08-23

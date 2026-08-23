@@ -1,3 +1,68 @@
+# Gate G6 — re-REVIEW ultime du garde multisite
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g6_review_final`
+
+Candidat Git exact : `1eab12023a44d65bb9d63dc3bfeba6e04399826f`
+
+Diff contrôlé : `b25c61d085644525c18ce18a7b25d5b9f81c222c..1eab12023a44d65bb9d63dc3bfeba6e04399826f`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert.**
+
+Le dernier défaut de provenance multisite est fermé. Les réponses PlanyBot qui agrègent des données Planning portent désormais une empreinte canonique du périmètre de sites courant, en complément des gardes Réservation/Ressource. Un résumé créé avec Paris + Boulogne devient inaccessible après retrait de Boulogne, au rejeu idempotent comme dans l'historique, tandis que le Projet demeure autorisé. Les protections précédemment approuvées — permissions commerciales, provenance compacte, scopes d'entités, OpenAPI et absence de mutation silencieuse — ne régressent pas.
+
+## Fermetures et contrôles
+
+1. **Garde de sites : FERMÉ.** `planyEntityScopeGuard()` canonicalise, trie et hache `auth.user.siteIds` pour le type `site` (`server.js:1309`). Le contrôle courant réutilise le même calcul dans `planyAccessAllowed()` (`server.js:1329`). Un passage Organisation → sites ou toute modification de la liste invalide aussi l'ancienne provenance de manière sûre.
+2. **Couverture des agrégats : CONFORME.** Disponibilité du personnel, conflits, résumé Projet, préparation de réservation et disponibilité des ressources déclarent toutes `site` dans leurs `sourceAccess.scopeTypes` (`server.js:1279`, `1285`, `1290`, `1296`, `1301`). Les réponses sans agrégat Planning ne sont pas artificiellement élargies.
+3. **Régression Paris + Boulogne → Paris : PASS.** Le test accorde les deux sites avec le Projet inchangé, produit un résumé multisite d'au moins deux réservations, retire uniquement Boulogne, puis constate `404` sur le rejeu et la lecture des messages (`tests/plany.test.js:140-143`).
+4. **Provenance compacte : NON-RÉGRESSION.** Une garde de site ajoute une seule empreinte de taille fixe ; aucune liste de réservations, ressources ou sites sources n'est recopiée. Le test de taille du snapshot reste inférieur à 2 000 caractères et la suite complète reste verte.
+5. **Permissions/scopes : NON-RÉGRESSION.** Les scénarios `quote.read`, préférence client, scopes Réservation/Ressource et Projet continuent de refuser replay/historique après révocation. Les ressources et personnes directement exposées restent contrôlées individuellement.
+6. **OpenAPI : NON-RÉGRESSION.** Le fichier est inchangé depuis le candidat approuvé ; le contrôle frais résout les 67 références locales uniques, dont `ReservationAllocation`, et valide les paramètres requis des 46 chemins.
+
+## Régressions adjacentes
+
+- Aucun P0/P1 n'a été identifié dans le diff ciblé ou les consommateurs de provenance relus.
+- L'invalidation sur extension d'un périmètre de sites est volontairement plus stricte que nécessaire, mais fail-close et sans perte de données : l'utilisateur peut reformuler sa demande pour obtenir un résultat courant.
+- Le coût du nouveau garde dépend uniquement du petit périmètre de sites autorisés et produit une empreinte fixe ; il ne réintroduit ni amplification persistée ni boucle quadratique sur les 10 000 réservations.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `1eab12023a44d65bb9d63dc3bfeba6e04399826f` |
+| `node --test tests/plany.test.js tests/quotes.test.js tests/sprint6-plany-migration.test.js` | **PASS, 64/64**, 0 échec/skip/todo, 4,885 s |
+| `npm test` | **PASS, 270/270**, 0 échec/skip/todo, 8,862 s |
+| Contrôle Ruby/Psych des références locales et paramètres de templates OpenAPI | **PASS**, 67 références uniques résolues, 46 chemins valides |
+| `git diff --check` | **PASS** |
+| Inspection de `b25c61d..1eab120` | diff limité au garde de sites, à sa régression et à la documentation/statut associés |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                                      d24ef8b32d18ee6b68a9c995d6cbefe6949b26ae3cd24a431e55c5ad2a4e0c84
+app.js                                         d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54
+docs/api/openapi-v1.yaml                       0632ef9e0c18adf793e662e883398701146c9a55a7a5fd73801ffe6ecd6a61fb
+tests/plany.test.js                            c4359eacd062967523a1b0197f8470f40719514bc2239123c3d9c82093c4cc5d
+tests/quotes.test.js                           16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a
+docs/specifications/sprint-6-planybot-excel.md 626f41549f742a203caf2a4d495e5d1f8a8cf457ee5afe51a3ac5a7ad848fa77
+```
+
+## Limites et handoff
+
+- Cette REVIEW approuve le candidat exact `1eab120`; les gates SECURITY concernés par leur P1 multisite doivent publier leur propre revalidation sur ce même état avant déblocage global G6.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée ou autre document modifié.
+- `docs/project-status.md` reste sous responsabilité de l'intégrateur.
+
+---
+
 # Gate G6 — re-REVIEW terminale provenance compacte et OpenAPI
 
 Date : 2026-08-23
