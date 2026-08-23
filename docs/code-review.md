@@ -1,3 +1,68 @@
+# Gate re-REVIEW indépendante S7-B — scopes Finance, snapshots incrémentaux et cache validé
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7b_review`
+
+Candidat Git exact : `0aec6303c9b9f5672be4c512277cfca6a6e99988`
+
+Diff correctif contrôlé : `b42ea165ed32eeebae0b3f9f2080520bf946d4d8..0aec6303c9b9f5672be4c512277cfca6a6e99988`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert. Trois P2 restent suivis sans bloquer cette re-REVIEW.**
+
+Les deux P1 de mutation Finance hors périmètre sont fermés. Le correctif résout désormais la personne jusqu'à son adhésion active autorisée et résout chaque dépense jusqu'au site du Projet et au Client avant toute création ou modification. La stratégie de coûts planifiés ne rebâtit plus tous les snapshots dans une écriture interactive : elle capture l'état de planification avant mutation, ne fige que les versions de Réservation réellement modifiées et recopie le snapshot antérieur lorsque seuls des champs non financiers changent. Enfin, le cache de base validée est indexé par la signature du fichier actif, n'est publié qu'après l'écriture atomique, retourne des clones et est invalidé par une altération ou un rollback qui change cette signature.
+
+## Fermetures des P1
+
+1. **CostRate `person` hors site : FERMÉ.** `costRateInput()` résout l'utilisateur de la société, son adhésion active puis exige simultanément `entityAllowed()` et `membershipAllowed()` (`server.js:1401-1408`). La même validation porte sur l'état final d'un PATCH, après fusion avec l'existant. Le test HTTP d'un gestionnaire Finance Paris obtient `404` sur la création d'un coût pour une personne Boulogne et sur le retargeting d'un tarif Paris ; l'objet autorisé reste inchangé (`tests/sprint7-finance.test.js:54-66`).
+2. **ProjectCost Projet/Client hors périmètre : FERMÉ.** `projectCostInput()` résout le Projet final, exige son site autorisé et son Client autorisé même lorsque `siteId` est absent, puis revalide Réservation et Prestation liées (`server.js:1421-1432`). `projectCostAllowed()` applique les mêmes sources en lecture/rejeu (`server.js:1413-1419`). Les créations hors site et hors Client ainsi que le retargeting PATCH sont refusés `404`, sans modification de la dépense autorisée (`tests/sprint7-finance.test.js:67-77`).
+3. **Snapshots planifiés sur mutation : FERMÉ.** `mutate()` capture les couples version/empreinte de planification avant la commande, puis `freezeMutatedReservationPlannedCosts()` ignore les Réservations inchangées, crée seulement la nouvelle version touchée et recopie le snapshot précédent lorsque l'empreinte financière est identique (`server.js:1089-1092`, `:1462-1474`). Une modification de tarif ne réévalue donc pas les versions déjà figées. Confirmation et correction Actual, qui ne modifient aucune Réservation, désactivent explicitement ce suivi (`server.js:2652-2654`). Le backfill initial conserve un index Actual partagé au lieu de le reconstruire par Réservation (`server.js:1476-1484`).
+4. **Cache, falsification et rollback : FERMÉ pour le chemin nominal.** La clé comprend device, inode, taille, `mtimeNs` et `ctimeNs`; un hit retourne un `structuredClone`, et `atomicWrite(..., { cacheValidated: true })` ne remplace le cache qu'après le rename atomique (`server.js:1050-1087`). Les falsifications séquentielles de révisions, snapshots planifiés, références de taux, marqueurs et chaînes sont refusées après qu'un état a déjà été lu/caché (`tests/sprint7-finance.test.js:112-120`). Le rollback ne se fie pas au cache : il relit le fichier, rejoue la validation de migration, exige un export privé puis remplace atomiquement la source (`server.js:711-720`; `tests/sprint7-finance.test.js:122-125`).
+
+## P2 — importants non bloquants isolément
+
+1. **Preuve négative mutation encore partielle.** Les nouveaux tests démontrent les `404` et l'absence de modification de l'entité autorisée, mais ne comptent pas explicitement `financeIdempotency`, audit et événements SSE avant/après chaque refus, ni un rejeu après réduction dynamique de scope. Le chemin de code stocke marqueur/audit uniquement après validation et émet le SSE seulement après succès, mais une matrice de révocation/replay rendrait cette propriété directement exécutable.
+2. **Incrémental ne signifie pas encore O(1).** Toute mutation générique construit encore une `Map` de toutes les Réservations puis les reparcourt pour repérer les versions touchées (`server.js:1463-1469`). Les calculs lourds et le backfill global ont disparu des confirmations/corrections Actual, mais le coût O(R) de détection reste à mesurer pour les autres écritures sur 10 000 Réservations. Les résultats du gate Performance sont une preuve indépendante et ne sont pas revendiqués par cette REVIEW.
+3. **Fenêtre de concurrence du cache non testée.** La signature protège les altérations séquentielles et les remplacements atomiques. Il reste une fenêtre théorique si le fichier est remplacé entre la lecture brute validée et la seconde signature prise par `cacheValidatedDatabase()`, ainsi que l'absence des signatures de fichiers de sauvegarde dans la clé du cache. Une double lecture de signature avant/après validation, avec égalité exigée, et un test concurrent fermeraient complètement ce cas.
+
+## Preuves fraîches exécutées par cette REVIEW
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `0aec6303c9b9f5672be4c512277cfca6a6e99988` |
+| `node --check server.js && node --check app.js` | **PASS** |
+| `node --test tests/sprint7-finance.test.js tests/migration-sprint7.test.js tests/sprint7-actuals.test.js` | **PASS, 24/24**, 0 échec/skip/todo, `593,55 ms` |
+| `npm test` | **PASS, 294/294**, 0 échec/skip/todo, `8,27 s` |
+| `git diff --check b42ea165ed32eeebae0b3f9f2080520bf946d4d8..0aec6303c9b9f5672be4c512277cfca6a6e99988` | **PASS** |
+| Inspection du diff, routes POST/PATCH/replay, snapshots, cache, migration et rollback | deux P1 historiques fermés ; aucun nouveau P0/P1 |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                           a65c81f95c013fa66ac61306d285b50abdbe461f901fe3da4b957e4c779a220e
+app.js                              67b80cac99763abd2d5dbfe57fadefe5612504978a156b29343d30ce03a6277d
+docs/api/openapi-v1.yaml            b3d48360e946ac3d854c22a6915dc398a2fc6951e2f880b6122a882c88a5cb8e
+tests/sprint7-finance.test.js       07dac1c226372cb1c39db56c123e0c11720dd795803659015e4ca5d5658d290f
+tests/sprint7-actuals.test.js       d83667ecd893ed88046f95474dd33bf1f5b508cbd83676db774e349f0742a7c9
+scripts/benchmark-actuals.js        6bd42742306e65ce72db3ac62c1d80cbaa20c7df93116cfaf1884fdf56741873
+scripts/benchmark-finance.js        1d0b4726837026923736bdb27210ea9a5262b429afa9771b665ecc3aee715e11
+```
+
+## Handoff
+
+- Gate re-REVIEW S7-B : **APPROVED** sur `0aec6303c9b9f5672be4c512277cfca6a6e99988` ; 0 P0/P1, 3 P2 suivis.
+- Les rapports Sécurité et Performance restent des gates indépendants : cette REVIEW ne reprend ni ne revendique leurs mesures ou verdicts.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée, statut ou autre rapport modifié.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur conformément à l'exception de tâche limitée à un fichier.
+
+---
+
 # Gate re-REVIEW terminal S7-B — coûts historiques, scopes et marges
 
 Date : 2026-08-23
