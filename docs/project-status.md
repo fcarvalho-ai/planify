@@ -1,11 +1,13 @@
 # État du projet — Planning Post Prod
 
 Version : `0.3.0-dev`
-Date : 2026-08-22
+Date : 2026-08-23
 
 Organisation : gouvernance multi-agents formalisée dans `AGENTS.md`; dépôt Git initialisé sur `main`.
 
 Architecture cible : le synoptique global fourni par le Product Owner est adopté comme cible de développement. La migration reste incrémentale depuis la RC1, sans big bang.
+
+Décision DEV Sprint 6 S6-D — clarifications Excel versionnées 2026-08-23 : l’analyse locale Excel/CSV/PDF conserve désormais sa sortie originale et enregistre chaque correction humaine dans une révision immuable, numérotée, horodatée, signée par digest et auditée. Une ligne `ambiguous` ou `unmatched` ne peut plus atteindre la prévisualisation Planning avant confirmation explicite de la ligne du devis, de la ressource, des dates, horaires et d’un motif. Le rejeu exact est idempotent ; une sélection divergente ou fondée sur une ancienne correction est refusée. L’interface PlanyBot demande le motif, enregistre la révision avant la vérification des disponibilités et n’effectue toujours aucune réservation silencieuse. L’OpenAPI expose la commande de révision. Preuves DEV fraîches Node v26.6.0 : Devis 48/48, suite complète 266/266, lint, build, syntaxe et diff-check PASS. S6-A/B/C/D sont intégrés en DEV ; REVIEW, QA, SECURITY/PERFORMANCE, INTEGRATION et E2E G6 restent requis sur un candidat figé.
 
 Décision DEV Sprint 6 S6-B/C — classement initial 2026-08-22 : les réponses Disponibilité et Préparation de réservation exposent désormais un classement stable et explicable des ressources autorisées. L’autorité filtre d’abord disponibilité, compatibilité et scopes ; elle classe ensuite par continuité sur le Projet, site rattaché au Projet, nom et identifiant stable. Chaque candidat expose ses raisons textuelles, sans coût ni donnée client non autorisés. La préparation choisit le premier candidat de ce classement et reste une proposition sans mutation jusqu’à confirmation. Tests PlanyBot 11/11 et syntaxe serveur PASS. Ce premier classement couvre la recommandation déterministe de salles ; l’enrichissement dialogue et les préférences client structurées restent à consolider avec S6-D.
 

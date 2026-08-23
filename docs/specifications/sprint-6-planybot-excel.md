@@ -146,3 +146,14 @@ Preuves fraîches : tests ciblés 12/12, suite complète 265/265, lint et build 
 ### S6-B/C — classement initial intégré le 2026-08-22
 
 Les intentions Disponibilité et Préparation produisent un tableau `recommendations` explicable. Les candidats sont d’abord filtrés par disponibilité, compatibilité, société, site, Projet et scopes d’entité, puis triés par continuité Projet, site du Projet, nom et identifiant stable. Les raisons utilisées sont retournées avec chaque candidat. Aucun coût n’est exposé et aucune préférence client n’est inventée lorsque le modèle n’en contient pas. La première recommandation alimente la prévisualisation persistée ; elle ne contourne pas la confirmation S6-A.
+
+### S6-D — clarification versionnée intégrée le 2026-08-23
+
+- l’analyse source Excel/CSV/PDF reste immuable ; une correction produit une révision distincte avec numéro, acteur, date, digest et audit ;
+- prestation, ressource, date, durée et horaires sont revalidés contre le Devis, le site et les scopes courants ;
+- une ligne ambiguë ou non reconnue exige une confirmation explicite et un motif humain borné avant toute prévisualisation Planning ;
+- la prévisualisation vérifie qu’elle consomme exactement la dernière correction confirmée et refuse une sélection obsolète ;
+- la commande de révision est idempotente et ne crée ni ligne commerciale ni réservation ;
+- l’interface PlanyBot demande le motif, enregistre la correction, puis seulement ensuite vérifie les disponibilités.
+
+Preuves fraîches : Devis 48/48, suite complète 266/266, lint, build, syntaxe et diff-check verts. Cet état termine l’incrément DEV S6-D ; REVIEW, QA, SECURITY/PERFORMANCE, INTEGRATION et E2E G6 restent requis sur un candidat figé.

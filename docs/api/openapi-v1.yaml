@@ -659,6 +659,34 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/UniversalSearchResponse' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /quotes/{quoteId}/client-planning/{importId}/revisions:
+    post:
+      operationId: reviseClientPlanningImport
+      tags: [Commercial, Planning]
+      description: Enregistre une révision humaine immuable des lignes ambiguës détectées par PlanyBot. Ne crée aucune réservation.
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { name: quoteId, in: path, required: true, schema: { type: string } }
+        - { name: importId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientPlanningRevisionCommand' }
+      responses:
+        '201':
+          description: Révision enregistrée, analyse source conservée
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientPlanningAnalysis' }
+        '200':
+          description: Rejeu idempotent de la même révision
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientPlanningAnalysis' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 components:
   parameters:
     IdempotencyKey:
@@ -670,6 +698,42 @@ components:
     Page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
     PageSize: { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
   schemas:
+    ClientPlanningRevisionCommand:
+      type: object
+      additionalProperties: false
+      required: [importVersion, corrections]
+      properties:
+        importVersion: { type: integer, minimum: 1 }
+        corrections:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            type: object
+            additionalProperties: false
+            required: [rowNumber, suggestedQuoteLineId, suggestedResourceId, startDate, durationDays, startTime, endTime, resolutionNote, confirmed]
+            properties:
+              rowNumber: { type: integer, minimum: 1 }
+              suggestedQuoteLineId: { type: string }
+              suggestedResourceId: { type: string }
+              startDate: { type: string, format: date }
+              durationDays: { type: integer, minimum: 1, maximum: 366 }
+              startTime: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+              endTime: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+              resolutionNote: { type: string, minLength: 3, maxLength: 500 }
+              confirmed: { type: boolean, enum: [true] }
+    ClientPlanningAnalysis:
+      type: object
+      required: [id, quoteId, quoteVersionId, status, version, currentRevisionNumber, rows, summary]
+      properties:
+        id: { type: string }
+        quoteId: { type: string }
+        quoteVersionId: { type: string }
+        status: { type: string, enum: [analyzed, clarificationRequired, clarified, appliedToQuote] }
+        version: { type: integer, minimum: 1 }
+        currentRevisionNumber: { type: integer, minimum: 0 }
+        rows: { type: array, maxItems: 250, items: { type: object, additionalProperties: true } }
+        summary: { type: object, additionalProperties: true }
     BillingAddress:
       type: object
       additionalProperties: false
