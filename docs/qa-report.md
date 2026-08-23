@@ -1,3 +1,52 @@
+# Re-QA terminale indépendante G6 — provenance compacte et contrat complet
+
+Date : 2026-08-23
+
+Commit contrôlé : `b25c61d085644525c18ce18a7b25d5b9f81c222c` (`fix: bound G6 provenance revalidation`)
+
+Verdict : **APPROVED — 0 P0 / 0 P1**
+
+Environnement : Node `v26.6.0`, macOS/Darwin arm64
+
+## État exact et empreintes
+
+Le dépôt était propre au démarrage de la passe et `HEAD` correspondait exactement au commit demandé.
+
+```text
+server.js                    5025a767d5d05bc08a46aab00d8a2302d86838ce4f3f0d5e8cc817cec91a5a7d
+app.js                       d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54
+docs/api/openapi-v1.yaml     0632ef9e0c18adf793e662e883398701146c9a55a7a5fd73801ffe6ecd6a61fb
+tests/plany.test.js          cfd8e782b2a78e00533a3f111337dcb266adcb7dfe91acb67e969e16c79acc58
+tests/quotes.test.js         16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a
+tests/clients.test.js        03ca7a1531a49792dcb1af54147dba2b8dd8b402a02661add6c9c58ac86fb7fe
+```
+
+## Commandes et résultats frais
+
+- `node --test tests/plany.test.js tests/quotes.test.js tests/clients.test.js` : **74/74 réussis**, 0 échec, 0 ignoré, code 0, durée 4,782 s.
+- `npm test` : **270/270 réussis**, 0 échec, 0 ignoré, code 0, durée 8,668 s.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés, code 0.
+- `git diff --check` : **PASS**, code 0.
+- validation sémantique indépendante de `docs/api/openapi-v1.yaml` : **PASS** — OpenAPI 3.1.0, 46 chemins, 62 schémas, 110 références locales (58 distinctes) toutes résolues, 57 `operationId` uniques, tous les paramètres de chemin déclarés et requis, 10 chemins G6 présents.
+
+## Scénarios G6 validés
+
+- Une réponse PlanyBot commerciale ou issue d'un planning client conserve `quote.read` dans sa provenance ; son rejeu et son historique répondent `404` après révocation de cette permission.
+- Les recommandations qui utilisent une préférence client exigent elles aussi `quote.read` au rejeu et à la lecture.
+- Les résumés et recommandations agrégés enregistrent des gardes compactes des scopes Réservation et Ressource. Une réduction de l'un de ces scopes, même si le Projet reste autorisé, rend le rejeu et l'historique inaccessibles.
+- La provenance `schemaVersion: 3` est bornée : le scénario représentatif de résumé Projet impose une taille sérialisée strictement inférieure à 2 000 caractères, sans liste proportionnelle aux milliers de ressources ou réservations.
+- L'import direct ambigu est refusé avant clarification. La révision humaine est versionnée, une dérive ultérieure est rejetée, puis l'application exacte et idempotente crée uniquement les lignes commerciales attendues, sans réservation Planning.
+- Les limites structurelles XLSX refusent l'entrée avec `422 CLIENT_PLANNING_LIMIT_EXCEEDED` sans persister d'import. Les parcours CSV et PDF couverts refusent également les contenus non exploitables et ne créent aucune réservation silencieuse.
+- Le contrat OpenAPI couvre Conversation PlanyBot, proposition/confirmation/refus, analyse de planning client, révisions, application contrôlée, prévisualisation et conversion. L'alias `ReservationAllocation` est désormais défini et toutes les références locales sont résolubles.
+
+## Limites non bloquantes
+
+- Cette passe QA ne remplace ni le contrôle navigateur E2E ni les mesures du gate Performance.
+- Les tests automatisés exercent explicitement la borne structurelle XLSX. Les chemins CSV/PDF et leur absence de persistance/réservation sont couverts, mais les plafonds volumétriques maximaux propres à chacun ne disposent pas encore d'un cas de dépassement dédié. Cette amélioration de couverture est classée P2 et ne remet pas en cause les invariants G6 démontrés ici.
+
+Conclusion : les anciens P1 de revalidation de provenance, de croissance non bornée et de résolution OpenAPI sont fermés sur le candidat exact `b25c61d…`. Le gate QA G6 est **APPROVED**.
+
 # Re-QA finale indépendante G6 — provenance PlanyBot
 
 Date : 2026-08-23  

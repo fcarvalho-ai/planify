@@ -1,8 +1,8 @@
-# Revue SECURITY indépendante — G6, revalidation de provenance
+# Revue SECURITY indépendante — G6, revalidation terminale
 
 Date : 2026-08-23
 
-Candidat Git : `14c1268cfcdcbefdcee8bf7a6be10419ef307f14`
+Candidat Git : `b25c61d085644525c18ce18a7b25d5b9f81c222c`
 
 Verdict : **REJECTED — 0 P0, 1 P1, 0 P2**
 
@@ -10,60 +10,53 @@ Verdict : **REJECTED — 0 P0, 1 P1, 0 P2**
 
 | Fichier | SHA-256 |
 |---|---|
-| `server.js` | `3903abe5d6bf1503dd0102e0fa798f27c8da1a9bae67609ff74eaa85828c1f0c` |
+| `server.js` | `5025a767d5d05bc08a46aab00d8a2302d86838ce4f3f0d5e8cc817cec91a5a7d` |
 | `app.js` | `d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54` |
-| `tests/plany.test.js` | `f3f292017f74163b6e30bb1653604d02c51d44860a87f84bf60b55e80b5a3294` |
+| `tests/plany.test.js` | `cfd8e782b2a78e00533a3f111337dcb266adcb7dfe91acb67e969e16c79acc58` |
 | `tests/quotes.test.js` | `16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a` |
-| `docs/api/openapi-v1.yaml` | `5c5da7dfd2ea2911a49432112adaad301eeab5ae63b9d6a9c175cce67a2aba84` |
-| `docs/specifications/sprint-6-planybot-excel.md` | `94d4bd35683782043c63a6d52ffc1b13e74c6b2d1cf0cbcb5e35c8c322f93ae1` |
+| `docs/api/openapi-v1.yaml` | `0632ef9e0c18adf793e662e883398701146c9a55a7a5fd73801ffe6ecd6a61fb` |
+| `docs/specifications/sprint-6-planybot-excel.md` | `39ce221aff88530d0e33e95df82be1aeb9aaafb81897894e9d20305622ddfa23` |
 
-La revalidation porte sur le diff `6381cbeb…14c1268` : provenance PlanyBot, permissions requises, relecture/rejeu fail-closed et complétude des paramètres OpenAPI. Les protections d'import déjà mesurées sont reprises uniquement après analyse du diff : aucun changement ne touche les parseurs CSV/XLSX/PDF ni leurs plafonds.
+La revue porte sur la permission commerciale `quote.read`, les gardes de scope `schemaVersion: 3`, le rejeu et l'historique fail-closed, la compacité de provenance et les régressions tenant/RBAC/XSS/idempotence du diff `14c1268…b25c61d`.
 
 ## Contrôles conformes
 
-- Les nouveaux instantanés portent `schemaVersion: 2`. `planyAccessAllowed` refuse explicitement toute provenance absente ou de version différente ; replay et historique ne reconstruisent plus une autorisation à partir de l'état courant.
-- `requiredPermissions` est persisté avec la provenance. `planning.read` reste exigé par les routes ; `quote.read` est ajouté quand un devis est exposé et `finance.read` quand une raison tarifaire révèle des coûts.
-- Les sources projet propagent désormais les identifiants de réservations et de ressources réellement utilisés. Les tests négatifs couvrent la révocation de permission et la réduction des scopes projet, réservation et ressource.
-- L'isolation société/site/projet reste contrôlée côté serveur à la création et à la restitution. Aucun bypass RBAC, tenant, XSS ou idempotence distinct du constat ci-dessous n'a été trouvé.
-- Le contrôle sémantique des chemins OpenAPI confirme qu'aucun paramètre de template n'est omis : les quatre opérations devis concernées déclarent bien `quoteId` comme paramètre de chemin requis.
-- `node --test tests/plany.test.js` sur Node `v26.6.0` : **14/14 PASS**, 0 échec, durée `648,21 ms`.
+- Une réponse qui expose directement un Devis exige toujours `quote.read`. Une recommandation qui utilise une préférence tarifaire client ajoute maintenant aussi explicitement `quote.read`.
+- La provenance v3 échoue fermée si elle est absente ou d'une autre version. Le rejeu idempotent et l'historique appellent le même contrôle courant ; aucune reconstruction permissive d'une ancienne provenance n'a été réintroduite.
+- Les listes complètes de réservations/ressources ne sont plus persistées pour les agrégats. Les faits directement exposés restent accompagnés de leurs identifiants bornés ; les agrégats portent une empreinte compacte.
+- La révocation de `quote.read` et la réduction des scopes d'entités Réservation/Ressource rendent bien le rejeu et l'historique inaccessibles dans les tests automatisés.
+- Aucun nouveau bypass tenant, XSS ou idempotence n'a été identifié dans le diff. `companyId` reste dérivé de la session et les filtres d'entités directement exposées restent côté serveur.
+- `node --test tests/plany.test.js`, Node `v26.6.0`, exécution locale autorisée : **14/14 PASS**, 0 échec, durée `715,71 ms`. La première tentative sous sandbox a échoué uniquement sur `listen EPERM 127.0.0.1` et n'est pas comptée comme résultat produit.
 
 ## P1 bloquant
 
-### SEC-G6-03 — amplification de ressources par provenance non bornée
+### SEC-G6-04 — le garde compact ne couvre pas le retrait d'un site source
 
-`sourceAccess.reservationIds` et `resourceIds` incorporent toutes les réservations et ressources d'un projet sans plafond. Les quotas portent sur le nombre de conversations/messages, mais pas sur la taille de ces listes. Un utilisateur authentifié disposant de `planning.read` peut donc demander à répétition un résumé d'un projet volumineux et provoquer une amplification CPU, mémoire et disque dans le processus local.
+`planyEntityScopeGuard` empreinte uniquement `organizationScope` ou `entityScopes[reservation|resource]`. Il n'empreinte pas les `siteIds` effectifs. Or un résumé Projet demandé sans `context.siteId` agrège toutes les réservations visibles du Projet, potentiellement sur plusieurs sites, mais sa provenance n'enregistre aucun `siteId` source : elle ne contient que le Projet et les deux gardes d'entités.
 
-L'effet est aggravé par trois propriétés :
+Preuve fraîche isolée sur les fonctions exactes du candidat :
 
-1. la déduplication et la validation utilisent `Array.includes` / `Array.some`, soit un coût quadratique sur des listes croissantes ;
-2. la même provenance est recopiée dans les messages, la conversation et les enregistrements/résultats d'idempotence ;
-3. chaque mutation relit puis réécrit atomiquement l'intégralité du JSON persistant, y compris lors de certains replays.
+1. utilisateur limité aux sites Paris et Boulogne, Projet `project_1` autorisé, scopes d'entités non restreints ;
+2. résumé du Projet sans site explicite, avec une réservation Paris et une réservation Boulogne : `reservationCount: 2` ;
+3. provenance générée : `siteIds: []`, gardes Réservation/Ressource à `unrestricted` ;
+4. retrait de `site_boulogne` tout en conservant Paris et le Projet ;
+5. `planyAccessAllowed` retourne encore `true` pour l'ancienne réponse.
 
-Mesure fraîche isolant les algorithmes exacts de snapshot, validation et fusion :
+Le rejeu et l'historique peuvent donc restituer après révocation un agrégat calculé à partir d'un site désormais interdit. Même si le contenu est synthétique (comptages/jours/ressources), il révèle des informations provenant d'un périmètre retiré et viole l'invariant fail-closed.
 
-| Identifiants | Temps total | Taille JSON d'une seule copie |
-|---:|---:|---:|
-| 100 | `0,27 ms` | `610 o` |
-| 1 000 | `7,64 ms` | `6 910 o` |
-| 5 000 | `161,80 ms` | `38 910 o` |
-| 10 000 | `399,89 ms` | `78 910 o` |
+Condition de fermeture : inclure dans le garde compact l'empreinte canonique des sites effectifs ayant alimenté l'agrégat, ou enregistrer leurs identifiants bornés ; revalider cette empreinte au rejeu/historique. Ajouter un test négatif multi-site où un Projet demeure autorisé après retrait d'un site source. Le même principe doit couvrir tout autre périmètre indirect dont l'agrégat dépend.
 
-Ces temps excluent la recherche métier, la lecture/écriture du fichier et les copies persistées. La croissance superlinéaire est reproductible et aucune limite serveur n'arrête l'accumulation avant les quotas de messages. Ce chemin offre donc à un compte autorisé un moyen réaliste de dégrader durablement le service local et de gonfler son stockage ; il contrevient à l'exigence de bornage des entrées/abus.
+## Fermeture du précédent P1 de volumétrie
 
-Condition de fermeture : définir un plafond serveur explicite et testé pour toute provenance, échouer sans mutation au-delà, remplacer les recherches quadratiques par des `Set`/index, et ne persister qu'une représentation canonique ou une référence/digest non dupliqué. Ajouter un test d'abus au plafond et un test répété jusqu'aux quotas de conversation.
-
-## Réutilisation justifiée des preuves d'import
-
-Le diff exact ne modifie aucun parseur, aucune limite ZIP/XML/PDF/CSV et aucun appel zlib. Les preuves du candidat `6381cbeb` restent donc pertinentes pour ces chemins non affectés : XLSX limité à 16 MiB décompressés cumulés, limites structurelles, décompression asynchrone avec `maxOutputLength`, et rejet synthétique en `422 CLIENT_PLANNING_LIMIT_EXCEEDED` avant persistance. Elles ne compensent pas le nouveau P1, qui concerne la provenance générée depuis les données déjà persistées.
+Le précédent `SEC-G6-03` est fermé : pour 10 000 réservations, la provenance d'un résumé reste à `270 o` en scope organisation et `374 o` avec un scope explicite de 10 000 réservations. Les copies présentes dans messages/conversation/idempotence restent donc de taille constante vis-à-vis du nombre de réservations. La mesure de performance détaillée figure dans `docs/performance-report.md`.
 
 ## Limites
 
-- Aucun fuzzing externe ni fichier client réel malveillant n'a été exécuté.
-- La mesure de provenance est un microbenchmark local des algorithmes, pas un profil de bout en bout avec écriture disque ; elle sous-estime donc le coût réel.
-- L'application reste un monolithe local mono-processus à persistance JSON. Le risque évalué est un épuisement local par utilisateur autorisé, pas une exposition Internet anonyme.
-- `docs/project-status.md` reste à mettre à jour par l'intégrateur, conformément à l'ownership limité demandé.
+- La preuve du retrait de site appelle directement les fonctions du serveur sur un seed local déterministe ; un test HTTP automatisé de ce cas manque encore.
+- Aucun fuzzing externe n'a été exécuté dans cette revalidation d'impact.
+- Les parseurs d'import et leurs plafonds sont inchangés depuis leur précédente approbation ; ils n'ont pas été remesurés ici.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur conformément à l'ownership limité demandé.
 
 ## Verdict
 
-La fermeture fail-closed de la provenance et la complétude OpenAPI sont correctes. La provenance non bornée introduit toutefois une amplification CPU/disque exploitable par un utilisateur autorisé et constitue un P1 de disponibilité. **SECURITY REJECTED** pour G6 sur `14c1268cfcdcbefdcee8bf7a6be10419ef307f14`.
+La permission `quote.read`, la révocation des scopes d'entités et la compacité sont conformes. Le retrait d'un site ayant contribué à un agrégat n'est toutefois pas couvert par le garde v3, et replay/history restent autorisés. **SECURITY REJECTED** pour G6 sur `b25c61d085644525c18ce18a7b25d5b9f81c222c`.

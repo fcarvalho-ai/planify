@@ -1,3 +1,67 @@
+# Gate G6 — re-REVIEW terminale provenance compacte et OpenAPI
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g6_review_final`
+
+Candidat Git exact : `b25c61d085644525c18ce18a7b25d5b9f81c222c`
+
+Diff contrôlé : `14c1268cfcdcbefdcee8bf7a6be10419ef307f14..b25c61d085644525c18ce18a7b25d5b9f81c222c`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert.**
+
+Les blocages REVIEW précédents sont fermés. Les recommandations PlanyBot qui exposent une préférence client persistent désormais `quote.read`; celles dont la disponibilité ou la continuité dépend des Réservations/Ressources portent des gardes compactes des scopes correspondants. Rejeu et historique échouent fermés après révocation de permission ou modification du périmètre. La provenance agrégée n'embarque plus une liste non bornée de sources et ne reproduit plus le traitement quadratique signalé par les gates précédents. L'OpenAPI résout toutes ses références locales, dont `ReservationAllocation`, et tous ses paramètres de chemin sont déclarés obligatoires.
+
+## Fermetures confirmées
+
+1. **Préférence client / permission commerciale : FERMÉ.** `planyAccessSnapshot()` ajoute `quote.read` dès qu'une recommandation renvoyée porte `clientPreference: true` (`server.js:1322`). Le test crée une recommandation préférée, retire ensuite `quote.read`, puis vérifie `404` au rejeu et dans l'historique.
+2. **Continuité et disponibilité / scopes sources : FERMÉ.** Les branches conflit, résumé Projet, préparation et disponibilité annoncent les types de scopes réellement consultés (`server.js:1285`, `1290`, `1296`, `1301`). Le snapshot de schéma 3 en conserve une empreinte canonique et `planyAccessAllowed()` la recalcule avec les droits courants (`server.js:1309-1329`). Les identifiants directement affichés restent parallèlement vérifiés individuellement.
+3. **Provenance compacte et bornée : FERMÉ.** Les listes exhaustives de Réservations/Ressources sources ont été remplacées par au plus une empreinte par type de scope. La taille persistée ne croît donc plus avec les 10 000 Réservations du Projet et les boucles `includes`/`some` ne portent plus sur cette cardinalité. Le test confirme un snapshot inférieur à 2 000 caractères.
+4. **Fail-close et compatibilité : CONFORME.** Seul `schemaVersion: 3` est accepté. Les anciennes provenances restent conservées mais ne sont pas restituées. Les gardes changent aussi lors d'une extension de scope ; ce refus plus strict est sûr et impose simplement une nouvelle demande PlanyBot.
+5. **OpenAPI : FERMÉ.** `ReservationAllocation` est déclaré comme alias de l'union canonique `Allocation`. Le contrôle indépendant résout toutes les références locales et valide les paramètres requis de chaque template. Les quatre routes G6 avec `{quoteId}` restent correctement déclarées.
+
+## Régressions adjacentes
+
+- Aucun P0/P1 n'a été identifié dans le diff, les consommateurs PlanyBot et les contrats Réservation/Devis relus.
+- Les tests ciblés confirment l'absence de mutation lors d'une recommandation, l'isolation utilisateur, les replays idempotents, les permissions et les réductions de scopes.
+- Le schéma 3 rend volontairement inaccessibles les historiques de schéma 2 ; ce comportement fail-close est documenté et conforme à la spécification G6.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `b25c61d085644525c18ce18a7b25d5b9f81c222c` |
+| `node --test tests/plany.test.js tests/quotes.test.js tests/sprint6-plany-migration.test.js` | **PASS, 64/64**, 0 échec/skip/todo, 4,826 s |
+| `npm test` | **PASS, 270/270**, 0 échec/skip/todo, 8,548 s |
+| Contrôle Ruby/Psych des références locales et paramètres de templates OpenAPI | **PASS**, 67 références uniques résolues, 46 chemins valides |
+| `git diff --check` | **PASS** |
+| Inspection de `14c1268..b25c61d` | diff limité au durcissement de provenance, au contrat OpenAPI, aux tests et à leur documentation/statut |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                                      5025a767d5d05bc08a46aab00d8a2302d86838ce4f3f0d5e8cc817cec91a5a7d
+app.js                                         d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54
+docs/api/openapi-v1.yaml                       0632ef9e0c18adf793e662e883398701146c9a55a7a5fd73801ffe6ecd6a61fb
+tests/plany.test.js                            cfd8e782b2a78e00533a3f111337dcb266adcb7dfe91acb67e969e16c79acc58
+tests/quotes.test.js                           16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a
+docs/specifications/sprint-6-planybot-excel.md 39ce221aff88530d0e33e95df82be1aeb9aaafb81897894e9d20305622ddfa23
+```
+
+## Limites et handoff
+
+- Cette passe REVIEW ne remplace pas les revalidations indépendantes QA, SECURITY et PERFORMANCE sur `b25c61d` ; leurs rapports visibles portent encore sur le candidat antérieur et doivent être rejoués.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée ou autre document modifié.
+- `docs/project-status.md` reste sous responsabilité de l'intégrateur.
+
+---
+
 # Gate G6 — re-REVIEW finale provenance et OpenAPI
 
 Date : 2026-08-23
