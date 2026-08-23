@@ -337,6 +337,8 @@ test('S1-D réconcilie budget, devis et CA signé sur neuf dimensions sans inven
   assert.equal(dimensions.data.recognizedRevenueStage, 'signed');
   const forbidden = await request('/api/v1/analytics/revenue-chain', {}, viewer);
   assert.equal(forbidden.response.status, 403);
+  assert.equal((await request('/api/v1/analytics/backlog', {}, viewer)).response.status, 403);
+  assert.equal((await request('/api/v1/analytics/forecast', {}, viewer)).response.status, 403);
 
   const db = readDb(), offering = db.serviceOfferings.find(value => value.code === 'S1_MIX'), commercialLine = { category: 'technical', sourceType: 'serviceOffering', sourceId: offering.id, unit: 'jour', quantityMilli: '1000', serviceStartsAt: '2026-09-05T20:30:00.000Z', serviceEndsAt: '2026-09-05T22:30:00.000Z' };
   const budgetResult = await request('/api/v1/quotes', { method: 'POST', headers: { 'Idempotency-Key': 'sprint1-analytics-budget' }, body: JSON.stringify({ projectId: 'project_1', siteId: 'site_paris', kind: 'budget', title: 'Budget analytique Sprint 1', taxDate: '2026-09-05', lines: [commercialLine] }) });
@@ -349,12 +351,13 @@ test('S1-D réconcilie budget, devis et CA signé sur neuf dimensions sans inven
   const allDimensions = dimensions.data.dimensions.map(value => value.name).join(','), query = `/api/v1/analytics/revenue-chain?dimensions=${allDimensions}&serviceOfferingId=${encodeURIComponent(offering.id)}&projectId=project_1`;
   const analytics = await request(query);
   assert.equal(analytics.response.status, 200, JSON.stringify(analytics.data));
-  assert.equal(analytics.data.definitionVersion, 'revenue-chain-g1-v1');
+  assert.equal(analytics.data.definitionVersion, 'revenue-chain-g7-v1');
   const totals = Object.fromEntries(['budgeted', 'quoted', 'signed'].map(stage => [stage, analytics.data.groups.reduce((total, group) => total + BigInt(group.stages.find(value => value.stage === stage).valueMinor), 0n)]));
   assert.equal(totals.budgeted, BigInt(budgetResult.data.netHt));
   assert.equal(totals.quoted, BigInt(quoteResult.data.netHt) * 2n);
   assert.equal(totals.signed, BigInt(accepted.netHt));
-  for (const group of analytics.data.groups) for (const stage of ['planned', 'actual', 'billable', 'invoiced', 'collected']) { const value = group.stages.find(item => item.stage === stage); assert.deepEqual({ availability: value.availability, valueMinor: value.valueMinor, sourceCount: value.sourceCount }, { availability: 'unavailable', valueMinor: null, sourceCount: 0 }); }
+  for (const group of analytics.data.groups) for (const stage of ['planned', 'actual', 'billable']) { const value = group.stages.find(item => item.stage === stage); assert.equal(value.availability, 'available'); }
+  for (const group of analytics.data.groups) for (const stage of ['invoiced', 'collected']) { const value = group.stages.find(item => item.stage === stage); assert.deepEqual({ availability: value.availability, valueMinor: value.valueMinor, sourceCount: value.sourceCount }, { availability: 'unavailable', valueMinor: null, sourceCount: 0 }); }
   const representative = analytics.data.groups.find(group => group.stages.some(stage => stage.sourceCount));
   for (const dimension of dimensions.data.dimensions.map(value => value.name)) { const expected = representative.dimensions[dimension], filtered = await request(`/api/v1/analytics/revenue-chain?dimensions=${dimension}&${dimension}=${encodeURIComponent(expected ?? '')}`); assert.equal(filtered.response.status, 200); assert.ok(filtered.data.groups.every(group => String(group.dimensions[dimension] ?? '') === String(expected ?? '')), dimension); }
 

@@ -6,7 +6,7 @@ const path = require('node:path');
 const { performance } = require('node:perf_hooks');
 const prefix = `planify-finance-benchmark-${process.pid}-${Date.now()}.json`;
 process.env.PLANIFY_DATA_FILE = path.join(os.tmpdir(), prefix);
-const { actualRevisionDigest, financeMargins, makeSeed, readDb, resetData } = require('../server.js');
+const { actualRevisionDigest, financeBacklog, financeForecast, financeMargins, makeSeed, readDb, resetData } = require('../server.js');
 
 const percentile = (values, ratio) => values.slice().sort((left, right) => left - right)[Math.max(0, Math.ceil(values.length * ratio) - 1)] || 0;
 const measure = (iterations, callback) => {
@@ -24,7 +24,7 @@ function main() {
   for (const resource of resources) db.costRates.push({ id: `finance_benchmark_rate_${resource.id}`, companyId, scopeType: 'resource', scopeId: resource.id, unit: 'unite', costUnitMinor: '2500', currency: 'EUR', validFrom: '2026-01-01', validTo: null, active: true, version: 1, createdAt: timestamp, updatedAt: timestamp });
   for (let index = 0; index < 2000; index++) {
     const resource = resources[index % resources.length], quoteId = `finance_benchmark_quote_${index}`, lineId = `finance_benchmark_line_${index}`;
-    db.quotes.push({ id: quoteId, companyId, projectId: project.id, siteId: 'site_paris', kind: 'quote', status: 'accepted', number: `DEV-BENCH-${index}`, version: 1, lines: [{ id: lineId, sourceType: 'resource', sourceId: resource.id, label: `Prestation ${index}`, netHt: '10000', costTotal: '2500' }] });
+    db.quotes.push({ id: quoteId, companyId, projectId: project.id, siteId: 'site_paris', kind: 'quote', status: 'accepted', number: `DEV-BENCH-${index}`, currency: 'EUR', currencyExponent: 2, version: 1, lines: [{ id: lineId, sourceType: 'resource', sourceId: resource.id, label: `Prestation ${index}`, unit: 'unite', quantityMilli: '5000', netHt: '10000', costTotal: '2500' }] });
   }
   for (let index = 0; index < 10000; index++) {
     const resource = resources[index % resources.length], quoteIndex = index % 2000, reservationId = `finance_benchmark_reservation_${index}`, quoteId = `finance_benchmark_quote_${quoteIndex}`, lineId = `finance_benchmark_line_${quoteIndex}`;
@@ -37,9 +37,9 @@ function main() {
   }
   for (let index = 0; index < 2000; index++) db.projectCosts.push({ id: `finance_benchmark_project_cost_${index}`, companyId, projectId: project.id, siteId: 'site_paris', serviceOfferingId: null, reservationId: null, category: 'supplier', occurredOn: '2026-08-01', amountMinor: '100', currency: 'EUR', description: `Dépense ${index}`, supplierReference: null, status: 'confirmed', version: 1, createdBy: 'user_admin', createdAt: timestamp, updatedBy: 'user_admin', updatedAt: timestamp });
   const auth = { user: { id: 'user_admin', companyId, siteIds: db.sites.filter(value => value.companyId === companyId).map(value => value.id), organizationUnitIds: [], organizationScope: true, projectScopeRestricted: false, projectIds: [], entityScopes: {}, effectivePermissions: ['finance.read', 'quote.read', 'actual.read'] } };
-  const run = () => financeMargins(db, auth, { projectId: project.id, asOf: '2026-08-23' }); run();
-  const margins = measure(8, run), sample = run(), output = { dataset: { resources: resources.length, reservations: 10000, commercialDocuments: db.quotes.length, actualRecords: db.actualRecords.length, projectCosts: db.projectCosts.length, clientId: client.id }, latencyMs: { margins }, result: { itemCount: sample.itemCount, signedRevenueMinor: sample.totals.signedRevenueMinor, plannedCostMinor: sample.totals.plannedCostMinor, actualCostMinor: sample.totals.actualCostMinor }, thresholdMs: { readP95: 300 } };
-  console.log(JSON.stringify(output, null, 2)); if (margins.p95 >= 300) process.exitCode = 1;
+  const runMargins = () => financeMargins(db, auth, { projectId: project.id, asOf: '2026-08-23' }), runBacklog = () => financeBacklog(db, auth, { projectId: project.id, asOf: '2026-08-23' }), runForecast = () => financeForecast(db, auth, { projectId: project.id, asOf: '2026-08-23' }); runMargins(); runBacklog(); runForecast();
+  const margins = measure(8, runMargins), backlog = measure(8, runBacklog), forecast = measure(8, runForecast), sample = runMargins(), output = { dataset: { resources: resources.length, reservations: 10000, commercialDocuments: db.quotes.length, actualRecords: db.actualRecords.length, projectCosts: db.projectCosts.length, clientId: client.id }, latencyMs: { margins, backlog, forecast }, result: { itemCount: sample.itemCount, signedRevenueMinor: sample.totals.signedRevenueMinor, plannedCostMinor: sample.totals.plannedCostMinor, actualCostMinor: sample.totals.actualCostMinor }, thresholdMs: { readP95: 300 } };
+  console.log(JSON.stringify(output, null, 2)); if ([margins, backlog, forecast].some(value => value.p95 >= 300)) process.exitCode = 1;
 }
 
 try { main(); } finally { for (const name of fs.readdirSync(os.tmpdir())) if (name.startsWith(prefix)) try { fs.unlinkSync(path.join(os.tmpdir(), name)); } catch {} }

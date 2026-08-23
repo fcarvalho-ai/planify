@@ -726,6 +726,30 @@ paths:
               schema: { $ref: '#/components/schemas/RevenueChainResponse' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /analytics/backlog:
+    get:
+      operationId: getSignedBacklog
+      tags: [Analytics, Finance]
+      description: Calcule le CA signé restant à produire à partir des Devis acceptés et des réalisations visibles. Requiert finance.read.
+      parameters:
+        - { name: asOf, in: query, schema: { type: string, format: date } }
+        - { name: projectId, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Backlog signé réconcilié, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceBacklogResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /analytics/forecast:
+    get:
+      operationId: getRevenueForecast
+      tags: [Analytics, Finance]
+      description: Prévision cumulative 30/60/90 jours distinguant le CA planifié, non planifié et sans date Projet. Requiert finance.read.
+      parameters:
+        - { name: asOf, in: query, schema: { type: string, format: date } }
+        - { name: projectId, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Forecast commercial réconcilié, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceForecastResponse' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /search:
     get:
       operationId: universalSearch
@@ -1349,7 +1373,7 @@ components:
       additionalProperties: false
       required: [definitionVersion, dimensions, stages, recognizedRevenueStage]
       properties:
-        definitionVersion: { type: string, const: revenue-chain-g1-v1 }
+        definitionVersion: { type: string, const: revenue-chain-g7-v1 }
         dimensions:
           type: array
           minItems: 9
@@ -1406,9 +1430,60 @@ components:
             to: { type: [string, 'null'], format: date }
         dimensions: { type: array, uniqueItems: true, items: { $ref: '#/components/schemas/AnalyticsDimensionName' } }
         filters: { type: object, additionalProperties: true }
-        definitionVersion: { type: string, const: revenue-chain-g1-v1 }
+        definitionVersion: { type: string, const: revenue-chain-g7-v1 }
         generatedAt: { type: string, format: date-time }
         groups: { type: array, items: { $ref: '#/components/schemas/RevenueChainGroup' } }
+    FinanceBacklogResponse:
+      type: object
+      additionalProperties: false
+      required: [definitionVersion, generatedAt, asOf, currency, filters, freshness, sources, totals, items, itemCount]
+      properties:
+        definitionVersion: { type: string, const: 'FINANCE_BACKLOG@1' }
+        generatedAt: { type: string, format: date-time }
+        asOf: { type: string, format: date }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        filters: { type: object, additionalProperties: true }
+        freshness: { type: object, additionalProperties: true }
+        sources: { type: object, additionalProperties: true }
+        totals:
+          type: object
+          required: [signedRevenueMinor, earnedSignedRevenueMinor, backlogMinor]
+          properties:
+            signedRevenueMinor: { type: string, pattern: '^[0-9]+$' }
+            earnedSignedRevenueMinor: { type: string, pattern: '^[0-9]+$' }
+            backlogMinor: { type: string, pattern: '^[0-9]+$' }
+        items: { type: array, items: { type: object, additionalProperties: true } }
+        itemCount: { type: integer, minimum: 0 }
+    FinanceForecastWindow:
+      type: object
+      additionalProperties: false
+      required: [days, through, scheduledMinor, unscheduledMinor, totalMinor]
+      properties:
+        days: { type: integer, enum: [30, 60, 90] }
+        through: { type: string, format: date }
+        scheduledMinor: { type: string, pattern: '^[0-9]+$' }
+        unscheduledMinor: { type: string, pattern: '^[0-9]+$' }
+        totalMinor: { type: string, pattern: '^[0-9]+$' }
+    FinanceForecastResponse:
+      type: object
+      additionalProperties: false
+      required: [definitionVersion, generatedAt, asOf, currency, filters, freshness, windows, undated, items, itemCount]
+      properties:
+        definitionVersion: { type: string, const: 'FINANCE_FORECAST@1' }
+        generatedAt: { type: string, format: date-time }
+        asOf: { type: string, format: date }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        filters: { type: object, additionalProperties: true }
+        freshness: { type: object, additionalProperties: true }
+        windows: { type: array, minItems: 3, maxItems: 3, items: { $ref: '#/components/schemas/FinanceForecastWindow' } }
+        undated:
+          type: object
+          required: [amountMinor, lineCount]
+          properties:
+            amountMinor: { type: string, pattern: '^[0-9]+$' }
+            lineCount: { type: integer, minimum: 0 }
+        items: { type: array, items: { type: object, additionalProperties: true } }
+        itemCount: { type: integer, minimum: 0 }
     LoginResponse:
       type: object
       additionalProperties: false

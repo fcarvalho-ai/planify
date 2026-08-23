@@ -215,6 +215,8 @@ Le forecast 30/60/90 jours sépare :
 
 La distribution respecte les lignes commerciales et les jours/unités du moteur. Si les dates manquent, le montant est retourné dans `undated`, jamais réparti arbitrairement. Le forecast est déterministe et n’est pas une prédiction IA.
 
+Décision d’implémentation S7-C : ces indicateurs sont des read-models calculés à la demande depuis les Devis acceptés, Réservations et Réalisations déjà versionnés. Ils ne créent aucune collection mutable, aucun audit de lecture et aucun SSE propre. Leur rollback consiste à retirer les routes et consommateurs additifs sans modifier les données S7-A/S7-B. Les réponses publient une définition, une date de situation, la fraîcheur, les compteurs de sources visibles et un drill-down borné ; les droits et scopes sont appliqués avant tout total.
+
 ### 7.3 Occupation et capacité
 
 Pour une période et les ressources autorisées :
