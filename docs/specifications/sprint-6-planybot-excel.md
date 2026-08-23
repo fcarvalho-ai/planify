@@ -159,3 +159,12 @@ Preuves ciblées : classement stable, préférence client active, raison explici
 - l’interface PlanyBot demande le motif, enregistre la correction, puis seulement ensuite vérifie les disponibilités.
 
 Preuves fraîches : Devis 48/48, suite complète 266/266, lint, build, syntaxe et diff-check verts. Cet état termine l’incrément DEV S6-D ; REVIEW, QA, SECURITY/PERFORMANCE, INTEGRATION et E2E G6 restent requis sur un candidat figé.
+
+### Correctifs issus des gates G6 — intégrés le 2026-08-23
+
+- chaque réponse, message, conversation et marqueur idempotent PlanyBot conserve une provenance minimale des entités réellement exposées ; un rejeu ou une lecture revalide ces entités avec les droits et scopes courants et échoue fermé si cette provenance n’est pas démontrable ;
+- le chemin direct Excel → Devis utilise les révisions humaines immuables de S6-D : une ligne ambiguë ou non reconnue ne peut être appliquée avant qualification de la ressource, du libellé, de la période et du motif ; le serveur refuse aussi toute dérive entre la dernière révision confirmée et la commande d’application ;
+- l’analyse locale XLSX/PDF/CSV s’exécute via les API asynchrones de décompression et impose des plafonds par entrée et agrégés sur archives, feuilles, lignes, colonnes, cellules, chaînes partagées, fusions et flux PDF ; un dépassement retourne une erreur stable sans persistance ;
+- l’OpenAPI couvre la lecture de conversation, l’analyse du planning client, l’application contrôlée des lignes ainsi que la prévisualisation et la conversion vers le Planning.
+
+Preuves DEV fraîches : Clients + PlanyBot 24/24, Devis 49/49, suite complète 269/269, lint, build, syntaxe, OpenAPI YAML 3.1 et diff-check verts. Ces correctifs reviennent au workflow REVIEW → QA → SECURITY/PERFORMANCE ; aucun verdict indépendant n’est revendiqué ici.

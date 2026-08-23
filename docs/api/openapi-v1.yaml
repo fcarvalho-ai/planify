@@ -358,6 +358,17 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /plany/conversations/{conversationId}/messages:
+    get:
+      operationId: listPlanyConversationMessages
+      tags: [PlanyBot]
+      description: Relit une conversation après revalidation des projets, sites, ressources, réservations, devis, imports et personnes effectivement exposés par chaque réponse.
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Historique autorisé, content: { application/json: { schema: { type: object, required: [conversationId, items], properties: { conversationId: { type: string }, items: { type: array, maxItems: 50, items: { type: object, additionalProperties: true } } } } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /plany/proposals/{proposalId}:
     get:
       operationId: getPlanyProposal
@@ -659,6 +670,54 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/UniversalSearchResponse' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /quotes/{quoteId}/client-planning/analyze:
+    post:
+      operationId: analyzeClientPlanning
+      tags: [Commercial, Planning]
+      description: Analyse un fichier client borné sans créer de ligne commerciale ni de réservation.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ClientPlanningAnalyzeCommand' } } } }
+      responses:
+        '201': { description: Analyse persistée, content: { application/json: { schema: { $ref: '#/components/schemas/ClientPlanningAnalysis' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /quotes/{quoteId}/client-planning/apply-lines:
+    post:
+      operationId: applyClientPlanningLines
+      tags: [Commercial, Planning]
+      description: Ajoute au devis brouillon uniquement des lignes issues de la dernière révision humaine confirmée. Ne crée aucune réservation.
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ClientPlanningApplyLinesCommand' } } } }
+      responses:
+        '201': { description: Lignes ajoutées au devis brouillon, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '200': { description: Rejeu idempotent, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /quotes/{quoteId}/planning-conversion/preview:
+    post:
+      operationId: previewQuotePlanningConversion
+      tags: [Commercial, Planning]
+      description: Revalide le devis accepté, sa version, l’analyse client et les conflits sans écrire de réservation.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/QuotePlanningConversionCommand' } } } }
+      responses:
+        '200': { description: Prévisualisation sans mutation, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /quotes/{quoteId}/planning-conversion:
+    post:
+      operationId: convertQuoteToPlanning
+      tags: [Commercial, Planning]
+      description: Crée atomiquement les réservations après confirmation humaine explicite sur un devis accepté et versionné.
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/QuotePlanningConversionCommand' } } } }
+      responses:
+        '201': { description: Réservations créées et liées, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '200': { description: Rejeu idempotent, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /quotes/{quoteId}/client-planning/{importId}/revisions:
     post:
       operationId: reviseClientPlanningImport
@@ -698,6 +757,68 @@ components:
     Page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
     PageSize: { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
   schemas:
+    ClientPlanningAnalyzeCommand:
+      type: object
+      additionalProperties: false
+      required: [version, quoteVersionId, fileName, mimeType, contentBase64]
+      properties:
+        version: { type: integer, minimum: 1 }
+        quoteVersionId: { type: string }
+        fileName: { type: string, minLength: 1, maxLength: 240 }
+        mimeType: { type: string, maxLength: 160 }
+        contentBase64: { type: string, minLength: 4, description: Fichier XLSX, CSV ou PDF de 5 Mio maximum avant décodage. }
+    ClientPlanningApplyLinesCommand:
+      type: object
+      additionalProperties: false
+      required: [version, quoteVersionId, clientPlanningImportId, items]
+      properties:
+        version: { type: integer, minimum: 1 }
+        quoteVersionId: { type: string }
+        clientPlanningImportId: { type: string }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: { $ref: '#/components/schemas/ClientPlanningApplyLine' }
+    ClientPlanningApplyLine:
+      type: object
+      additionalProperties: false
+      required: [rowNumber]
+      properties:
+        rowNumber: { type: integer, minimum: 1 }
+        sourceType: { type: string, enum: [resource] }
+        sourceId: { type: string }
+        category: { type: string }
+        section: { type: string, maxLength: 160 }
+        label: { type: string, minLength: 2, maxLength: 240 }
+        unit: { type: string, maxLength: 40 }
+        quantityMilli: { type: string, pattern: '^[1-9][0-9]*$' }
+        requestedDurationDays: { type: integer, minimum: 1, maximum: 366 }
+    QuotePlanningConversionCommand:
+      type: object
+      additionalProperties: false
+      required: [version, quoteVersionId, items]
+      properties:
+        version: { type: integer, minimum: 1 }
+        quoteVersionId: { type: string }
+        clientPlanningImportId: { type: string }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            type: object
+            additionalProperties: false
+            required: [quoteLineId, startDate, resourceIds]
+            properties:
+              quoteLineId: { type: string }
+              startDate: { type: string, format: date }
+              durationDays: { type: integer, minimum: 1, maximum: 366 }
+              resourceIds: { type: array, minItems: 1, uniqueItems: true, items: { type: string } }
+              status: { type: string, enum: [option, confirmed] }
+              startTime: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+              endTime: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
+              clientPlanningRowId: { type: string }
     ClientPlanningRevisionCommand:
       type: object
       additionalProperties: false
@@ -711,11 +832,12 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [rowNumber, suggestedQuoteLineId, suggestedResourceId, startDate, durationDays, startTime, endTime, resolutionNote, confirmed]
+            required: [rowNumber, suggestedResourceId, startDate, durationDays, startTime, endTime, resolutionNote, confirmed]
             properties:
               rowNumber: { type: integer, minimum: 1 }
               suggestedQuoteLineId: { type: string }
               suggestedResourceId: { type: string }
+              label: { type: string, minLength: 2, maxLength: 240 }
               startDate: { type: string, format: date }
               durationDays: { type: integer, minimum: 1, maximum: 366 }
               startTime: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }

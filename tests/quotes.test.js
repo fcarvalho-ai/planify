@@ -74,6 +74,11 @@ function storedZip(entries) {
 function clientPlanningXlsx() {
   const rows = [['Date','Prestation','Salle','Heure début','Heure fin'],['14/06/2028','Montage Avid','Salle Montage A','09:00','18:00'],['15/06/2028','Montage Avid','Salle Montage A','09:00','18:00']], xmlRows = rows.map((row, rowIndex) => `<row r="${rowIndex + 1}">${row.map((value, column) => `<c r="${String.fromCharCode(65 + column)}${rowIndex + 1}" t="inlineStr"><is><t>${value}</t></is></c>`).join('')}</row>`).join(''); return storedZip({ 'xl/worksheets/sheet1.xml': `<?xml version="1.0"?><worksheet><sheetData>${xmlRows}</sheetData></worksheet>` });
 }
+function xlsxWithDeclaredEntryCount(workbook, count) {
+  const copy = Buffer.from(workbook); let eocd = -1;
+  for (let offset = Math.max(0, copy.length - 65557); offset <= copy.length - 22; offset++) if (copy.readUInt32LE(offset) === 0x06054b50) eocd = offset;
+  assert.ok(eocd >= 0); copy.writeUInt16LE(count, eocd + 8); copy.writeUInt16LE(count, eocd + 10); return copy;
+}
 function les50PlanningXlsx() {
   const cell = (ref, value, type = 'inlineStr') => type === 'inlineStr' ? `<c r="${ref}" t="inlineStr"><is><t>${value}</t></is></c>` : `<c r="${ref}"><v>${value}</v></c>`;
   const sheet = `<?xml version="1.0"?><worksheet><sheetData>
@@ -415,9 +420,20 @@ test('un planning client crée un devis brouillon traçable sans réservation', 
   assert.equal(created.response.status, 201); assert.equal(document.creationMethod, 'clientPlanningImport'); assert.equal(document.lines.length, 0);
   const beforeReservations = readDb().reservations.length, workbook = clientPlanningXlsx(), analysis = await request(`/api/v1/quotes/${document.id}/client-planning/analyze`, { method: 'POST', body: JSON.stringify({ version: document.version, quoteVersionId: document.currentVersionId, fileName: 'planning-client-direct.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', contentBase64: workbook.toString('base64') }) }, admin);
   assert.equal(analysis.response.status, 201, JSON.stringify(analysis.data)); assert.equal(analysis.data.preliminary, true); assert.equal(readDb().reservations.length, beforeReservations);
-  const applied = await request(`/api/v1/quotes/${document.id}/client-planning/apply-lines`, { method: 'POST', headers: { 'Idempotency-Key': 'apply-client-planning-lines' }, body: JSON.stringify({ version: document.version, quoteVersionId: document.currentVersionId, clientPlanningImportId: analysis.data.id, items: [{ rowNumber: analysis.data.rows[0].rowNumber, sourceType: 'resource', sourceId: 'resource_3', category: 'room', unit: 'jour' }] }) }, admin); assert.equal(applied.response.status, 201, JSON.stringify(applied.data)); document = applied.data;
+  const unclarifiedPayload = { version: document.version, quoteVersionId: document.currentVersionId, clientPlanningImportId: analysis.data.id, items: [{ rowNumber: analysis.data.rows[0].rowNumber, sourceType: 'resource', sourceId: 'resource_3', category: 'room', unit: 'jour' }] };
+  const blocked = await request(`/api/v1/quotes/${document.id}/client-planning/apply-lines`, { method: 'POST', headers: { 'Idempotency-Key': 'apply-client-planning-unclarified' }, body: JSON.stringify(unclarifiedPayload) }, admin); assert.equal(blocked.response.status, 409); assert.equal(blocked.data.error.code, 'CLIENT_PLANNING_CLARIFICATION_REQUIRED');
+  const sourceRow = analysis.data.rows[0], revised = await request(`/api/v1/quotes/${document.id}/client-planning/${analysis.data.id}/revisions`, { method: 'POST', headers: { 'Idempotency-Key': 'revise-direct-client-planning' }, body: JSON.stringify({ importVersion: analysis.data.version, corrections: [{ rowNumber: sourceRow.rowNumber, suggestedResourceId: 'resource_3', label: sourceRow.label, startDate: sourceRow.startDate, durationDays: sourceRow.durationDays, startTime: sourceRow.startTime, endTime: sourceRow.endTime, resolutionNote: 'Correspondance validée par l’opérateur', confirmed: true }] }) }, admin); assert.equal(revised.response.status, 201, JSON.stringify(revised.data)); assert.equal(revised.data.rows[0].matchStatus, 'confirmed');
+  const drift = await request(`/api/v1/quotes/${document.id}/client-planning/apply-lines`, { method: 'POST', headers: { 'Idempotency-Key': 'apply-client-planning-drift' }, body: JSON.stringify({ ...unclarifiedPayload, items: [{ ...unclarifiedPayload.items[0], label: 'Libellé non révisé' }] }) }, admin); assert.equal(drift.response.status, 409); assert.equal(drift.data.error.code, 'CLIENT_PLANNING_REVISION_REQUIRED');
+  const revisedRow = revised.data.rows[0], appliedPayload = { ...unclarifiedPayload, items: [{ rowNumber: revisedRow.rowNumber, sourceType: 'resource', sourceId: revisedRow.suggestedResourceId, category: 'room', label: revisedRow.label, unit: 'jour', quantityMilli: String(revisedRow.durationDays * 1000), requestedDurationDays: revisedRow.durationDays }] };
+  const applied = await request(`/api/v1/quotes/${document.id}/client-planning/apply-lines`, { method: 'POST', headers: { 'Idempotency-Key': 'apply-client-planning-lines' }, body: JSON.stringify(appliedPayload) }, admin); assert.equal(applied.response.status, 201, JSON.stringify(applied.data)); document = applied.data;
   assert.equal(document.lines.length, 1); assert.equal(document.lines[0].planning.status, 'unplanned'); assert.equal(document.lines[0].clientPlanningTrace.importId, analysis.data.id); assert.notEqual(document.lines[0].priceOrigin, 'manual'); assert.equal(readDb().reservations.length, beforeReservations);
-  const replay = await request(`/api/v1/quotes/${document.id}/client-planning/apply-lines`, { method: 'POST', headers: { 'Idempotency-Key': 'apply-client-planning-lines' }, body: JSON.stringify({ version: created.data.version, quoteVersionId: created.data.currentVersionId, clientPlanningImportId: analysis.data.id, items: [{ rowNumber: analysis.data.rows[0].rowNumber, sourceType: 'resource', sourceId: 'resource_3', category: 'room', unit: 'jour' }] }) }, admin); assert.equal(replay.response.status, 200); assert.equal(replay.data.lines.length, 1);
+  const replay = await request(`/api/v1/quotes/${document.id}/client-planning/apply-lines`, { method: 'POST', headers: { 'Idempotency-Key': 'apply-client-planning-lines' }, body: JSON.stringify(appliedPayload) }, admin); assert.equal(replay.response.status, 200); assert.equal(replay.data.lines.length, 1);
+});
+
+test('l’analyse refuse un classeur dont la structure ZIP dépasse les limites agrégées', async () => {
+  const created = await request('/api/v1/quotes', { method: 'POST', headers: { 'Idempotency-Key': 'bounded-client-planning-quote' }, body: JSON.stringify({ projectId: 'project_1', siteId: 'site_paris', kind: 'quote', creationMethod: 'clientPlanningImport', title: 'Import borné', taxDate: '2026-08-18' }) }, admin), workbook = xlsxWithDeclaredEntryCount(clientPlanningXlsx(), 257), before = readDb().clientPlanningImports.length;
+  const result = await request(`/api/v1/quotes/${created.data.id}/client-planning/analyze`, { method: 'POST', body: JSON.stringify({ version: created.data.version, quoteVersionId: created.data.currentVersionId, fileName: 'planning-trop-structure.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', contentBase64: workbook.toString('base64') }) }, admin);
+  assert.equal(result.response.status, 422); assert.equal(result.data.error.code, 'CLIENT_PLANNING_LIMIT_EXCEEDED'); assert.equal(readDb().clientPlanningImports.length, before);
 });
 
 test('seul un devis accepté alimente le chiffre d’affaires avec son instantané', async () => {
@@ -520,7 +536,7 @@ test('SSE Commercial revalide quote.read en direct et conserve l’isolation sit
 });
 
 test('l’interface limite la sélection jour au DOM visible et expose les confirmations protégées', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8'), css = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8'), css = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8'), contract = fs.readFileSync(path.join(__dirname, '..', 'docs', 'api', 'openapi-v1.yaml'), 'utf8');
   assert.match(source, /\.planning-cell\[data-date="\$\{CSS\.escape\(day\.dataset\.planningDay\)\}"\] \[data-select-booking\]/);
   assert.match(source, /COMMERCIAL_DOUBLE_BILLING_CONFIRMATION_REQUIRED/);
   assert.match(source, /confirmDuplicateBookingIds/);
@@ -594,6 +610,7 @@ test('l’interface limite la sélection jour au DOM visible et expose les confi
   assert.match(source, /Guide de l’analyse du planning client/);
   assert.match(source, /PlanyBot explique et prépare/);
   assert.match(source, /Le devis et son instantané fiscal resteront inchangés/);
+  for (const pathName of ['/quotes/{quoteId}/client-planning/analyze:', '/quotes/{quoteId}/client-planning/apply-lines:', '/quotes/{quoteId}/planning-conversion/preview:', '/quotes/{quoteId}/planning-conversion:']) assert.ok(contract.includes(pathName), pathName);
   assert.match(source, /<th>Remise<\/th>/);
   assert.match(css, /min-height:297mm/);
   assert.match(css, /grid-template-columns:210px minmax\(680px,1fr\) 270px/);

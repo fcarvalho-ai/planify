@@ -124,11 +124,22 @@ test('le replay idempotent ne double pas les messages et un autre corps est refu
   const conflict = await ask('Un autre message', 'replay-1'); assert.equal(conflict.response.status, 409); assert.equal(conflict.data.error.code, 'IDEMPOTENCY_CONFLICT');
 });
 
+test('le replay et l’historique revalident les projets inférés après réduction des scopes', async () => {
+  const first = await ask('Résume Horizons — Saison 2', 'inferred-project-scope', {}, undefined, viewer); assert.equal(first.response.status, 201); assert.equal(first.data.facts.project.id, 'project_1');
+  const visible = await request(`/api/v1/plany/conversations/${first.data.conversationId}/messages`, {}, viewer); assert.equal(visible.response.status, 200); assert.ok(visible.data.items.some(item => item.facts?.project?.id === 'project_1'));
+  const memberships = await request('/api/v1/memberships?pageSize=200', {}, admin), membership = memberships.data.items.find(item => item.userId === 'user_viewer'); assert.ok(membership);
+  const reduced = await request(`/api/v1/memberships/${membership.id}/scopes`, { method: 'PUT', headers: { 'Idempotency-Key': 'plany-inferred-scope-reduction' }, body: JSON.stringify({ version: membership.version, scope: 'sites', siteIds: ['site_paris'], organizationUnitIds: [], projectIds: ['project_2'], entityScopes: {} }) }, admin); assert.equal(reduced.response.status, 200);
+  const replay = await ask('Résume Horizons — Saison 2', 'inferred-project-scope', {}, undefined, viewer); assert.equal(replay.response.status, 404); assert.equal(replay.data.error.code, 'NOT_FOUND');
+  const hidden = await request(`/api/v1/plany/conversations/${first.data.conversationId}/messages`, {}, viewer); assert.equal(hidden.response.status, 404); assert.equal(hidden.data.error.code, 'NOT_FOUND');
+});
+
 test('l’interface annonce PlanyBot et le contrôle humain sans mutation directe', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  const contract = fs.readFileSync(path.join(__dirname, '..', 'docs', 'api', 'openapi-v1.yaml'), 'utf8');
   assert.match(source, /PlanyBot prépare, vous confirmez/); assert.match(source, /data-plany-prompt/); assert.match(source, /data-plany-confirm/); assert.match(source, /Confirmer et créer/);
   assert.match(source, /Guide de l’analyse du planning client/); assert.match(source, /workflow:'clientPlanning'/);
   assert.match(source, /proposalKeys\[`confirm:\$\{proposalId\}`\]/, 'la clé de confirmation doit rester stable pendant un retry UI');
   assert.match(source, /rooms=planningDomain==='postProduction'\?state\.resources\.filter/, 'le formulaire doit conserver toutes les salles éligibles même lorsqu’une vue Projet est vide');
   const planyBlock = source.slice(source.indexOf('const plany=')); assert.doesNotMatch(planyBlock, /api\('\/api\/v1\/reservations',\{method:'POST'/); assert.match(planyBlock, /\/plany\/proposals\/\$\{encodeURIComponent\(proposalId\)\}\/confirm/);
+  assert.match(contract, /\/plany\/conversations\/\{conversationId\}\/messages:/);
 });
