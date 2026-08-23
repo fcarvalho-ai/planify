@@ -1,3 +1,90 @@
+# Gate re-REVIEW terminal S7-B — coûts historiques, scopes et marges
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7b_review_terminal`
+
+Candidat applicatif exact : `b42ea165ed32eeebae0b3f9f2080520bf946d4d8` (`fix(finance): close S7-B gate blockers`)
+
+Diff correctif contrôlé : `59ad25a339112dc4faa7df556e43aace6c1cb1ae..b42ea165ed32eeebae0b3f9f2080520bf946d4d8`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 2 P1 ouverts, 1 P2 ouvert.**
+
+Les trois P1 de la REVIEW précédente sont fermés sur leurs chemins de lecture et de calcul : le coût planifié est figé par version de Réservation dans `plannedCostSnapshots`, les quatre types de tarifs internes sont filtrés par leur source, et les marges filtrent Client, Devis, Ressource/Stock/Prestation avant agrégation tout en publiant définition, fraîcheur, sources et drill-down. Le backfill est bien exécuté dans la migration Finance et dans `atomicWrite()`, avant l'écriture atomique.
+
+Le candidat ne peut néanmoins pas être approuvé. Les validations de mutation ne sont pas symétriques avec les contrôles de lecture : un gestionnaire Finance limité à certains sites peut créer ou retargeter un tarif `person` vers une personne hors site, et créer ou retargeter une dépense vers un Projet/Client hors périmètre lorsque `siteId` est omis. Ces écritures hors autorité violent la SPEC Sprint 7 §9 et le contrat de mutation sensible d'`AGENTS.md`.
+
+## P1 — bloquants
+
+### P1-1 — Un tarif `person` peut être créé ou retargeté vers une personne hors site
+
+`financeEntityAllowed()` protège correctement la lecture et le rejeu d'un tarif `person` en résolvant la membership puis en appelant `membershipAllowed()` (`server.js:1382-1390`). En revanche, `costRateInput()` valide la source `person` uniquement par société et `entityAllowed(auth, 'person', id)` (`server.js:1395-1401`). En l'absence d'une liste explicite `entityScopes.person`, ce prédicat est ouvert et ne contrôle ni la membership active ni son site/unité.
+
+Conséquences :
+
+- `POST /api/v1/finance/cost-rates` accepte une personne Boulogne pour un gestionnaire Finance limité à Paris ;
+- `PATCH /api/v1/finance/cost-rates/{id}` peut partir d'un tarif Paris autorisé puis remplacer `scopeType/scopeId` par cette personne Boulogne ; le contrôle `financeEntityAllowed()` porte seulement sur l'objet avant mutation ;
+- la réponse de mutation restitue immédiatement l'objet créé/modifié, puis les lectures/replays suivants le masquent. L'échec fermé après coup ne répare ni l'écriture non autorisée ni son audit/SSE.
+
+Correction attendue : pour `person`, résoudre une membership active de la société et exiger à la fois `entityAllowed()` et `membershipAllowed()` dans `costRateInput()`, comme dans la lecture. Revalider la provenance finale de tout PATCH avant écriture. Ajouter des négatifs POST, PATCH et replay avec gestionnaire `finance.cost.manage` Paris et personne Boulogne ; vérifier absence de tarif, marqueur idempotent, audit et SSE après refus.
+
+### P1-2 — Une dépense peut viser un Projet/Client hors périmètre si `siteId` est absent
+
+`projectCostAllowed()` applique bien le Projet, le Client et les éventuelles sources liées lors des lectures/replays (`server.js:1406-1412`). `projectCostInput()` ne reprend toutefois pas ces invariants pour la provenance principale (`server.js:1414-1424`) :
+
+- le Projet est sélectionné avec `projectAllowed()` seulement ; ce prédicat ne contrôle pas le site du Projet ;
+- le Client propriétaire n'est jamais résolu ni passé à `clientAllowed()` ;
+- le site n'est contrôlé que si le client envoie explicitement `siteId`. Une valeur absente ou `null` contourne donc le scope site même si le Projet porte un site hors périmètre.
+
+Ainsi, un gestionnaire limité à Paris mais sans restriction explicite de Projets peut créer une dépense sur un Projet Boulogne avec `siteId` omis. Il peut aussi retargeter une dépense Paris autorisée vers un Projet/Client caché : le contrôle initial porte sur l'ancien objet, puis `projectCostInput()` accepte la nouvelle provenance. Comme pour P1-1, la réponse, l'audit et le SSE matérialisent l'écriture avant que les lectures ultérieures ne la masquent.
+
+Correction attendue : résoudre le Projet final, exiger son site autorisé et son Client autorisé, puis imposer la cohérence du `siteId` de dépense avec le Projet/la Réservation selon le contrat métier. Appliquer ces contrôles au POST et à l'état final du PATCH. Ajouter des négatifs multi-sites et `entityScopes.client` pour création, retargeting et replay, avec preuve de zéro écriture partielle/audit/SSE.
+
+## P2 — important non bloquant isolément
+
+- **La suite couvre la confidentialité en lecture, pas la symétrie des mutations.** Le nouveau test multi-sites crée les quatre tarifs avec l'administrateur Organisation puis vérifie seulement qu'un lecteur Finance Paris ne les voit pas. Il ne donne pas `finance.cost.manage` au rôle restreint et ne tente aucun POST/PATCH hors site. Les dépenses ne disposent d'aucun négatif Projet/Client/site équivalent. Cette lacune a laissé les deux P1 ci-dessus passer malgré 71/71 ciblés et 293/293 complets.
+
+## Fermetures historiques confirmées
+
+1. **Historique planifié : FERMÉ.** `freezeReservationPlannedCosts()` indexe par `reservationId:version`, stocke montant, tarif/version, unité, quantité et état résolu/partiel/indisponible hors DTO Réservation. `migrateSprint7FinanceV1()` effectue le backfill initial et `atomicWrite()` le rejoue avant chaque écriture atomique ; une version déjà figée n'est pas recalculée après changement de tarif.
+2. **Lecture des quatre sources : FERMÉE.** Ressource, catégorie de ressource, personne et catégorie de personne sont résolues vers leurs prédicats site/unité/entité dans `financeEntityAllowed()`. Le test Paris/Boulogne vérifie le masquage des quatre types.
+3. **Marges avant agrégation : FERMÉES.** Les Projets exigent Client et site autorisés ; les Devis exigent leur scope ; chaque ligne est filtrée par Ressource, Stock, Prestation ou type manuel avant construction des totaux. Réservations, réalisés et dépenses sont ensuite rattachés au sous-ensemble autorisé.
+4. **Réconciliation : FERMÉE.** La réponse `FINANCE_MARGIN@1` expose période, fraîcheur, sources, compteurs et lignes de drill-down bornées ; l'UI et l'OpenAPI consomment ce contrat.
+5. **Intégrité historique : FERMÉE.** Snapshots planifiés et réalisés, références de tarifs, chaîne de révisions de dépenses et marqueurs idempotents sont vérifiés ; annulation de dépense terminale et rollback avec export privé restent conformes.
+
+## Preuves examinées
+
+Environnement des preuves QA : macOS arm64, Node `v26.6.0`, 2026-08-23. Aucune campagne longue n'a été relancée par cette REVIEW terminale ; les résultats frais produits sur le candidat exact sont réutilisés conformément au mandat.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --test tests/sprint7-finance.test.js tests/sprint7-actuals.test.js tests/quotes.test.js` | **PASS, 71/71**, 0 échec/skip/todo, preuve QA sur `b42ea165…` |
+| `npm test` | **PASS, 293/293**, 0 échec/skip/todo, preuve QA sur `b42ea165…` |
+| `git diff --check b42ea165^ b42ea165` | **PASS** |
+| Inspection ciblée du diff, des mutations/replays, de `atomicWrite()`, des scopes et des consommateurs | 3 P1 historiques fermés ; 2 P1 de mutation hors scope ouverts |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                           30099196c834172b88870b568b79f8af1b667a9994974c1669a9494e2783d004
+app.js                              67b80cac99763abd2d5dbfe57fadefe5612504978a156b29343d30ce03a6277d
+docs/api/openapi-v1.yaml            b3d48360e946ac3d854c22a6915dc398a2fc6951e2f880b6122a882c88a5cb8e
+tests/sprint7-finance.test.js       1c20ef42048df5420fc522155c861f1b3d664e15a188163ac6b744c84545a85d
+tests/sprint7-actuals.test.js       d83667ecd893ed88046f95474dd33bf1f5b508cbd83676db774e349f0742a7c9
+```
+
+## Handoff
+
+- Gate re-REVIEW terminal S7-B : **CHANGES REQUIRED** sur `b42ea165ed32eeebae0b3f9f2080520bf946d4d8` ; retour DEV requis, puis re-REVIEW et gates aval impactés.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée, statut ou autre rapport modifié.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur conformément à l'exception de tâche limitée à un fichier.
+
+---
+
 # Gate REVIEW S7-B — coûts historiques et marges
 
 Date : 2026-08-23

@@ -1,61 +1,78 @@
-# Revue PERFORMANCE indépendante — S7-B
+# Revalidation PERFORMANCE indépendante — S7-B
 
 Date : 2026-08-23
 
-Candidat Git : `59ad25a339112dc4faa7df556e43aace6c1cb1ae`
+Candidat Git : `b42ea165ed32eeebae0b3f9f2080520bf946d4d8`
 
-Verdict : **BLOCKED — 0 P0, 1 P1, 3 P2**
+Verdict : **REJECTED — 0 P0, 1 P1, 2 P2**
 
-## Périmètre et seuils
+## Seuils et environnement
 
-La SPEC S7 impose un jeu représentatif de **250 ressources, 10 000 réservations, 2 000 documents commerciaux et 2 000 réalisations/coûts**, avec lectures Finance p95 `< 300 ms`, confirmation/correction p95 `< 250 ms` et UI interactive `< 2 s`.
+Seuils S7 : lectures/agrégats p95 `< 300 ms`, confirmations/corrections p95 `< 250 ms`, UI interactive `< 2 s`.
 
-Le candidat ne contient ni benchmark Finance dédié ni preuve fraîche mesurant `/api/v1/finance/cost-rates`, `/api/v1/finance/project-costs` et `/api/v1/analytics/margins` sur ce dataset. Le benchmark S7-A existant couvre 161 ressources, 10 011 réservations et 2 500 réalisations, mais aucun volume de 2 000 documents/coûts ni la nouvelle route de marge; il ne peut donc pas approuver S7-B.
+Environnement : Node `v26.6.0`, runtime local CommonJS/JSON, données temporaires privées nettoyées par les scripts.
+
+## Benchmark Finance représentatif
+
+Commande : `npm run benchmark:finance`
+
+Dataset : **250 ressources, 10 000 réservations, 2 000 documents commerciaux, 2 000 ActualRecords, 2 000 ProjectCosts**, 250 taux internes et 10 000 snapshots planifiés.
+
+| Chemin | p50 | p95 | max | Seuil |
+|---|---:|---:|---:|---:|
+| `financeMargins()` | `23,00 ms` | `36,49 ms` | `36,49 ms` | `< 300 ms` |
+
+Le résultat est réconcilié sur 2 000 lignes : CA signé `20 000 000`, coût planifié `25 200 000`, coût réel `5 200 000` en unités mineures. Le benchmark termine sans échec.
+
+L'index `costRateIndex()` est construit une fois par contexte et partagé par les résolutions ; le scan `allocations × costRates` du rapport précédent est fermé. Le comptage de révisions ProjectCost est désormais préagrégé en `Map`, supprimant `O(page × revisions)`.
 
 ## P1 bloquant
 
-### PERF-S7B-01 — seuils contractuels Finance non démontrés
+### PERF-S7B-05 — confirmation et correction dépassent le seuil d'écriture
 
-Les résultats DEV fonctionnels (20/20 ciblés et 291/291 suite complète, transmis avec le candidat) ne sont pas des mesures de charge. Sans p50/p95/max des listes, de la marge et des écritures sur le volume exigé, le Gate PERFORMANCE ne peut conclure `APPROVED`.
+Commande : `npm run benchmark:actuals`
 
-Correction requise : ajouter ou exécuter un harness local déterministe incluant 250 ressources, 10k réservations, 2k Devis, au moins 2k réalisations/dépenses et un nombre représentatif de taux datés; mesurer après échauffement les trois lectures, création/correction de coût/dépense et confirmation/correction Actual enrichie du snapshot.
+Dataset : 161 ressources, 10 011 réservations et 2 500 réalisations. Les lectures passent, mais les écritures échouent au seuil `<250 ms` :
+
+| Chemin HTTP | p50 | p95 | max | Seuil |
+|---|---:|---:|---:|---:|
+| Liste Actual | `97,13 ms` | `103,99 ms` | `110,04 ms` | `< 300 ms` |
+| Pending | `112,19 ms` | `122,78 ms` | `122,82 ms` | `< 300 ms` |
+| Détail | `95,11 ms` | `106,00 ms` | `106,73 ms` | `< 300 ms` |
+| Confirmation | `296,41 ms` | `8 937,01 ms` | `8 937,01 ms` | `< 250 ms` |
+| Correction | `283,10 ms` | `284,22 ms` | `284,22 ms` | `< 250 ms` |
+
+La première confirmation déclenche `freezeReservationPlannedCosts()` depuis `atomicWrite()` et matérialise les snapshots manquants de l'ensemble des réservations, expliquant le pic de 8,9 s. Les écritures suivantes réécrivent un JSON enrichi d'environ 10 000 snapshots et restent autour de 280–300 ms, au-dessus du contrat.
+
+Correction requise : ne pas backfiller toute la base sur une mutation interactive. Réaliser le backfill en migration bornée/explicite, puis figer uniquement les réservations affectées par la commande ; mesurer de nouveau confirmation, correction et écritures Finance sur le dataset représentatif.
 
 ## P2 importants
 
-### PERF-S7B-02 — résolution de taux rescannée pour chaque allocation
+### PERF-S7B-06 — benchmark Finance incomplet sur HTTP et écritures
 
-`financeMargins()` appelle `resolveInternalCostRate()` pour chaque allocation planifiée. Cette fonction filtre et trie toute `db.costRates` à chaque appel. La complexité devient approximativement `O(allocations × costRates log costRates)` au lieu d'un index daté construit une fois par requête. À 10 000 réservations et plusieurs centaines de tarifs, cette route est la plus exposée au dépassement du p95.
+Le nouveau harness mesure directement le moteur de marge, pas les endpoints HTTP de listes ni POST/PATCH CostRate/ProjectCost. La preuve de lecture principale est excellente, mais une campagne aval devra conserver p50/p95/max HTTP des trois lectures et des mutations Finance après correction du P1.
 
-Recommandation : indexer une fois par calcul les tarifs par `(companyId, scopeType, scopeId, unit)`, déjà triés par période/version, puis résoudre en parcours borné.
+### PERF-S7B-07 — UI Finance sans profil navigateur frais
 
-### PERF-S7B-03 — nombre de révisions recalculé par scan pour chaque ligne
+L'UI lance trois lectures en parallèle et limite les drill-down à 200 items. Chaque invalidation CostRate/ProjectCost recharge encore listes et marge complètes. Aucun profil navigateur scripting/paint/heap ne démontre l'interactivité `<2 s` avec 2 000 lignes sources.
 
-La liste des dépenses pagine d'abord à 200, puis exécute pour chaque élément un `filter()` complet sur `projectCostRevisions`. Le coût est `O(pageSize × revisions)`. Recommandation : préagréger une `Map<projectCostId,count>` en un seul passage.
-
-### PERF-S7B-04 — rafraîchissement UI Finance intégral sur chaque invalidation
-
-Une invalidation coût/dépense déclenche `loadFinance()`, soit trois appels parallèles et un recalcul complet des marges. Le debounce SSE global limite les rafales à 250 ms mais ne cible ni l'entité ni le Projet. En édition concurrente, ce comportement peut multiplier les scans JSON/Finance et les rendus complets.
-
-Recommandation : recharger la liste concernée et invalider les marges une fois par lot/version; mesurer réseau, scripting, paint et interactivité navigateur.
+Recommandation : profiler chargement initial et rafale SSE, puis cibler l'entité/l'agrégat invalidé.
 
 ## Analyse statique favorable
 
-- Les listes HTTP sont paginées et bornées à 200.
-- Les trois lectures UI initiales sont parallélisées.
-- Les agrégats utilisent `BigInt` et des passages linéaires sur documents, réservations, réalisations et dépenses hors résolution de taux signalée.
-- `actualIndexes()` construit les principaux index Actual une fois par calcul de marge.
-- Les SSE restent compacts et ne sérialisent aucune collection financière.
-- Le runtime demeure local sans dépendance ou accès réseau ajouté.
+- Agrégat marge linéaire/indexé : index Actual, snapshots planifiés par clé, lignes visibles par clé et taux par scope/unité.
+- Les listes restent paginées à 200 ; le drill-down renvoie au plus 200 items et son total séparé.
+- Les scopes sont appliqués avant agrégation, ce qui borne les jeux visibles.
+- SSE compact, aucune collection sérialisée dans l'événement.
+- Runtime local sans dépendance ni accès réseau ajouté.
 
-## Preuves et limites
+## Limites
 
-- Empreinte candidat contrôlée : `59ad25a339112dc4faa7df556e43aace6c1cb1ae`.
-- Inspection indépendante du diff `27ad496…59ad25a`, des boucles de `financeMargins()`, des listes Finance et du flux UI/SSE.
-- Dernière preuve disponible non suffisante pour S7-B : benchmark S7-A sur 161 ressources/10 011 réservations/2 500 actuals, lectures p95 sous 300 ms et écritures sous 250 ms; elle précède le moteur Finance et ne mesure pas ses routes.
-- La campagne représentative S7-B n'a pas été lancée après instruction de finaliser sans nouvelle commande longue.
-- Aucun profil navigateur paint/heap frais; l'objectif `<2 s` n'est pas démontré.
-- `docs/project-status.md` reste à mettre à jour par l'intégrateur.
+- Huit itérations seulement pour le benchmark direct Finance ; l'écart au seuil reste néanmoins très large (`36,49` contre `300 ms`).
+- Le benchmark Actual utilise 161 ressources mais dépasse les volumes de réservations/réalisations contractuels ; il démontre directement l'échec des écritures affectées.
+- Aucun test multi-session soutenu ni profil navigateur frais.
+- `docs/project-status.md` reste sous ownership intégrateur.
 
 ## Verdict
 
-Les seuils S7-B ne sont pas prouvés sur le dataset contractuel et deux chemins présentent une complexité évitable. **PERFORMANCE BLOCKED** sur `59ad25a339112dc4faa7df556e43aace6c1cb1ae`.
+L'agrégat Finance passe largement et les scans identifiés sont optimisés, mais confirmation/correction ne respectent plus le seuil d'écriture. **PERFORMANCE REJECTED** sur `b42ea165ed32eeebae0b3f9f2080520bf946d4d8`.
