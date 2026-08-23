@@ -1,3 +1,31 @@
+# Rapport E2E S7-C — Backlog signé & Forecast
+
+Date : 2026-08-23
+Environnement : macOS arm64, Node.js v26.6.0, navigateur intégré
+Candidat applicatif : `05f65c54851701e2ada724d22fed7987edfeef08`
+Commit de consolidation des gates : `492e71e`
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1, 1 limite P2.**
+
+| Scénario | Résultat observé |
+|---|---|
+| Connexion administrateur, route `#finance` | Page autonome chargée ; titre, définition, fraîcheur et cinq KPI visibles. |
+| Backlog et Forecast sur seed propre | `0,00 €` cohérent sur backlog, 30/60/90 et sans date ; état vide explicite dans le tableau. |
+| Accessibilité de lecture | Région « CA signé restant et prévision 30/60/90 jours » et région « Détail du backlog signé » nommées ; tableau avec en-têtes Projet, Devis/prestation, CA signé, produit, backlog et planification. |
+| Rechargement / reconnexion | La session locale redemande une authentification ; après reconnexion, les mêmes définitions et montants sont restaurés, sans erreur console. |
+| Rôle lecteur | La route Finance affiche « Accès refusé » et exige `finance.read`; aucun montant ni formulaire financier n’est rendu. |
+| Contrats chiffrés non nuls | Tests indépendants verts : date `asOf`, arrondis exacts, version du Devis, complément accepté et périodes de la chaîne CA. |
+
+Preuves automatisées du candidat : ciblés jusqu’à 83/83, suite complète 303/303, lint/build/diff-check et OpenAPI sémantique PASS. Performance représentative : p95 Backlog `76,13 ms`, Forecast `71,48 ms`, sous le seuil `<300 ms`.
+
+Limite P2 : cette passe navigateur part d’un seed sans Devis accepté ; elle valide donc l’état vide réel, les permissions et la reconnexion. Le rendu d’un drill-down non nul reste couvert par les tests fonctionnels et devra être repris dans la recette globale G7 avec S7-D.
+
+Le serveur temporaire a été arrêté ; aucune donnée utilisateur n’a été utilisée ni modifiée.
+
+---
+
 # Rapport E2E G6 — PlanyBot & import planning client
 
 Date : 2026-08-23  

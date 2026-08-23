@@ -1,3 +1,24 @@
+# Rapport d’intégration S7-C — Backlog signé & Forecast
+
+Date : 2026-08-23
+Environnement : macOS arm64, Node.js v26.6.0
+Candidat applicatif : `05f65c54851701e2ada724d22fed7987edfeef08`
+Baseline gates : `492e71e`
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+Le serveur, les deux routes Finance, le shell navigateur et les permissions ont été rejoués avec une persistance temporaire isolée sur `localhost:8215`. L’administrateur atteint la page « Finance & marges » ; les cartes `FINANCE_BACKLOG@1` et `FINANCE_FORECAST@1`, les fenêtres 30/60/90, l’état sans date et le tableau de détail sont rendus dans une région nommée. Le seed propre ne contient aucun Devis accepté : le zéro et l’état vide sont cohérents et restent identiques après rechargement puis reconnexion. Le lecteur reçoit explicitement « Accès refusé — finance.read est requise ». Aucun avertissement ni erreur navigateur n’a été observé.
+
+Les scénarios non nuls et les contrats aller/retour sont couverts sur le même candidat par les tests indépendants : `asOf`, conservation des centimes, Devis/version/ligne, complément accepté et filtres temporels de la chaîne CA. La suite complète est verte à 303/303 et le benchmark Finance représentatif reste sous 300 ms. Aucun format persistant n’a été ajouté ; le redémarrage ne déclenche donc aucune migration S7-C.
+
+Limite P2 : le smoke navigateur isolé vérifie l’état vide et le refus de permission, tandis que le drill-down non nul est démontré par les tests de contrat plutôt que par une saisie commerciale manuelle dans cette campagne.
+
+Le serveur 8215 a été arrêté proprement. S7-C peut passer au gate E2E, sans valider S7-D ni G7.
+
+---
+
 # Rapport d’intégration G6 — PlanyBot & import planning client
 
 Date : 2026-08-23  
