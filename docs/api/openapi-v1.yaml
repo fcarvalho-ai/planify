@@ -843,7 +843,7 @@ components:
         startsAt: { type: string, format: date-time }
         endsAt: { type: string, format: date-time }
         quantityMilli: { type: string, pattern: '^\d+$' }
-        unit: { type: string, enum: [heure, demi_journee, jour, semaine, mois, forfait, unite, go_mois, to_mois] }
+        unit: { type: string, enum: [heure, demi_journee, jour, semaine, mois, forfait, unite, go_mois, to_mois], description: Doit rester identique à l’unité du snapshot planifié. Toute conversion d’unité exige un contrat versionné distinct. }
     ActualConfirmCommand:
       allOf:
         - { $ref: '#/components/schemas/ActualValueFields' }
@@ -864,7 +864,7 @@ components:
       allOf:
         - { $ref: '#/components/schemas/ActualValueFields' }
         - type: object
-          required: [id, actualRecordId, revisionNumber, confirmationKind, sourceReservationVersion, priorRevisionId, confirmedBy, confirmedAt, sourceDigest, createdBy, createdAt]
+          required: [id, actualRecordId, revisionNumber, confirmationKind, sourceReservationVersion, priorRevisionId, confirmedBy, confirmedAt, digestVersion, sourceDigest, createdBy, createdAt]
           properties:
             id: { type: string }
             actualRecordId: { type: string }
@@ -876,6 +876,7 @@ components:
             priorRevisionId: { type: [string, 'null'] }
             confirmedBy: { type: string }
             confirmedAt: { type: string, format: date-time }
+            digestVersion: { type: integer, enum: [1, 2], description: La version 2 protège également société, auteur et horodatages immuables. }
             sourceDigest: { type: string, pattern: '^[a-f0-9]{64}$' }
             createdBy: { type: string }
             createdAt: { type: string, format: date-time }

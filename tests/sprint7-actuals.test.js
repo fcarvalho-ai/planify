@@ -7,7 +7,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 process.env.PLANIFY_DATA_FILE = path.join(os.tmpdir(), `planify-sprint7-test-${process.pid}-${Date.now()}.json`);
-const { createServer, resetData, makeSeed, readDb, sprint7ActualsStateValid, ssePermissionsForEvent } = require('../server.js');
+const { createServer, resetData, makeSeed, readDb, sprint7ActualsStateValid, ssePermissionsForEvent, actualRecordAllowed } = require('../server.js');
 const { QuoteConsumptionEngine } = require('../packages/quote-consumption');
 
 let server;
@@ -76,7 +76,7 @@ test('la file à confirmer est dérivée sans écriture et respecte le périmèt
 test('confirmation Actual idempotente, versionnée et auditable sans seconde écriture', async () => {
   const reservation = readDb().reservations.find(value => value.id === 'reservation_1'), body = JSON.stringify({ reservationVersion: reservation.version });
   const confirmed = await request('/api/v1/reservations/reservation_1/actual/confirm', { method: 'POST', headers: { 'Idempotency-Key': 'actual-confirm-1' }, body }, admin);
-  assert.equal(confirmed.response.status, 201, JSON.stringify(confirmed.data)); assert.equal(confirmed.data.version, 1); assert.equal(confirmed.data.currentRevision.quantityMilli, confirmed.data.plannedSnapshot.quantityMilli); assert.equal(confirmed.data.currentRevision.confirmationKind, 'confirmed'); assert.equal(confirmed.data.currentRevision.priorRevisionId, null); assert.match(confirmed.data.currentRevision.sourceDigest, /^[a-f0-9]{64}$/); assert.equal(confirmed.data.reconciliation.state, 'compliant'); assert.equal(confirmed.data.reconciliation.commercialState, 'unmatched'); assert.equal(confirmed.data.reconciliation.billableQuantityMilli, '0');
+  assert.equal(confirmed.response.status, 201, JSON.stringify(confirmed.data)); assert.equal(confirmed.data.version, 1); assert.equal(confirmed.data.currentRevision.quantityMilli, confirmed.data.plannedSnapshot.quantityMilli); assert.equal(confirmed.data.currentRevision.confirmationKind, 'confirmed'); assert.equal(confirmed.data.currentRevision.priorRevisionId, null); assert.equal(confirmed.data.currentRevision.digestVersion, 2); assert.match(confirmed.data.currentRevision.sourceDigest, /^[a-f0-9]{64}$/); assert.equal(confirmed.data.reconciliation.state, 'compliant'); assert.equal(confirmed.data.reconciliation.commercialState, 'unmatched'); assert.equal(confirmed.data.reconciliation.billableQuantityMilli, '0');
   const replay = await request('/api/v1/reservations/reservation_1/actual/confirm', { method: 'POST', headers: { 'Idempotency-Key': 'actual-confirm-1' }, body }, admin);
   assert.equal(replay.response.status, 200); assert.equal(replay.data.id, confirmed.data.id);
   const db = readDb(); assert.equal(db.actualRecords.filter(value => value.reservationId === 'reservation_1').length, 1); assert.equal(db.actualRevisions.filter(value => value.actualRecordId === confirmed.data.id).length, 1); assert.equal(db.auditEvents.filter(value => value.action === 'actual.confirmed' && value.entityId === confirmed.data.id).length, 1); assert.equal(db.domainEvents.filter(value => value.type === 'ActualConfirmed' && value.entityId === confirmed.data.id).length, 1);
@@ -88,6 +88,8 @@ test('une correction ajoute une révision, exige un motif et refuse une version 
   const record = readDb().actualRecords.find(value => value.reservationId === 'reservation_1'), prior = readDb().actualRevisions.find(value => value.id === record.currentRevisionId);
   const missingReason = await request(`/api/v1/actuals/${record.id}/revisions`, { method: 'POST', headers: { 'Idempotency-Key': 'actual-correct-no-reason' }, body: JSON.stringify({ actualVersion: record.version, quantityMilli: '1500' }) }, admin);
   assert.equal(missingReason.response.status, 422); assert.equal(missingReason.data.error.code, 'ACTUAL_CORRECTION_REASON_REQUIRED');
+  const changedUnit = await request(`/api/v1/actuals/${record.id}/revisions`, { method: 'POST', headers: { 'Idempotency-Key': 'actual-correct-unit' }, body: JSON.stringify({ actualVersion: record.version, quantityMilli: '1500', unit: 'jour', correctionReason: 'Conversion arbitraire interdite' }) }, admin);
+  assert.equal(changedUnit.response.status, 422); assert.equal(changedUnit.data.error.code, 'ACTUAL_UNIT_CONVERSION_REQUIRED');
   const corrected = await request(`/api/v1/actuals/${record.id}/revisions`, { method: 'POST', headers: { 'Idempotency-Key': 'actual-correct-1' }, body: JSON.stringify({ actualVersion: record.version, quantityMilli: '1500', correctionReason: 'Durée constatée après contrôle' }) }, admin);
   assert.equal(corrected.response.status, 201); assert.equal(corrected.data.version, 2); assert.equal(corrected.data.revisions.length, 2); assert.equal(corrected.data.currentRevision.revisionNumber, 2); assert.equal(corrected.data.currentRevision.confirmationKind, 'corrected'); assert.equal(corrected.data.currentRevision.priorRevisionId, prior.id); assert.equal(corrected.data.currentRevision.quantityMilli, '1500'); assert.equal(corrected.data.reconciliation.actualQuantityMilli, '1500'); assert.equal(corrected.data.reconciliation.plannedDeviationQuantityMilli, '500');
   assert.equal(corrected.data.revisions[0].id, prior.id); assert.equal(corrected.data.revisions[0].quantityMilli, prior.quantityMilli);
@@ -95,6 +97,24 @@ test('une correction ajoute une révision, exige un motif et refuse une version 
   assert.equal(metrics.response.status, 200); assert.equal(metrics.data.actuals.confirmations, 1); assert.equal(metrics.data.actuals.corrections, 1);
   const stale = await request(`/api/v1/actuals/${record.id}/revisions`, { method: 'POST', headers: { 'Idempotency-Key': 'actual-correct-stale' }, body: JSON.stringify({ actualVersion: 1, quantityMilli: '1700', correctionReason: 'Nouvelle correction' }) }, admin);
   assert.equal(stale.response.status, 409); assert.equal(stale.data.error.code, 'VERSION_CONFLICT');
+});
+
+test('la lecture par réservation ne retourne jamais le réalisé d’une ancienne version', async () => {
+  const reservation = readDb().reservations.find(value => value.id === 'reservation_1');
+  const updated = await request(`/api/v1/reservations/${reservation.id}`, { method: 'PATCH', headers: { 'Idempotency-Key': 'actual-reservation-v2' }, body: JSON.stringify({ version: reservation.version, notes: 'Version planning postérieure au réalisé V1' }) }, admin);
+  assert.equal(updated.response.status, 200, JSON.stringify(updated.data)); assert.equal(updated.data.version, reservation.version + 1);
+  const current = await request(`/api/v1/reservations/${reservation.id}/actual`, {}, admin);
+  assert.equal(current.response.status, 200); assert.equal(current.data.state, 'pending'); assert.equal(current.data.reservationVersion, updated.data.version); assert.equal(current.data.id, undefined);
+});
+
+test('la provenance Devis exige quote.read et le scope du Devis source', () => {
+  const db = readDb(), source = db.actualRecords.find(value => value.reservationId === 'reservation_1'), record = structuredClone(source), quoteId = 'quote_actual_protected';
+  record.sourceQuoteId = quoteId; record.plannedSnapshot.sourceQuoteId = quoteId;
+  db.quotes.push({ id: quoteId, companyId: record.companyId, projectId: record.projectId, siteId: record.siteId, status: 'accepted', lines: [], version: 1 });
+  const resourceIds = record.plannedSnapshot.resources.map(value => value.resourceId).filter(Boolean), baseUser = { companyId: record.companyId, siteIds: [record.siteId], organizationScope: false, projectScopeRestricted: true, projectIds: [record.projectId], organizationUnitIds: [], entityScopes: { actual: [record.id], reservation: [record.reservationId], resource: resourceIds, quote: [quoteId] }, effectivePermissions: ['actual.read'] };
+  assert.equal(actualRecordAllowed(db, { user: baseUser }, record), false);
+  assert.equal(actualRecordAllowed(db, { user: { ...baseUser, effectivePermissions: ['actual.read', 'quote.read'] } }, record), true);
+  assert.equal(actualRecordAllowed(db, { user: { ...baseUser, effectivePermissions: ['actual.read', 'quote.read'], entityScopes: { ...baseUser.entityScopes, quote: [] } } }, record), false);
 });
 
 test('un lecteur consulte les réalisations mais ne peut jamais confirmer ni corriger', async () => {
@@ -106,6 +126,8 @@ test('un lecteur consulte les réalisations mais ne peut jamais confirmer ni cor
 
 test('une version réservation obsolète est refusée sans écriture', async () => {
   const reservation = readDb().reservations.find(value => value.id === 'reservation_4'), before = readDb();
+  const changedUnit = await request(`/api/v1/reservations/${reservation.id}/actual/confirm`, { method: 'POST', headers: { 'Idempotency-Key': 'actual-confirm-unit' }, body: JSON.stringify({ reservationVersion: reservation.version, unit: 'jour', deviationReason: 'Conversion arbitraire interdite' }) }, admin);
+  assert.equal(changedUnit.response.status, 422); assert.equal(changedUnit.data.error.code, 'ACTUAL_UNIT_CONVERSION_REQUIRED');
   const result = await request(`/api/v1/reservations/${reservation.id}/actual/confirm`, { method: 'POST', headers: { 'Idempotency-Key': 'actual-stale-reservation' }, body: JSON.stringify({ reservationVersion: reservation.version - 1 }) }, admin);
   assert.equal(result.response.status, 409); assert.equal(result.data.error.code, 'ACTUAL_SOURCE_STALE');
   const after = readDb(); assert.equal(after.actualRecords.length, before.actualRecords.length); assert.equal(after.auditEvents.length, before.auditEvents.length);
@@ -127,10 +149,12 @@ test('le rejeu de migration refuse une révision réalisée falsifiée', () => {
   const raw = fs.readFileSync(process.env.PLANIFY_DATA_FILE, 'utf8'), tampered = JSON.parse(raw), revision = tampered.actualRevisions[0]; assert.ok(revision);
   revision.quantityMilli = String(BigInt(revision.quantityMilli) + 1n); fs.writeFileSync(process.env.PLANIFY_DATA_FILE, `${JSON.stringify(tampered, null, 2)}\n`, { mode: 0o600 });
   assert.throws(() => readDb(), error => error.code === 'MIGRATION_MARKER_CONFLICT');
+  const metadataTampered = JSON.parse(raw), metadataRevision = metadataTampered.actualRevisions.find(value => value.digestVersion === 2); assert.ok(metadataRevision); metadataRevision.confirmedAt = new Date(Date.parse(metadataRevision.confirmedAt) + 1000).toISOString(); fs.writeFileSync(process.env.PLANIFY_DATA_FILE, `${JSON.stringify(metadataTampered, null, 2)}\n`, { mode: 0o600 });
+  assert.throws(() => readDb(), error => error.code === 'MIGRATION_MARKER_CONFLICT');
   fs.writeFileSync(process.env.PLANIFY_DATA_FILE, raw, { mode: 0o600 }); assert.equal(sprint7ActualsStateValid(readDb()), true);
 });
 
 test('l’interface expose une page dédiée, une confirmation et une correction accessibles', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8'), shell = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8'), css = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8');
-  assert.match(shell, /href="#actuals"[^>]*data-actual-nav/); assert.match(source, /Réalisations à confirmer/); assert.match(source, /data-actual-confirm/); assert.match(source, /data-actual-correct/); assert.match(source, /startsWith\('actual\.'\)/); assert.match(css, /\.actual-dialog/);
+  assert.match(shell, /href="#actuals"[^>]*data-actual-nav/); assert.match(source, /Réalisations à confirmer/); assert.match(source, /data-actual-confirm/); assert.match(source, /data-actual-correct/); assert.match(source, /aria-labelledby="actual-dialog-title"/); assert.match(source, /name="unit" readonly/); assert.match(source, /startsWith\('actual\.'\)/); assert.match(css, /\.actual-dialog/);
 });
