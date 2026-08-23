@@ -1,3 +1,51 @@
+# Re-QA finale indépendante G6 — provenance PlanyBot
+
+Date : 2026-08-23  
+Commit contrôlé : `14c1268cfcdcbefdcee8bf7a6be10419ef307f14` (`fix: complete G6 provenance enforcement`)  
+Verdict : **NOT APPROVED — OpenAPI sémantiquement incomplet**  
+Constats : **0 P0, 1 P1**
+
+## État exact et empreintes
+
+Le dépôt était propre au démarrage de la passe et `HEAD` correspondait au commit demandé.
+
+```text
+server.js                    3903abe5d6bf1503dd0102e0fa798f27c8da1a9bae67609ff74eaa85828c1f0c
+app.js                       d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54
+docs/api/openapi-v1.yaml     5c5da7dfd2ea2911a49432112adaad301eeab5ae63b9d6a9c175cce67a2aba84
+tests/plany.test.js          f3f292017f74163b6e30bb1653604d02c51d44860a87f84bf60b55e80b5a3294
+tests/quotes.test.js         16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a
+tests/clients.test.js        03ca7a1531a49792dcb1af54147dba2b8dd8b402a02661add6c9c58ac86fb7fe
+Environnement                Node v26.6.0, macOS/Darwin arm64
+```
+
+## Commandes et résultats frais
+
+- `node --test tests/plany.test.js tests/quotes.test.js tests/clients.test.js` : **74/74 réussis**, 0 échec, 0 ignoré, code 0, durée 4,793 s.
+- `npm test` : **270/270 réussis**, 0 échec, 0 ignoré, code 0, durée 8,814 s.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés, code 0.
+- `git diff --check` : **PASS**, code 0.
+- parsing YAML OpenAPI 3.1 + vérification des routes G6 + résolution des références locales : **FAIL**, référence locale non résolue `#/components/schemas/ReservationAllocation`.
+
+## Scénarios G6 validés
+
+- Le replay et l’historique d’un résumé de Projet deviennent inaccessibles après réduction du scope Projet.
+- Une réponse Commercial/Planning porte `quote.read`; sa relecture est refusée après retrait de cette permission.
+- Les identifiants de réservations et ressources utilisés dans les agrégats sont conservés comme provenance ; le replay et l’historique sont refusés après réduction des scopes d’entités correspondants.
+- L’import direct ambigu est bloqué avant clarification ; une révision humaine confirmée est historisée, une dérive de libellé est refusée, puis l’application exacte crée une ligne commerciale non planifiée sans réservation et reste idempotente.
+- Le dépassement structurel ZIP XLSX retourne `422 CLIENT_PLANNING_LIMIT_EXCEEDED` sans persister de `clientPlanningImport`.
+- Les chemins PDF texte exploitable et PDF sans texte exploitable sont couverts sans réservation automatique. Le CSV ambigu est couvert par le parcours de clarification. Les tests disponibles ne déclenchent pas spécifiquement les plafonds volumétriques CSV/PDF ; cette limite non bloquante doit être conservée pour un renforcement futur.
+- Les routes G6 Conversation, Analyse, Application de lignes, Prévisualisation et Conversion existent ; les tests vérifient aussi la déclaration obligatoire du paramètre `quoteId`.
+
+## P1 bloquant
+
+`docs/api/openapi-v1.yaml` référence `#/components/schemas/ReservationAllocation` dans `ReservationBatchCreate.resources`, mais aucun schéma `ReservationAllocation` n’est déclaré dans `components.schemas`. Le YAML est syntaxiquement chargeable, mais le contrat ne peut pas être résolu sémantiquement par un consommateur OpenAPI. Le défaut existait déjà dans des candidats antérieurs, mais la re-QA demandée porte sur l’intégralité du contrat livré : il bloque donc le verdict G6.
+
+Condition de déblocage : déclarer le schéma manquant ou remplacer la référence par le schéma canonique approprié, puis rejouer au minimum la validation sémantique OpenAPI, les tests ciblés G6 et `npm test` sur le nouveau commit. Aucun autre P0/P1 n’a été constaté.
+
+Limites : aucune validation navigateur visuelle et aucune mesure de performance dans cette passe ; elles relèvent des gates E2E et Performance.
+
 # Re-QA indépendante G6 — correctifs PlanyBot et import client
 
 Date : 2026-08-23  

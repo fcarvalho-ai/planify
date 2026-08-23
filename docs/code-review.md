@@ -1,3 +1,77 @@
+# Gate G6 — re-REVIEW finale provenance et OpenAPI
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g6_review_final`
+
+Candidat Git exact : `14c1268cfcdcbefdcee8bf7a6be10419ef307f14`
+
+Diff contrôlé : `6381cbeb7020d57ac21e2086a3d5475d9d675325..14c1268cfcdcbefdcee8bf7a6be10419ef307f14`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 1 P1 ouvert.**
+
+Les deux scénarios explicitement corrigés sont fermés : `quote.read` est désormais revalidé pour le guide de planning client, et le résumé Projet conserve puis revalide ses réservations et ressources sources. Les quatre paramètres `quoteId` OpenAPI sont aussi valides et couverts par un test sémantique. La correction de provenance n'est toutefois pas généralisée aux recommandations PlanyBot, qui continuent d'exposer des faits commerciaux et opérationnels dérivés sans conserver toutes leurs autorités sources.
+
+## P1 — bloquant
+
+### P1-1 — Les recommandations PlanyBot ne conservent pas la provenance du tarif client ni des réservations de continuité
+
+`planyResourceRecommendations()` calcule le nombre d'utilisations antérieures d'une ressource depuis les réservations visibles du Projet (`server.js:1223-1225`) et consulte les grilles tarifaires du client sous permission `quote.read` (`server.js:1227`). La réponse expose ensuite `continuity`, `clientPreference` et les motifs « Déjà utilisée … fois » / « Tarif dédié actif pour ce client » (`server.js:1230-1235`).
+
+Or `planyAccessSnapshot()` ne retient pour ces recommandations que les ressources et sites retournés (`server.js:1312`). Il n'ajoute `quote.read` que lorsqu'un identifiant de Devis est présent (`server.js:1319`) et ne reçoit aucun identifiant de réservation ayant alimenté le compteur de continuité. Les branches `bookingDraft` et `availability` retournent les recommandations sans `sourceAccess` ni `requiredPermissions` correspondant (`server.js:1295-1301`).
+
+Deux restitutions historiques restent donc possibles après réduction des droits :
+
+- après révocation de `quote.read`, une recommandation déjà produite peut encore révéler qu'une ressource bénéficie du tarif dédié du client ;
+- après retrait du scope d'une réservation source, elle peut encore révéler son effet dans le compteur historique de continuité.
+
+Impact : la règle G6 de revalidation des permissions et scopes courants à chaque lecture/rejeu reste incomplète pour une sortie métier visible. Le P1 provenance est réduit, mais pas fermé.
+
+Correction attendue : faire remonter depuis le calcul des recommandations une provenance interne séparée du payload public, comprenant `requiredPermissions: ['quote.read']` dès qu'une préférence commerciale est consultée/exposée et les `reservationIds` contribuant aux continuités retournées. Persister cette provenance dans le snapshot et ajouter deux non-régressions replay + history : révocation de `quote.read` sur une recommandation avec préférence client, puis retrait d'une réservation contribuant à une continuité positive.
+
+## Fermetures confirmées
+
+1. **Guide planning client / `quote.read` : FERMÉ.** Le snapshot de schéma 2 persiste `requiredPermissions`, toute réponse liée à un Devis exige `quote.read`, et `planyAccessAllowed()` fail-close si la permission n'est plus accordée. Le test retire `quote.read` après création et obtient `404` au rejeu comme à l'historique.
+2. **Résumé Projet / sources agrégées : FERMÉ.** La réponse ajoute `sourceAccess.reservationIds` et `sourceAccess.resourceIds`; ces identifiants sont fusionnés au snapshot puis revalidés. Les tests retirent successivement les scopes d'entités et confirment le refus du rejeu/historique.
+3. **Paramètres OpenAPI `quoteId` : FERMÉ.** Les quatre opérations concernées déclarent un paramètre `in: path`, `required: true`, de schéma `string`. Le test automatisé parcourt désormais chaque template `{param}` et vérifie sa déclaration obligatoire ; le contrôle sémantique indépendant frais passe.
+4. **Régressions adjacentes :** aucun autre P0/P1 n'a été identifié dans le diff ciblé et ses consommateurs relus. Le P1 restant concerne la même propriété de provenance, dans une branche adjacente non couverte par les nouvelles régressions.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `14c1268cfcdcbefdcee8bf7a6be10419ef307f14` |
+| `node --test tests/plany.test.js tests/quotes.test.js tests/sprint6-plany-migration.test.js` | **PASS, 64/64**, 0 échec/skip/todo |
+| `npm test` | **PASS, 270/270**, 0 échec/skip/todo, 8,525 s |
+| Contrôle Ruby/Psych de tous les templates `{param}` OpenAPI | **PASS**, aucun paramètre de chemin absent ou non obligatoire |
+| `git diff 14c1268 --` sur code/tests/spec G6 | aucun écart : les fichiers revus correspondent au commit exact |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                                      3903abe5d6bf1503dd0102e0fa798f27c8da1a9bae67609ff74eaa85828c1f0c
+app.js                                         d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54
+docs/api/openapi-v1.yaml                       5c5da7dfd2ea2911a49432112adaad301eeab5ae63b9d6a9c175cce67a2aba84
+tests/plany.test.js                            f3f292017f74163b6e30bb1653604d02c51d44860a87f84bf60b55e80b5a3294
+tests/quotes.test.js                           16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a
+tests/sprint6-plany-migration.test.js          317fbbf899c103520455d2b2dbf63df3f005d52940e5b74452cab7c4a48ad77c
+docs/spec-sprint6-plany-conversation-import.md 94d4bd35683782043c63a6d52ffc1b13e74c6b2d1cf0cbcb5e35c8c322f93ae1
+```
+
+## Handoff
+
+- Fichier modifié : `docs/code-review.md` uniquement.
+- Aucun code, test, donnée ou autre rapport modifié.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur après correction et nouvelle re-REVIEW.
+
+---
+
 # Gate G6 — re-REVIEW indépendante des correctifs
 
 Date : 2026-08-23

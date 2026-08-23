@@ -1,70 +1,69 @@
-# Revue SECURITY indépendante — G6 PlanyBot et import Excel
+# Revue SECURITY indépendante — G6, revalidation de provenance
 
 Date : 2026-08-23
 
-Candidat Git : `6381cbeb7020d57ac21e2086a3d5475d9d675325`
+Candidat Git : `14c1268cfcdcbefdcee8bf7a6be10419ef307f14`
 
-Verdict : **APPROVED — 0 P0, 0 P1, 0 P2**
+Verdict : **REJECTED — 0 P0, 1 P1, 0 P2**
 
 ## Périmètre et empreintes
 
 | Fichier | SHA-256 |
 |---|---|
-| `server.js` | `458a9c08cb26cc45ecb3613f7d743d996a70100bd4ccbf38416c221bcce29062` |
+| `server.js` | `3903abe5d6bf1503dd0102e0fa798f27c8da1a9bae67609ff74eaa85828c1f0c` |
 | `app.js` | `d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54` |
-| `tests/plany.test.js` | `34cbab3d8ffbc55cf961c801eb48ed6a11babace731939848136b9a4db3a7030` |
+| `tests/plany.test.js` | `f3f292017f74163b6e30bb1653604d02c51d44860a87f84bf60b55e80b5a3294` |
 | `tests/quotes.test.js` | `16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a` |
-| `docs/api/openapi-v1.yaml` | `ea5a084ce6ce88fdf252108dac3d865c73506cecd331984fb9dbd5df46c4b83a` |
-| `docs/specifications/sprint-6-planybot-excel.md` | `9c1468a368a299eb5ee5a80a5c11348778d027ea1e00eea4fd7ff96a86a915f1` |
+| `docs/api/openapi-v1.yaml` | `5c5da7dfd2ea2911a49432112adaad301eeab5ae63b9d6a9c175cce67a2aba84` |
+| `docs/specifications/sprint-6-planybot-excel.md` | `94d4bd35683782043c63a6d52ffc1b13e74c6b2d1cf0cbcb5e35c8c322f93ae1` |
 
-La revue couvre les corrections des deux P1 précédents ainsi que les chemins G6 d'authentification, CSRF/origine, RBAC, isolation société/site/projet/entité, rejeu, historique, import, clarification, idempotence, XSS, audit et stockage privé.
+La revalidation porte sur le diff `6381cbeb…14c1268` : provenance PlanyBot, permissions requises, relecture/rejeu fail-closed et complétude des paramètres OpenAPI. Les protections d'import déjà mesurées sont reprises uniquement après analyse du diff : aucun changement ne touche les parseurs CSV/XLSX/PDF ni leurs plafonds.
 
-## Fermeture des constats précédents
+## Contrôles conformes
 
-### SEC-G6-01 — provenance et revalidation des replays : **FERMÉ**
+- Les nouveaux instantanés portent `schemaVersion: 2`. `planyAccessAllowed` refuse explicitement toute provenance absente ou de version différente ; replay et historique ne reconstruisent plus une autorisation à partir de l'état courant.
+- `requiredPermissions` est persisté avec la provenance. `planning.read` reste exigé par les routes ; `quote.read` est ajouté quand un devis est exposé et `finance.read` quand une raison tarifaire révèle des coûts.
+- Les sources projet propagent désormais les identifiants de réservations et de ressources réellement utilisés. Les tests négatifs couvrent la révocation de permission et la réduction des scopes projet, réservation et ressource.
+- L'isolation société/site/projet reste contrôlée côté serveur à la création et à la restitution. Aucun bypass RBAC, tenant, XSS ou idempotence distinct du constat ci-dessous n'a été trouvé.
+- Le contrôle sémantique des chemins OpenAPI confirme qu'aucun paramètre de template n'est omis : les quatre opérations devis concernées déclarent bien `quoteId` comme paramètre de chemin requis.
+- `node --test tests/plany.test.js` sur Node `v26.6.0` : **14/14 PASS**, 0 échec, durée `648,21 ms`.
 
-- Chaque réponse construit un instantané minimal des projets, sites, devis, imports, ressources, réservations et membres effectivement exposés.
-- Cette provenance est persistée sur les messages, la conversation et le marqueur d'idempotence, y compris lorsque le Projet est inféré depuis le texte plutôt que fourni dans le contexte.
-- Le rejeu et la lecture d'historique revalident société, sites, projets et scopes d'entités courants. Une provenance absente échoue fermée ; les données héritées ne sont acceptées que si une provenance reconstituable est encore autorisée.
-- Le test négatif réduit le scope du lecteur après une réponse sur `project_1` : le rejeu exact et l'historique retournent ensuite tous deux `404 NOT_FOUND`.
+## P1 bloquant
 
-Conclusion : aucune restitution historique n'a été trouvée après révocation du Projet testé.
+### SEC-G6-03 — amplification de ressources par provenance non bornée
 
-### SEC-G6-02 — décompression cumulée et déni de service : **FERMÉ**
+`sourceAccess.reservationIds` et `resourceIds` incorporent toutes les réservations et ressources d'un projet sans plafond. Les quotas portent sur le nombre de conversations/messages, mais pas sur la taille de ces listes. Un utilisateur authentifié disposant de `planning.read` peut donc demander à répétition un résumé d'un projet volumineux et provoquer une amplification CPU, mémoire et disque dans le processus local.
 
-- XLSX : plafonds sur 256 entrées ZIP, 40 entrées utiles, 32 feuilles, 8 MiB par entrée, 16 MiB cumulés, 10 000 lignes, 256 colonnes, 100 000 cellules, 20 000 chaînes partagées et 5 000 fusions.
-- PDF : 64 flux, 8 MiB par flux, 16 MiB cumulés et 10 000 blocs texte.
-- CSV : lignes, colonnes et cellules sont également plafonnées.
-- La décompression utilise les API asynchrones `zlib.inflateRaw` / `zlib.inflate` avec `maxOutputLength`; le volume réel est revérifié après décompression, ce qui empêche de contourner les tailles déclarées du ZIP.
-- Un XLSX synthétique de 3 feuilles déclarant 18 874 368 octets décompressés pour 18 772 octets compressés est refusé en `17,25 ms` avec `422 CLIENT_PLANNING_LIMIT_EXCEEDED`.
-- Le test HTTP de non-régression vérifie aussi qu'un dépassement structurel ne persiste aucune analyse.
+L'effet est aggravé par trois propriétés :
 
-Conclusion : le volume de travail et la mémoire allouable par une analyse sont désormais bornés et l'échec intervient avant toute mutation métier.
+1. la déduplication et la validation utilisent `Array.includes` / `Array.some`, soit un coût quadratique sur des listes croissantes ;
+2. la même provenance est recopiée dans les messages, la conversation et les enregistrements/résultats d'idempotence ;
+3. chaque mutation relit puis réécrit atomiquement l'intégralité du JSON persistant, y compris lors de certains replays.
 
-## Autres contrôles satisfaisants
+Mesure fraîche isolant les algorithmes exacts de snapshot, validation et fusion :
 
-- Les mutations exigent session, CSRF/origine et permissions serveur. L'analyse exige `quote.manage` et `planning.read`; la confirmation Planning reste sous `planning.write`.
-- `companyId` provient de la session. Les recherches de Projet, Devis, import, ressource, réservation et membre combinent société et scopes courants, sans révéler l'existence hors périmètre.
-- L'import direct Excel vers un Devis brouillon refuse les lignes ambiguës/non reconnues avant clarification humaine versionnée. Toute dérive entre la dernière révision confirmée et `apply-lines` retourne un conflit stable.
-- Les retries d'application et de confirmation sont idempotents ; un corps divergent avec la même clé est refusé et aucun doublon de ligne ou réservation n'est créé.
-- Les formules Excel ne sont pas exécutées. Les entrées ZIP et noms fournis ne deviennent ni chemins locaux ni URL. Les fichiers sont renommés par digest, privés (`0600`) et hors liste statique.
-- Les textes PlanyBot et champs de prévisualisation sont échappés par `esc()` avant injection DOM. Aucun rendu HTML issu du message utilisateur n'a été identifié.
-- Les coûts internes restent absents des réponses sans `finance.read`; les préférences tarifaires requièrent `quote.read`.
-- Audit et SSE suivent le succès des mutations ; l'analyse seule et la clarification ne créent aucune réservation.
+| Identifiants | Temps total | Taille JSON d'une seule copie |
+|---:|---:|---:|
+| 100 | `0,27 ms` | `610 o` |
+| 1 000 | `7,64 ms` | `6 910 o` |
+| 5 000 | `161,80 ms` | `38 910 o` |
+| 10 000 | `399,89 ms` | `78 910 o` |
 
-## Preuves fraîches
+Ces temps excluent la recherche métier, la lecture/écriture du fichier et les copies persistées. La croissance superlinéaire est reproductible et aucune limite serveur n'arrête l'accumulation avant les quotas de messages. Ce chemin offre donc à un compte autorisé un moyen réaliste de dégrader durablement le service local et de gonfler son stockage ; il contrevient à l'exigence de bornage des entrées/abus.
 
-- `node --test tests/plany.test.js tests/quotes.test.js` — Node `v26.6.0`, 2026-08-23 : **62/62 PASS**, 0 échec, durée `4825 ms`.
-- Test local borné d'un XLSX à volume décompressé cumulé supérieur à 16 MiB : **PASS**, `422 CLIENT_PLANNING_LIMIT_EXCEEDED`, durée `17,25 ms`.
-- Inspection indépendante du diff `cdc475c9…6381cbeb`, des routes G6, des filtres de scope, des sorties DOM, des limites de parse et des tests négatifs.
+Condition de fermeture : définir un plafond serveur explicite et testé pour toute provenance, échouer sans mutation au-delà, remplacer les recherches quadratiques par des `Set`/index, et ne persister qu'une représentation canonique ou une référence/digest non dupliqué. Ajouter un test d'abus au plafond et un test répété jusqu'aux quotas de conversation.
+
+## Réutilisation justifiée des preuves d'import
+
+Le diff exact ne modifie aucun parseur, aucune limite ZIP/XML/PDF/CSV et aucun appel zlib. Les preuves du candidat `6381cbeb` restent donc pertinentes pour ces chemins non affectés : XLSX limité à 16 MiB décompressés cumulés, limites structurelles, décompression asynchrone avec `maxOutputLength`, et rejet synthétique en `422 CLIENT_PLANNING_LIMIT_EXCEEDED` avant persistance. Elles ne compensent pas le nouveau P1, qui concerne la provenance générée depuis les données déjà persistées.
 
 ## Limites
 
-- Aucun fuzzing externe ni fichier malveillant non synthétique n'a été exécuté.
-- La mesure utilise un ZIP synthétique sûr ; elle démontre l'application du quota cumulé, pas la résistance à toutes les variantes historiques du format Office.
-- L'application reste un monolithe local mono-processus avec persistance JSON, conformément au périmètre RC2 ; cette architecture n'est pas évaluée comme service Internet multi-tenant de production.
-- `docs/project-status.md` reste à mettre à jour par l'intégrateur conformément à l'ownership demandé.
+- Aucun fuzzing externe ni fichier client réel malveillant n'a été exécuté.
+- La mesure de provenance est un microbenchmark local des algorithmes, pas un profil de bout en bout avec écriture disque ; elle sous-estime donc le coût réel.
+- L'application reste un monolithe local mono-processus à persistance JSON. Le risque évalué est un épuisement local par utilisateur autorisé, pas une exposition Internet anonyme.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur, conformément à l'ownership limité demandé.
 
 ## Verdict
 
-Les deux P1 précédents sont fermés et aucun contournement critique ou élevé n'a été identifié sur le candidat exact. **SECURITY APPROVED** pour G6 sur `6381cbeb7020d57ac21e2086a3d5475d9d675325`.
+La fermeture fail-closed de la provenance et la complétude OpenAPI sont correctes. La provenance non bornée introduit toutefois une amplification CPU/disque exploitable par un utilisateur autorisé et constitue un P1 de disponibilité. **SECURITY REJECTED** pour G6 sur `14c1268cfcdcbefdcee8bf7a6be10419ef307f14`.
