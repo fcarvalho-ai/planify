@@ -1,3 +1,47 @@
+# Re-QA finale S7-A — isolation des Devis complémentaires
+
+Date : 2026-08-23
+Commit contrôlé : `27ad4965dc6c4c4fc3336e58b1dff70ea59e3d91` (`fix: scope actuals complementary quotes`)
+Verdict : **APPROVED — 0 P0 / 0 P1**
+
+Ce verdict couvre uniquement S7-A (`US-077` à `US-080`) et ne vaut pas approbation du Sprint 7 complet ni du Gate G7.
+
+## État exact et empreintes
+
+Le dépôt était propre au démarrage et `HEAD` correspondait exactement au commit demandé. Environnement : Node `v26.6.0`, macOS/Darwin arm64.
+
+```text
+server.js                              857243146a3aa2b5b136f0a4f57f50186c18c0df211d756a1dad3e118ccc8d98
+app.js                                 eb2c927f161dfbb45e05942bcda929bb37c8217c133a0913c6a0f0cd58263afa
+docs/api/openapi-v1.yaml               59df65fca73f2f80d49c0dca46a6f288a674174bedb1b24b4d581855f75c2352
+packages/quote-consumption/index.js    58bba2239793950530f93392794b0e71ac388c9be7670bd2ee70a176afa1f63b
+tests/sprint7-actuals.test.js           30c03d2fd46c277833913527c64920398d6226864eab21f79361ecd8fae8ebb9
+tests/migration-sprint7.test.js         129f32023259f7eb98d2f845c5cfcd11f28199ba378bcb5b8eff6fbb88e72a94
+```
+
+## Commandes et résultats frais
+
+- `node --test tests/migration-sprint7.test.js tests/sprint7-actuals.test.js` : **14/14 réussis**, 0 échec, 0 ignoré, code 0, durée 0,597 s.
+- `npm test` : **284/284 réussis**, 0 échec, 0 ignoré, code 0, durée 9,796 s.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés, code 0.
+- `git diff --check` : **PASS**, code 0.
+
+## Correctif complémentaire validé
+
+- La réconciliation regroupe désormais chaque quantité complémentaire avec l'identifiant de son Devis source.
+- Un Devis complémentaire accepté mais hors du scope `quote` de l'acteur est entièrement ignoré dans `soldQuantityMilli` : le scénario calcule `1500` avec le Devis principal et le seul complément visible, sans intégrer les `9000` milli-unités cachées.
+- Lorsque ce complément caché est ajouté au scope autorisé, la même réconciliation retourne `10500`, démontrant que l'écart provient exclusivement de l'autorité courante et non d'un filtre global appliqué après agrégation.
+- Le DTO normalise explicitement les anciennes révisions sans champ `digestVersion` vers la version historique `1`, sans modifier les données persistées.
+
+Les négatifs antérieurs restent verts : unité immuable, version Réservation courante, permission et scope du Devis principal, digest v2 et falsification, RBAC, isolation site, idempotence, versions obsolètes, scope retiré, correction append-only, absence de valeur Finance inventée, migration rejouable et rollback byte-exact privé `0600`.
+
+## Limites non bloquantes
+
+Ce correctif n'affecte pas la structure visuelle de l'interface ; aucun nouveau smoke navigateur n'a été exécuté. Les contrôles UI statiques S7-A restent verts dans les tests ciblés. La performance et la sécurité ont leurs gates indépendants ; S7-B, S7-C et S7-D restent hors périmètre.
+
+Conclusion : le complément accepté hors scope ne contribue plus aux quantités vendues ni aux écarts dérivés. Aucun P0/P1 n'est ouvert sur le candidat exact `27ad4965…`. La re-QA finale S7-A est **APPROVED**.
+
 # Re-QA indépendante S7-A — durcissement du registre du réalisé
 
 Date : 2026-08-23

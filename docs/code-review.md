@@ -1,3 +1,70 @@
+# Gate re-REVIEW finale S7-A — provenance commerciale et compatibilité legacy
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7a_review`
+
+Candidat Git exact : `27ad4965dc6c4c4fc3336e58b1dff70ea59e3d91`
+
+Diff correctif contrôlé : `e4af056e5203bace13ce09821c80a7dc768cef32..27ad4965dc6c4c4fc3336e58b1dff70ea59e3d91`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert. Un P2 de représentativité du benchmark reste suivi, sans bloquer ce gate REVIEW.**
+
+Le P1 restant de la passe précédente est fermé : chaque Devis complémentaire contributeur est conservé avec son identité puis filtré par `quoteAllowed()` avant agrégation. Une quantité issue d'un complément absent de `entityScopes.quote` ne contribue donc plus au vendu, aux écarts ni au facturable. La compatibilité des révisions historiques est également alignée avec le contrat : tout DTO legacy sans champ persistant expose désormais explicitement `digestVersion: 1`.
+
+## Fermetures confirmées
+
+1. **Devis complémentaires hors scope : FERMÉ.** `actualIndexes()` conserve `{ quoteId, quantityMilli }` par ligne source. `actualCommercialSummary()` retrouve chaque complément, applique `quoteAllowed(auth, complement)`, puis recalcule `soldQuantityMilli` uniquement sur le sous-ensemble autorisé. Le test dédié démontre `1500` vendu avec le complément hors scope, puis `10500` après ajout explicite de ce complément au scope Devis.
+2. **Consommateurs : CONFORMES.** Liste, détail, route par réservation et réponses de rejeu utilisent le même `actualRecordDto()` et donc le même `actualCommercialSummary()`. Le SSE Actual reste une invalidation sans quantité commerciale; le rechargement applique les scopes courants. Le contrôle du Devis source par `quote.read` et `quoteAllowed()` reste présent.
+3. **Compatibilité `digestVersion` : FERMÉE.** `actualRecordDto()` normalise les révisions historiques dépourvues du champ vers `digestVersion: 1`, sans réécrire le registre. L'OpenAPI peut donc continuer à rendre ce champ obligatoire, tandis que la validation d'intégrité conserve le calcul V1 historique et le V2 pour les nouvelles écritures.
+4. **Anciens P1 : SANS RÉGRESSION.** Une unité différente reste refusée par `422 ACTUAL_UNIT_CONVERSION_REQUIRED`; la lecture par réservation ne restitue que le réalisé de sa version courante; les rejeux idempotents revalident l'acteur et ses scopes avant restitution.
+5. **Intégrité et digest V2 : SANS RÉGRESSION.** Le registre et ses révisions restent append-only, chaînés et contrôlés par digest; la migration demeure rejouable et le rollback byte-exact. Les métadonnées V2 falsifiées restent refusées.
+6. **UI, accessibilité et complexité : SANS RÉGRESSION.** Dialogue nommé par `aria-labelledby`, labels/focus/statuts textuels conservés; pagination appliquée avant projection DTO et index de révisions/compléments construits hors des boucles de restitution.
+
+## P2 restant — non bloquant REVIEW
+
+- **Jeu du benchmark partiellement représentatif.** La mesure fraîche porte sur 10 011 réservations et 2 500 réalisés, mais sur 161 ressources et sans les 2 000 documents commerciaux demandés par la SPEC §12. Les seuils mesurés sont respectés avec marge. La complétude représentative doit rester suivie au gate Performance; elle ne masque aucun P0/P1 fonctionnel dans cette re-REVIEW ciblée.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `27ad4965dc6c4c4fc3336e58b1dff70ea59e3d91` |
+| `node --check server.js && node --check app.js && node --check scripts/benchmark-actuals.js` | **PASS** |
+| `node --test tests/migration-sprint7.test.js tests/sprint7-actuals.test.js` | **PASS, 14/14**, 0 échec/skip/todo, 0,580 s |
+| `npm test` | **PASS, 284/284**, 0 échec/skip/todo, 8,625 s |
+| `npm run lint` | **PASS** |
+| `npm run build` | **PASS**, 5 actifs runtime |
+| `git diff --check e4af056..27ad496` | **PASS** |
+| `npm run benchmark:actuals` | **PASS** — list p95 108,70 ms; pending 122,30 ms; détail 102,10 ms; confirmation 204,39 ms; correction 199,45 ms |
+| Inspection indépendante du correctif et des consommateurs DTO/SSE/replay | P1 complément hors scope et P2 `digestVersion` fermés; anciens P1 non réintroduits |
+
+Le `git diff --check` global du répertoire de travail a simultanément signalé des espaces finaux dans `docs/qa-report.md`, fichier détenu et modifié par un autre gate. Ce constat concurrent n'affecte ni le diff exact du candidat, qui passe, ni le verdict REVIEW; aucun fichier tiers n'a été modifié par ce reviewer.
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                           57243146a3aa2b5b136f0a4f57f50186c18c0df211d756a1dad3e118ccc8d98
+app.js                              eb2c927f161dfbb45e05942bcda929bb37c8217c133a0913c6a0f0cd58263afa
+docs/api/openapi-v1.yaml            59df65fca73f2f80d49c0dca46a6f288a674174bedb1b24b4d581855f75c2352
+tests/sprint7-actuals.test.js        30c03d2fd46c277833913527c64920398d6226864eab21f79361ecd8fae8ebb9
+scripts/benchmark-actuals.js        2f0847a809ac93dbdf018a8ad8ed50a0370301e55b13ba2b5b8a2e0c95916456
+```
+
+## Handoff
+
+- Gate re-REVIEW finale S7-A : **APPROVED** sur le candidat exact `27ad4965dc6c4c4fc3336e58b1dff70ea59e3d91`.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée, statut ou autre rapport modifié.
+- `docs/project-status.md` reste sous responsabilité de l'intégrateur.
+
+---
+
 # Gate re-REVIEW S7-A — durcissement du registre réalisé
 
 Date : 2026-08-23
