@@ -22,6 +22,7 @@ tags:
   - name: PlanyBot
   - name: People
   - name: Actuals
+  - name: Finance
 paths:
   /auth/login:
     post:
@@ -826,6 +827,74 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /finance/cost-rates:
+    get:
+      operationId: listCostRates
+      tags: [Finance]
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PageSize' }, { name: scopeType, in: query, schema: { type: string } }, { name: scopeId, in: query, schema: { type: string } }]
+      responses:
+        '200': { description: Coûts internes visibles dans le périmètre courant, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/CostRate' } } } } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createCostRate
+      tags: [Finance]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CostRateCommand' } } } }
+      responses:
+        '201': { description: Coût créé, content: { application/json: { schema: { $ref: '#/components/schemas/CostRate' } } } }
+        '200': { description: Rejeu idempotent, content: { application/json: { schema: { $ref: '#/components/schemas/CostRate' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /finance/cost-rates/{costRateId}:
+    patch:
+      operationId: updateCostRate
+      tags: [Finance]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }, { name: costRateId, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CostRatePatchCommand' } } } }
+      responses:
+        '200': { description: Coût versionné, content: { application/json: { schema: { $ref: '#/components/schemas/CostRate' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /finance/project-costs:
+    get:
+      operationId: listProjectCosts
+      tags: [Finance]
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PageSize' }, { name: projectId, in: query, schema: { type: string } }]
+      responses:
+        '200': { description: Dépenses visibles dans le périmètre courant, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/ProjectCost' } } } } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createProjectCost
+      tags: [Finance]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProjectCostCommand' } } } }
+      responses:
+        '201': { description: Dépense créée, content: { application/json: { schema: { $ref: '#/components/schemas/ProjectCost' } } } }
+        '200': { description: Rejeu idempotent, content: { application/json: { schema: { $ref: '#/components/schemas/ProjectCost' } } } }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /finance/project-costs/{projectCostId}:
+    patch:
+      operationId: correctProjectCost
+      tags: [Finance]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }, { name: projectCostId, in: path, required: true, schema: { type: string } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProjectCostPatchCommand' } } } }
+      responses:
+        '200': { description: Dépense corrigée et ancienne version conservée, content: { application/json: { schema: { $ref: '#/components/schemas/ProjectCost' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /analytics/margins:
+    get:
+      operationId: readMargins
+      tags: [Finance, Analytics]
+      parameters: [{ name: projectId, in: query, schema: { type: string } }, { name: asOf, in: query, schema: { type: string, format: date } }]
+      responses:
+        '200': { description: Marges calculées uniquement sur le sous-ensemble autorisé, content: { application/json: { schema: { $ref: '#/components/schemas/MarginAnalytics' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 components:
   parameters:
     IdempotencyKey:
@@ -876,7 +945,8 @@ components:
             priorRevisionId: { type: [string, 'null'] }
             confirmedBy: { type: string }
             confirmedAt: { type: string, format: date-time }
-            digestVersion: { type: integer, enum: [1, 2], description: La version 2 protège également société, auteur et horodatages immuables. }
+            digestVersion: { type: integer, enum: [1, 2, 3], description: La version 3 protège également l’instantané de coût interne. }
+            costSnapshot: { type: object, additionalProperties: true, readOnly: true }
             sourceDigest: { type: string, pattern: '^[a-f0-9]{64}$' }
             createdBy: { type: string }
             createdAt: { type: string, format: date-time }
@@ -1671,6 +1741,99 @@ components:
             companyId: { type: string, readOnly: true }
             status: { type: string, enum: [confirmed, cancelled] }
             version: { type: integer, minimum: 1 }
+    CostRateCommand:
+      type: object
+      additionalProperties: false
+      required: [scopeType, scopeId, unit, costUnitMinor, currency, validFrom]
+      properties:
+        scopeType: { type: string, enum: [resource, resourceCategory, person, personCategory] }
+        scopeId: { type: string }
+        unit: { type: string, enum: [heure, demi_journee, jour, semaine, mois, forfait, unite, go_mois, to_mois] }
+        costUnitMinor: { type: string, pattern: '^\d{1,19}$' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        validFrom: { type: string, format: date }
+        validTo: { type: [string, 'null'], format: date }
+        active: { type: boolean, default: true }
+    CostRate:
+      allOf:
+        - { $ref: '#/components/schemas/CostRateCommand' }
+        - type: object
+          required: [id, companyId, version, createdAt, updatedAt]
+          properties:
+            id: { type: string }
+            companyId: { type: string, readOnly: true }
+            version: { type: integer, minimum: 1 }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    CostRatePatchCommand:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version: { type: integer, minimum: 1 }
+        scopeType: { type: string, enum: [resource, resourceCategory, person, personCategory] }
+        scopeId: { type: string }
+        unit: { type: string, enum: [heure, demi_journee, jour, semaine, mois, forfait, unite, go_mois, to_mois] }
+        costUnitMinor: { type: string, pattern: '^\d{1,19}$' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        validFrom: { type: string, format: date }
+        validTo: { type: [string, 'null'], format: date }
+        active: { type: boolean }
+    ProjectCostCommand:
+      type: object
+      additionalProperties: false
+      required: [projectId, category, occurredOn, amountMinor, currency, description, status]
+      properties:
+        projectId: { type: string }
+        siteId: { type: [string, 'null'] }
+        serviceOfferingId: { type: [string, 'null'] }
+        reservationId: { type: [string, 'null'] }
+        category: { type: string, enum: [equipment, license, cloud, storage, supplier, other] }
+        occurredOn: { type: string, format: date }
+        amountMinor: { type: string, pattern: '^\d{1,19}$' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        description: { type: string, minLength: 3, maxLength: 1000 }
+        supplierReference: { type: [string, 'null'], maxLength: 200 }
+        status: { type: string, enum: [draft, confirmed, cancelled] }
+    ProjectCost:
+      allOf:
+        - { $ref: '#/components/schemas/ProjectCostCommand' }
+        - type: object
+          required: [id, companyId, version, createdBy, createdAt, updatedAt]
+          properties:
+            id: { type: string }
+            companyId: { type: string, readOnly: true }
+            version: { type: integer, minimum: 1 }
+            createdBy: { type: string }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    ProjectCostPatchCommand:
+      type: object
+      additionalProperties: false
+      required: [version, correctionReason]
+      properties:
+        version: { type: integer, minimum: 1 }
+        correctionReason: { type: string, minLength: 3, maxLength: 1000 }
+        projectId: { type: string }
+        siteId: { type: [string, 'null'] }
+        serviceOfferingId: { type: [string, 'null'] }
+        reservationId: { type: [string, 'null'] }
+        category: { type: string, enum: [equipment, license, cloud, storage, supplier, other] }
+        occurredOn: { type: string, format: date }
+        amountMinor: { type: string, pattern: '^\d{1,19}$' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        description: { type: string, minLength: 3, maxLength: 1000 }
+        supplierReference: { type: [string, 'null'], maxLength: 200 }
+        status: { type: string, enum: [draft, confirmed, cancelled] }
+    MarginAnalytics:
+      type: object
+      required: [asOf, currency, filters, totals, projects]
+      properties:
+        asOf: { type: string, format: date }
+        currency: { type: string }
+        filters: { type: object, additionalProperties: true }
+        totals: { type: object, additionalProperties: true }
+        projects: { type: array, items: { type: object, additionalProperties: true } }
     ReservationPresenceCommand:
       type: object
       additionalProperties: false
