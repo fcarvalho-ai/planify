@@ -23,6 +23,7 @@ before(async () => {
   seeded.membershipScopes.push({ membershipId, scope: 'sites', siteIds: ['site_paris'], organizationUnitIds: [], entityScopes: { client: ['client_1'] } }, { membershipId: boulogneMembershipId, scope: 'sites', siteIds: ['site_boulogne'], organizationUnitIds: [] }, { membershipId: auditMembershipId, scope: 'sites', siteIds: ['site_paris'], organizationUnitIds: [] });
   seeded.organizationUnits.push({ id: 'unit_finance_boulogne', companyId: 'company_northlight', siteId: 'site_boulogne', parentUnitId: null, code: 'FIN-BLG', name: 'Finance Boulogne', kind: 'service', activities: ['postProduction'], active: true, version: 1 });
   seeded.projects.push({ ...structuredClone(seeded.projects.find(value => value.id === 'project_1')), id: 'project_finance_boulogne', code: 'FIN-BLG', projectNumber: 'FIN-BLG', name: 'Projet Finance Boulogne', siteId: 'site_boulogne', version: 1 });
+  seeded.auditEvents.push({ id: 'audit_rate_finance_seed', auditId: 'audit_rate_finance_seed', companyId: 'company_northlight', actorUserId: 'user_admin', action: 'rate.created', entityType: 'rate', entityId: 'rate_finance_seed', occurredAt: timestamp, error_id: 'request_rate_finance_seed', requestId: 'request_rate_finance_seed', operationId: 'operation_rate_finance_seed', origin: 'server', versionBefore: null, versionAfter: 1, before: null, after: { id: 'rate_finance_seed', costUnitMinor: '987654', saleUnitMinor: '1234567' }, details: {} });
   fs.writeFileSync(process.env.PLANIFY_DATA_FILE, `${JSON.stringify(seeded, null, 2)}\n`, { mode: 0o600 });
   server = createServer(); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); }); baseUrl = `http://127.0.0.1:${server.address().port}`; admin = await login('admin@northlight.fr'); viewer = await login('viewer@northlight.fr'); financeParis = await login('finance.paris@northlight.fr'); auditOnly = await login('audit.only@northlight.fr');
 });
@@ -108,11 +109,13 @@ test('le coût réalisé est figé dans la révision et les marges restent rése
   const readerDetail = await request(`/api/v1/actuals/${confirmed.data.id}`, {}, viewer); assert.equal(readerDetail.response.status, 200); assert.equal(Object.hasOwn(readerDetail.data.currentRevision, 'costSnapshot'), false); assert.equal((readerDetail.data.revisions || []).some(value => Object.hasOwn(value, 'costSnapshot')), false);
   const denied = await request('/api/v1/analytics/margins?projectId=project_1', {}, viewer); assert.equal(denied.response.status, 403);
   const deniedCosts = await request('/api/v1/finance/project-costs', {}, viewer); assert.equal(deniedCosts.response.status, 403);
+  const restrictedDashboard = await request('/api/v1/projects/project_1/dashboard', {}, viewer); assert.equal(restrictedDashboard.response.status, 200); for (const field of ['estimatedCost', 'estimatedMargin', 'actualCost', 'actualMargin']) assert.equal(Object.hasOwn(restrictedDashboard.data, field), false);
+  const financeDashboard = await request('/api/v1/projects/project_1/dashboard', {}, admin); assert.equal(financeDashboard.response.status, 200); for (const field of ['estimatedCost', 'estimatedMargin', 'actualCost', 'actualMargin']) assert.equal(Object.hasOwn(financeDashboard.data, field), true);
 });
 
 test('l’audit sans finance.read masque les montants et snapshots financiers', async () => {
   const restricted = await request('/api/v1/audit?pageSize=200', {}, auditOnly); assert.equal(restricted.response.status, 200);
-  const financial = restricted.data.items.filter(value => ['actualRecord', 'costRate', 'projectCost'].includes(value.entityType)); assert.ok(financial.length > 0);
+  const financial = restricted.data.items.filter(value => ['actualRecord', 'costRate', 'projectCost', 'rate'].includes(value.entityType)); assert.ok(financial.length > 0); assert.ok(financial.some(value => value.entityType === 'rate'));
   for (const event of financial) { assert.equal(event.before, null); assert.equal(event.after, null); assert.equal(event.financialDetailsRestricted, true); }
   assert.doesNotMatch(JSON.stringify(financial), /costSnapshot|costUnitMinor|amountMinor|totalMinor/);
   const unrestricted = await request('/api/v1/audit?pageSize=200', {}, admin); assert.equal(unrestricted.response.status, 200); assert.ok(unrestricted.data.items.some(value => value.entityType === 'actualRecord' && value.after?.revision?.costSnapshot));
