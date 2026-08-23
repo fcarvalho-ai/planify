@@ -61,7 +61,7 @@ test('PlanyBot répond à l’aide et conserve une conversation privée', async 
 test('la recherche de disponibilité ne modifie aucune réservation', async () => {
   const before = readDb().reservations.length;
   const result = await ask('Quelles salles de montage sont libres du 06/10/2026 au 07/10/2026 ?', 'availability-1', { siteId: 'site_paris' });
-  assert.equal(result.response.status, 201); assert.equal(result.data.intent, 'availability'); assert.equal(result.data.facts.from, '2026-10-06'); assert.ok(result.data.facts.resources.every(value => value.siteId === 'site_paris'));
+  assert.equal(result.response.status, 201); assert.equal(result.data.intent, 'availability'); assert.equal(result.data.facts.from, '2026-10-06'); assert.ok(result.data.facts.resources.every(value => value.siteId === 'site_paris')); assert.deepEqual(result.data.facts.ranking, ['availability', 'continuity', 'projectSite', 'stableNameAndId']); assert.ok(result.data.facts.resources.every(value => value.reasons.includes('Disponible sur toute la période')));
   assert.equal(readDb().reservations.length, before);
 });
 
@@ -81,7 +81,7 @@ test('PlanyBot détecte un chevauchement visible sans l’arbitrer', async () =>
 test('une demande de réservation produit une proposition persistée sans mutation', async () => {
   const before = readDb().reservations.length;
   const result = await ask('Prépare une salle de montage du 12/10/2026 au 14/10/2026', 'draft-1', { projectId: 'project_1', siteId: 'site_paris' });
-  assert.equal(result.response.status, 201); assert.equal(result.data.intent, 'bookingDraft'); assert.equal(result.data.actions[0].type, 'confirmProposal'); assert.ok(result.data.actions[0].proposalId); assert.ok(result.data.actions[0].proposalDigest); assert.equal(result.data.actions[0].preview.projectName, 'Horizons — Saison 2');
+  assert.equal(result.response.status, 201); assert.equal(result.data.intent, 'bookingDraft'); assert.equal(result.data.actions[0].type, 'confirmProposal'); assert.ok(result.data.actions[0].proposalId); assert.ok(result.data.actions[0].proposalDigest); assert.equal(result.data.actions[0].preview.projectName, 'Horizons — Saison 2'); assert.ok(result.data.facts.recommendations[0].reasons.length >= 2);
   const proposal = await request(`/api/v1/plany/proposals/${result.data.actions[0].proposalId}`, {}, admin); assert.equal(proposal.response.status, 200); assert.equal(proposal.data.status, 'prepared'); assert.equal(proposal.data.command.status, 'option');
   const hidden = await request(`/api/v1/plany/proposals/${result.data.actions[0].proposalId}`, {}, viewer); assert.equal(hidden.response.status, 404);
   assert.equal(readDb().reservations.length, before);

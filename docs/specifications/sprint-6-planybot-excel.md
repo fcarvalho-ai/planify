@@ -142,3 +142,7 @@ Le rollback du Sprint 6 désactive les nouvelles routes et l’interface, restau
 - contrat OpenAPI et tests négatifs RBAC, digest, isolation utilisateur, replay divergent et rollback.
 
 Preuves fraîches : tests ciblés 12/12, suite complète 265/265, lint et build verts. Cet état est un lot DEV ; il ne constitue pas le Gate G6 et ne couvre pas encore S6-B/C/D.
+
+### S6-B/C — classement initial intégré le 2026-08-22
+
+Les intentions Disponibilité et Préparation produisent un tableau `recommendations` explicable. Les candidats sont d’abord filtrés par disponibilité, compatibilité, société, site, Projet et scopes d’entité, puis triés par continuité Projet, site du Projet, nom et identifiant stable. Les raisons utilisées sont retournées avec chaque candidat. Aucun coût n’est exposé et aucune préférence client n’est inventée lorsque le modèle n’en contient pas. La première recommandation alimente la prévisualisation persistée ; elle ne contourne pas la confirmation S6-A.
