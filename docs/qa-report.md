@@ -1,3 +1,52 @@
+# QA indépendante S7-B — coûts internes, dépenses Projet et marges
+
+Date : 2026-08-23
+Commit contrôlé : `59ad25a339112dc4faa7df556e43aace6c1cb1ae` (`feat: add Sprint 7 finance costs and margins`)
+Verdict : **APPROVED — 0 P0 / 0 P1**
+
+Ce verdict couvre uniquement S7-B (`US-085` à `US-088`). Il ne vaut pas approbation du Sprint 7 complet ni du Gate G7, qui restent dépendants de S7-C, S7-D et des gates aval sur un candidat unique.
+
+## État exact et empreintes
+
+Le dépôt était propre au démarrage et `HEAD` correspondait exactement au commit demandé. Environnement : Node `v26.6.0`, macOS/Darwin arm64.
+
+```text
+server.js                              3e4921e359e7b3455460443230e7b607b9711b93cae66c45367f32712fed35ee
+app.js                                 39da92b68af5f4faf9c08b783d4d493cfe7c1965e70568e741f5e8a2d7c7ec04
+index.html                             63713e30a59e7192c60b023b9f78d7e85bfef5904788f816e2cec190bd573590
+planning.css                           fc6168de5e0e3d4295592680cdc0a70b1155feb51bca18cdfa7e29d4a186e009
+docs/api/openapi-v1.yaml               eaa86411c7bea417ecf8e28494122dfb9cc8fbae42f06e285db95b5a3f3ba1cc
+tests/sprint7-actuals.test.js           d83667ecd893ed88046f95474dd33bf1f5b508cbd83676db774e349f0742a7c9
+tests/sprint7-finance.test.js           677569280b52e399242855b9f4576cff8fc328fa5e8761f43811f7641fb475e6
+```
+
+## Commandes et résultats frais
+
+- `node --test tests/sprint7-finance.test.js tests/sprint7-actuals.test.js` : **20/20 réussis**, 0 échec, 0 ignoré, code 0, durée 0,710 s.
+- `npm test` : **291/291 réussis**, 0 échec, 0 ignoré, code 0, durée 10,199 s.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés, code 0.
+- `git diff --check` : **PASS**, code 0.
+- validation sémantique indépendante de `docs/api/openapi-v1.yaml` : **PASS** — OpenAPI 3.1.0, 57 chemins, 75 schémas, 298 références locales (80 distinctes) toutes résolues et 70 `operationId` uniques.
+
+## Critères et négatifs validés
+
+- La migration Finance est additive et rejouable, produit une sauvegarde privée `0600` et refuse une base dont l'intégrité Finance ou les snapshots historiques ont été falsifiés.
+- Les coûts datés sont idempotents, refusent les périodes qui se chevauchent et appliquent la priorité ressource avant catégorie.
+- Une dépense Projet est rattachée à un Projet autorisé, versionnée et corrigée par révision append-only avec motif ; une dépense annulée est terminale et ne peut pas être rouverte.
+- La confirmation du réalisé fige le coût interne dans `costSnapshot`. Une modification ultérieure du coût de référence ne réécrit ni le snapshot ni l'historique du réalisé.
+- Les marges et dépenses sont refusées à un acteur sans `finance.read`; les mutations sont séparées par `finance.cost.manage` et les contrôles UI statiques masquent les formulaires de gestion sans cette permission.
+- Les replays idempotents, versions obsolètes, chevauchements, permissions insuffisantes, scopes invalides, falsifications, export obligatoire et rollback byte-exact sont couverts par les tests ciblés sans écriture partielle observée.
+- La page Finance expose des KPI, les coûts internes et dépenses dans des régions tabulaires nommées, avec états de chargement/erreur et focus visible vérifiés statiquement.
+
+## Limites non bloquantes
+
+- Le démarrage du smoke navigateur isolé sur `127.0.0.1:8214` a d'abord été refusé par le bac à sable (`listen EPERM`). La demande d'autorisation locale a ensuite été interrompue ; aucun smoke visuel n'est donc revendiqué dans cette passe. Les contrôles UI ciblés sont automatisés et verts, mais l'E2E navigateur reste à exécuter au gate dédié.
+- Les seuils volumétriques et latences relèvent du gate Performance indépendant. Cette QA ne transforme pas les tests fonctionnels en preuve de performance.
+- S7-C (backlog/forecast) et S7-D (occupation/rentabilité/tarifs) restent hors périmètre.
+
+Conclusion : aucun échec fonctionnel, défaut P0/P1 ou régression de suite n'a été observé sur le candidat exact `59ad25a…`. Le gate QA indépendant S7-B est **APPROVED — 0 P0 / 0 P1**.
+
 # Re-QA finale S7-A — isolation des Devis complémentaires
 
 Date : 2026-08-23
