@@ -2,63 +2,69 @@
 
 Date : 2026-08-23
 
-Candidat Git : `cdc475c9ff015531e662327dbdc9d7c2e82f6aa8`
+Candidat Git : `6381cbeb7020d57ac21e2086a3d5475d9d675325`
 
-Verdict : **REJECTED — 0 P0, 2 P1, 0 P2**
+Verdict : **APPROVED — 0 P0, 0 P1, 0 P2**
 
 ## Périmètre et empreintes
 
 | Fichier | SHA-256 |
 |---|---|
-| `server.js` | `2c8b7d270daee986524a6011dc1aa9551312af0a4c3dcab8dffe031fc116f372` |
-| `app.js` | `2bef5de38aa129788b35b6e05a767390635d368984a02609079b0d8fa309c480` |
-| `tests/plany.test.js` | `9ea6407fb3b76b756584c2666d9e184a52f6ad9fcfc0380853baab1529f72687` |
-| `tests/quotes.test.js` | `20a28dc983e91b8aa0219ed79d8cac3739c0588d9ef19c19126f81accd86e9e2` |
-| `docs/api/openapi-v1.yaml` | `8eb7cba34b35f9600d4f64bc76993d3cbbc27bc22e59382343e92356b58d2bf3` |
-| `docs/specifications/sprint-6-planybot-excel.md` | `f498e70b697950cbf687d0ddcb9abb8c804114112505f9aef8a7e38adc9437a5` |
+| `server.js` | `458a9c08cb26cc45ecb3613f7d743d996a70100bd4ccbf38416c221bcce29062` |
+| `app.js` | `d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54` |
+| `tests/plany.test.js` | `34cbab3d8ffbc55cf961c801eb48ed6a11babace731939848136b9a4db3a7030` |
+| `tests/quotes.test.js` | `16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a` |
+| `docs/api/openapi-v1.yaml` | `ea5a084ce6ce88fdf252108dac3d865c73506cecd331984fb9dbd5df46c4b83a` |
+| `docs/specifications/sprint-6-planybot-excel.md` | `9c1468a368a299eb5ee5a80a5c11348778d027ea1e00eea4fd7ff96a86a915f1` |
 
-## Constats bloquants
+La revue couvre les corrections des deux P1 précédents ainsi que les chemins G6 d'authentification, CSRF/origine, RBAC, isolation société/site/projet/entité, rejeu, historique, import, clarification, idempotence, XSS, audit et stockage privé.
 
-### P1 — SEC-G6-01 — un rejeu PlanyBot peut restituer des faits devenus hors périmètre
+## Fermeture des constats précédents
 
-Dans `planyPostMessage`, le chemin de rejeu idempotent contrôle de nouveau uniquement les `projectId` et `siteId` du `context` fourni, puis renvoie directement `existing.result` (`server.js:1324-1332`). Or `planyAnswer` peut déduire un projet et des ressources depuis le texte du message sans qu'ils figurent dans ce contexte. La conversation ne mémorise ensuite que les identifiants du contexte explicite (`server.js:1332-1340`).
+### SEC-G6-01 — provenance et revalidation des replays : **FERMÉ**
 
-Conséquence : après réduction des scopes projet/site/entité, rejouer la même clé, le même message et un contexte vide peut restituer le résultat précédemment autorisé contenant noms, identifiants, disponibilité ou synthèse d'un projet/ressource désormais interdit. Le même défaut de provenance rend aussi l'historique insuffisamment revalidable lorsqu'une conversation créée sans contexte explicite contient des faits inférés. Cela contredit l'exigence Sprint 6 de revalidation des permissions courantes sur chaque lecture et chaque rejeu.
+- Chaque réponse construit un instantané minimal des projets, sites, devis, imports, ressources, réservations et membres effectivement exposés.
+- Cette provenance est persistée sur les messages, la conversation et le marqueur d'idempotence, y compris lorsque le Projet est inféré depuis le texte plutôt que fourni dans le contexte.
+- Le rejeu et la lecture d'historique revalident société, sites, projets et scopes d'entités courants. Une provenance absente échoue fermée ; les données héritées ne sont acceptées que si une provenance reconstituable est encore autorisée.
+- Le test négatif réduit le scope du lecteur après une réponse sur `project_1` : le rejeu exact et l'historique retournent ensuite tous deux `404 NOT_FOUND`.
 
-Condition de fermeture : persister la provenance complète des entités exposées, puis revalider tenant, site, projet et entités avant tout rejeu/historique ; ajouter un test négatif avec retrait de scopes entre la première réponse et le rejeu.
+Conclusion : aucune restitution historique n'a été trouvée après révocation du Projet testé.
 
-### P1 — SEC-G6-02 — quota décompressé agrégé absent sur les fichiers clients
+### SEC-G6-02 — décompression cumulée et déni de service : **FERMÉ**
 
-Le fichier encodé est plafonné, et chaque entrée ZIP déflatée est individuellement limitée à 20 MiB. Cependant, `clientPlanningZipEntries` accepte jusqu'à 2 000 entrées et conserve chaque résultat dans une `Map`, sans plafond sur le total décompressé (`server.js:1961-1966`). Les flux PDF déflatés suivent également un plafond par flux, sans budget cumulé (`server.js:1999`).
+- XLSX : plafonds sur 256 entrées ZIP, 40 entrées utiles, 32 feuilles, 8 MiB par entrée, 16 MiB cumulés, 10 000 lignes, 256 colonnes, 100 000 cellules, 20 000 chaînes partagées et 5 000 fusions.
+- PDF : 64 flux, 8 MiB par flux, 16 MiB cumulés et 10 000 blocs texte.
+- CSV : lignes, colonnes et cellules sont également plafonnées.
+- La décompression utilise les API asynchrones `zlib.inflateRaw` / `zlib.inflate` avec `maxOutputLength`; le volume réel est revérifié après décompression, ce qui empêche de contourner les tailles déclarées du ZIP.
+- Un XLSX synthétique de 3 feuilles déclarant 18 874 368 octets décompressés pour 18 772 octets compressés est refusé en `17,25 ms` avec `422 CLIENT_PLANNING_LIMIT_EXCEEDED`.
+- Le test HTTP de non-régression vérifie aussi qu'un dépassement structurel ne persiste aucune analyse.
 
-Un fichier compressé inférieur à 5 MiB peut donc provoquer plusieurs gigaoctets de décompression cumulée. Le traitement utilise `inflateRawSync`/`inflateSync` sur le thread HTTP principal : un utilisateur autorisé à importer peut épuiser mémoire et CPU et rendre le service indisponible. Les limites par fichier et par nombre d'imports ne protègent pas contre ce cas.
+Conclusion : le volume de travail et la mémoire allouable par une analyse sont désormais bornés et l'échec intervient avant toute mutation métier.
 
-Condition de fermeture : budget cumulé strict pour octets décompressés, feuilles, lignes, colonnes, cellules et chaînes, interruption fail-closed avant allocation excessive, puis tests ZIP/PDF bomb et limites exactes.
+## Autres contrôles satisfaisants
 
-## Contrôles satisfaisants observés
-
-- Authentification et CSRF/origine sont exigés sur les mutations ; la confirmation d'une proposition exige `planning.write`.
-- Les propositions sont privées à l'utilisateur, bornées, expirables, revalident projet/site/ressources et utilisent versions, digest et idempotence avant mutation.
-- Le classement ne renvoie pas les coûts internes sans `finance.read`; les préférences commerciales exigent `quote.read`.
-- Les ressources, réservations, projets et fichiers sont filtrés société/site/entité sur les chemins normaux.
-- Les fichiers importés sont nommés côté serveur par digest, stockés hors liste statique avec modes répertoire `0700` et fichier `0600`; aucun nom utilisateur ne choisit un chemin.
-- Les formules Excel ne sont pas exécutées, les entrées ZIP ne deviennent pas des chemins locaux et les sorties PlanyBot examinées passent par l'échappement HTML.
-- Audit et SSE interviennent après succès des mutations ; l'audit des messages conserve longueur/intention plutôt que le texte libre.
-- Migration additive avec marqueur d'intégrité, sauvegarde source et rollback byte-exact documenté dans l'implémentation.
+- Les mutations exigent session, CSRF/origine et permissions serveur. L'analyse exige `quote.manage` et `planning.read`; la confirmation Planning reste sous `planning.write`.
+- `companyId` provient de la session. Les recherches de Projet, Devis, import, ressource, réservation et membre combinent société et scopes courants, sans révéler l'existence hors périmètre.
+- L'import direct Excel vers un Devis brouillon refuse les lignes ambiguës/non reconnues avant clarification humaine versionnée. Toute dérive entre la dernière révision confirmée et `apply-lines` retourne un conflit stable.
+- Les retries d'application et de confirmation sont idempotents ; un corps divergent avec la même clé est refusé et aucun doublon de ligne ou réservation n'est créé.
+- Les formules Excel ne sont pas exécutées. Les entrées ZIP et noms fournis ne deviennent ni chemins locaux ni URL. Les fichiers sont renommés par digest, privés (`0600`) et hors liste statique.
+- Les textes PlanyBot et champs de prévisualisation sont échappés par `esc()` avant injection DOM. Aucun rendu HTML issu du message utilisateur n'a été identifié.
+- Les coûts internes restent absents des réponses sans `finance.read`; les préférences tarifaires requièrent `quote.read`.
+- Audit et SSE suivent le succès des mutations ; l'analyse seule et la clarification ne créent aucune réservation.
 
 ## Preuves fraîches
 
-- `node --test tests/plany.test.js tests/quotes.test.js` — Node `v26.6.0`, 2026-08-23 : **60/60 PASS**, 0 échec, durée `5020 ms`.
-- Inspection indépendante ciblée de l'auth, CSRF, RBAC/scopes, rejeux, conversations, coûts, stockage fichier, parseurs XLSX/PDF/CSV, quotas, audit/SSE et migration sur les empreintes ci-dessus.
-
-La suite verte démontre les cas couverts, mais elle ne contient ni retrait de scope avant rejeu ni attaque par volume décompressé cumulé ; elle ne ferme donc pas les deux constats.
+- `node --test tests/plany.test.js tests/quotes.test.js` — Node `v26.6.0`, 2026-08-23 : **62/62 PASS**, 0 échec, durée `4825 ms`.
+- Test local borné d'un XLSX à volume décompressé cumulé supérieur à 16 MiB : **PASS**, `422 CLIENT_PLANNING_LIMIT_EXCEEDED`, durée `17,25 ms`.
+- Inspection indépendante du diff `cdc475c9…6381cbeb`, des routes G6, des filtres de scope, des sorties DOM, des limites de parse et des tests négatifs.
 
 ## Limites
 
-- Aucun fichier malveillant volumineux n'a été exécuté afin de ne pas mettre en danger la machine de travail.
-- Aucun pentest ou fuzzing externe ; revue locale statique et tests HTTP ciblés.
-- `docs/project-status.md` est laissé à l'intégrateur conformément à l'ownership demandé.
+- Aucun fuzzing externe ni fichier malveillant non synthétique n'a été exécuté.
+- La mesure utilise un ZIP synthétique sûr ; elle démontre l'application du quota cumulé, pas la résistance à toutes les variantes historiques du format Office.
+- L'application reste un monolithe local mono-processus avec persistance JSON, conformément au périmètre RC2 ; cette architecture n'est pas évaluée comme service Internet multi-tenant de production.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur conformément à l'ownership demandé.
 
 ## Verdict
 
-Les contrôles usuels sont solides, mais les deux P1 permettent respectivement une restitution après révocation de droits et un déni de service par décompression cumulée. **SECURITY REJECTED** jusqu'à correction et revalidation indépendante.
+Les deux P1 précédents sont fermés et aucun contournement critique ou élevé n'a été identifié sur le candidat exact. **SECURITY APPROVED** pour G6 sur `6381cbeb7020d57ac21e2086a3d5475d9d675325`.

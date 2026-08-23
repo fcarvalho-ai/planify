@@ -1,3 +1,94 @@
+# Gate G6 — re-REVIEW indépendante des correctifs
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g6_review_final`
+
+Candidat Git exact : `6381cbeb7020d57ac21e2086a3d5475d9d675325`
+
+Diff contrôlé : `cdc475c9ff015531e662327dbdc9d7c2e82f6aa8..6381cbeb7020d57ac21e2086a3d5475d9d675325`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 2 P1 ouverts.**
+
+Les correctifs ferment le contournement de clarification Excel → Devis et le défaut de bornage/décompression synchrone. Ils ferment aussi le cas précis du Projet inféré puis retiré du scope. Deux blocages subsistent néanmoins : la provenance PlanyBot ne couvre pas encore toutes les autorités réellement utilisées et les quatre chemins OpenAPI ajoutés sont structurellement invalides faute de déclaration du paramètre de chemin `quoteId`.
+
+## P1 — bloquants
+
+### P1-1 — La revalidation PlanyBot reste incomplète pour les permissions et les faits agrégés
+
+`planyAccessSnapshot()` persiste bien les Projets, sites, Devis, imports, ressources, réservations et personnes explicitement présents dans les faits/actions (`server.js:1309-1317`). Le rejeu et l'historique appellent ensuite `planyAccessAllowed()` et le test de retrait du Projet inféré passe.
+
+Deux autorités utilisées lors de la réponse ne sont toutefois pas conservées/revalidées :
+
+- une réponse `clientPlanning` exige `quote.read` lors de sa création (`server.js:1255-1260`), mais une route `/plany/*` n'exige ensuite que `planning.read` (`server.js:2283`) et `planyAccessAllowed()` contrôle `quoteAllowed()` sans vérifier que `quote.read` est toujours accordé (`server.js:1326-1327`) ; après révocation de la permission commerciale avec scopes inchangés, le rejeu/historique peut donc restituer les faits du Devis ;
+- le résumé Projet calcule `reservationCount`, `plannedDays` et `resourceCount` depuis les réservations accessibles, mais ne place dans ses faits que le Projet et les agrégats (`server.js:1287-1290`). La provenance ne contient donc ni les réservations ni les ressources ayant produit ces valeurs. Une réduction ultérieure de `entityScopes.reservation` ou `entityScopes.resource`, tout en conservant le Projet, ne rend pas ce résumé historique inaccessible.
+
+Impact : la règle G6 §3.1 « chaque lecture revalide les permissions et scopes courants » n'est pas satisfaite pour toutes les réponses historiques. Le P1 historique est seulement partiellement fermé.
+
+Correction attendue : persister les permissions/capacités requises par chaque réponse et tous les identifiants sources ayant contribué aux faits agrégés, puis les revalider au rejeu et à la lecture. Ajouter deux régressions : révocation de `quote.read` après une réponse `clientPlanning`, puis réduction des scopes Réservation/Ressource après un résumé Projet sans retrait du Projet.
+
+### P1-2 — Les nouveaux chemins OpenAPI omettent leur paramètre `quoteId`
+
+Les quatre routes auparavant absentes figurent désormais dans `docs/api/openapi-v1.yaml`, mais aucune ne déclare le paramètre de chemin obligatoire `quoteId` :
+
+- `POST /quotes/{quoteId}/client-planning/analyze` ;
+- `POST /quotes/{quoteId}/client-planning/apply-lines` ;
+- `POST /quotes/{quoteId}/planning-conversion/preview` ;
+- `POST /quotes/{quoteId}/planning-conversion`.
+
+Le contrôle sémantique frais signale exactement ces quatre erreurs. Un template OpenAPI contenant `{quoteId}` doit déclarer un paramètre `in: path`, `required: true`, au niveau du chemin ou de chaque opération. Le simple parsing YAML et le test de présence textuelle des chemins ne détectent pas cette invalidité.
+
+Impact : le contrat G6 n'est pas exploitable par une validation/génération OpenAPI standard et ne décrit pas complètement l'identité de la ressource appelée. Le quatrième P1 historique n'est que partiellement fermé.
+
+Correction attendue : ajouter le paramètre `quoteId` aux quatre opérations, puis conserver un contrôle sémantique automatisé des paramètres de templates, pas seulement un parse YAML ou une recherche de chaînes.
+
+## Fermetures confirmées
+
+1. **Clarification Excel → Devis : FERMÉ.** `apply-lines` consomme `clientPlanningCurrentAnalysis()`, refuse les lignes non `matched/confirmed`, exige une ressource, et compare exactement ressource, libellé, durée et quantité à la dernière révision. L'interface directe enregistre d'abord les corrections versionnées. Les tests couvrent refus avant clarification, révision humaine, dérive refusée, application puis rejeu idempotent, sans réservation.
+2. **Parseurs bornés : FERMÉ au gate REVIEW.** XLSX/PDF utilisent la décompression asynchrone ; les plafonds couvrent entrées ZIP utiles/totales, feuilles, octets par entrée et cumulés, lignes, colonnes, cellules, chaînes partagées, fusions, flux PDF et blocs texte. CSV est borné en lignes/colonnes/cellules. Le dépassement ZIP retourne `CLIENT_PLANNING_LIMIT_EXCEEDED` sans persistance. La mesure de réactivité et les charges adversariales complémentaires restent du ressort Performance/Sécurité.
+3. **Cas Projet inféré : FERMÉ isolément.** Le test retire `project_1` du scope après une réponse sans contexte explicite ; rejeu et historique retournent tous deux `404`.
+4. **Inventaire des routes G6 : PRÉSENT mais non valide.** Conversation, analyse, application, preview et conversion sont toutes listées ; le P1-2 porte sur leur validité structurelle.
+
+## Régressions adjacentes et limites
+
+- Aucun P0 ni autre P1 n'a été identifié dans le diff ciblé, ses consommateurs UI et les chemins Planning/Commercial relus.
+- Le probe dynamique de révocation `quote.read` n'a pas pu ouvrir un port dans le sandbox (`listen EPERM`) et la demande d'autorisation locale a été interrompue. Le constat P1-1 repose donc sur le chemin statique déterministe décrit ci-dessus ; aucune affirmation de smoke réseau n'est faite.
+- REVIEW n'a pas exécuté le navigateur E2E, la mesure de réactivité de l'event loop ni une batterie exhaustive de bombes ZIP/PDF. Ces preuves restent dues aux gates aval après correction des P1.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `6381cbeb7020d57ac21e2086a3d5475d9d675325` |
+| `node --test tests/plany.test.js tests/quotes.test.js tests/sprint6-plany-migration.test.js` | **PASS, 63/63**, 0 échec/skip/todo |
+| `npm test` | **PASS, 269/269**, 0 échec/skip/todo, 8,889 s |
+| Contrôle Ruby/Psych de tous les templates `{param}` OpenAPI | **FAIL**, quatre paramètres `quoteId` manquants listés au P1-2 |
+| `git diff 6381cbe --` sur code/tests/spec G6 | aucun écart : les fichiers revus correspondent au commit exact |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                                      458a9c08cb26cc45ecb3613f7d743d996a70100bd4ccbf38416c221bcce29062
+app.js                                         d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54
+docs/api/openapi-v1.yaml                        ea5a084ce6ce88fdf252108dac3d865c73506cecd331984fb9dbd5df46c4b83a
+tests/plany.test.js                             34cbab3d8ffbc55cf961c801eb48ed6a11babace731939848136b9a4db3a7030
+tests/quotes.test.js                            16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a
+tests/sprint6-plany-migration.test.js           317fbbf11e4e341be7220d7893e3f59c7f45f970c4e357ea721912949d6f801b
+docs/specifications/sprint-6-planybot-excel.md  9c1468a368a299eb5ee5a80a5c11348778d027ea1e00eea4fd7ff96a86a915f1
+```
+
+## Handoff
+
+Le candidat retourne en DEV pour ces deux P1, puis doit repasser REVIEW et tous les gates aval impactés. Conformément au mandat mono-fichier, `docs/project-status.md` reste à mettre à jour par l'intégrateur. Toute modification du code, des tests ou de l'OpenAPI invalide cette re-REVIEW.
+
+---
+
 # Gate G6 — REVIEW indépendante Sprint 6 PlanyBot & import Excel
 
 Date : 2026-08-23

@@ -1,3 +1,45 @@
+# Re-QA indépendante G6 — correctifs PlanyBot et import client
+
+Date : 2026-08-23  
+Commit contrôlé : `6381cbeb7020d57ac21e2086a3d5475d9d675325` (`fix: close G6 review and security blockers`)  
+Verdict : **NOT APPROVED — preuves ciblées vertes, gate QA complète non terminée**  
+Constats ouverts : **0 P0, 1 P1 de preuve QA**
+
+## État et empreintes
+
+Le dépôt était propre avant les contrôles et `HEAD` correspondait exactement au commit demandé.
+
+```text
+server.js                    458a9c08cb26cc45ecb3613f7d743d996a70100bd4ccbf38416c221bcce29062
+app.js                       d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54
+docs/api/openapi-v1.yaml     ea5a084ce6ce88fdf252108dac3d865c73506cecd331984fb9dbd5df46c4b83a
+tests/plany.test.js          34cbab3d8ffbc55cf961c801eb48ed6a11babace731939848136b9a4db3a7030
+tests/quotes.test.js         16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a
+Environnement                Node v26.6.0, macOS/Darwin, arm64
+```
+
+## Commandes réellement exécutées
+
+- `node --test tests/plany.test.js tests/clients.test.js` : **24/24 réussis**, 0 échec, 0 ignoré, code 0, durée 0,748 s.
+- `node --test tests/quotes.test.js` : **49/49 réussis**, 0 échec, 0 ignoré, code 0, durée 4,847 s.
+- lecture/parsing du contrat OpenAPI par les tests ciblés : les routes Conversation, Analyse, Application contrôlée, Prévisualisation et Conversion sont présentes.
+
+La re-QA confirme fonctionnellement et négativement :
+
+- un replay idempotent et l’historique d’une conversation deviennent tous deux inaccessibles (`404 NOT_FOUND`) après retrait du Projet inféré du scope du lecteur ;
+- l’import direct ambigu est bloqué par `CLIENT_PLANNING_CLARIFICATION_REQUIRED`, la correction humaine produit une révision confirmée, toute dérive est refusée par `CLIENT_PLANNING_REVISION_REQUIRED`, puis l’application exacte ajoute une seule ligne non planifiée, sans réservation et sans doublon au rejeu ;
+- une archive XLSX déclarant 257 entrées dépasse la borne, retourne `422 CLIENT_PLANNING_LIMIT_EXCEEDED` et ne crée aucun `clientPlanningImport` ;
+- les PDF texte restent analysables sans réservation automatique et un PDF sans texte exploitable est refusé sans réservation ;
+- les contrats G6 attendus sont présents dans `docs/api/openapi-v1.yaml` et vérifiés par les assertions de contrat frontend/API.
+
+## P1 de preuve QA restant
+
+La tentative d’ajouter un smoke API indépendant pour les dépassements structurels CSV et PDF a été interrompue par l’environnement avant exécution. Conformément à l’instruction d’arrêt, elle n’a pas été relancée. De plus, la suite complète `npm test`, `npm run lint`, `npm run build` et `git diff --check` n’a pas été rejouée par cet agent après les ciblés. Les résultats DEV antérieurs ne sont pas revendiqués comme preuves QA indépendantes.
+
+Le code expose bien des bornes dédiées pour CSV et PDF, mais leur dépassement sans persistance n’est pas démontré par une preuve indépendante fraîche dans cette passe. Le Gate QA G6 reste donc **NOT APPROVED** jusqu’à l’exécution, sur ce même commit, des deux cas négatifs CSV/PDF et des commandes contractuelles complètes. Aucun défaut fonctionnel P0/P1 n’a été observé dans les 73 scénarios effectivement exécutés.
+
+Limites : aucune validation navigateur visuelle, aucune mesure de performance, aucun test de charge ; ces sujets appartiennent aux gates E2E et Performance.
+
 # Rapport QA indépendant — Organisation 01/01b fiscal, Stock 07a et régression MVP
 
 Date : 2026-08-14  

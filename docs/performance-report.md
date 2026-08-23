@@ -2,66 +2,76 @@
 
 Date : 2026-08-23
 
-Candidat Git : `cdc475c9ff015531e662327dbdc9d7c2e82f6aa8`
+Candidat Git : `6381cbeb7020d57ac21e2086a3d5475d9d675325`
 
-Verdict : **REJECTED — 0 P0, 1 P1, 1 P2 de preuve**
+Verdict : **APPROVED — 0 P0, 0 P1, 1 P2**
 
 ## Périmètre et empreintes
 
 | Fichier | SHA-256 |
 |---|---|
-| `server.js` | `2c8b7d270daee986524a6011dc1aa9551312af0a4c3dcab8dffe031fc116f372` |
-| `app.js` | `2bef5de38aa129788b35b6e05a767390635d368984a02609079b0d8fa309c480` |
-| `tests/plany.test.js` | `9ea6407fb3b76b756584c2666d9e184a52f6ad9fcfc0380853baab1529f72687` |
-| `tests/quotes.test.js` | `20a28dc983e91b8aa0219ed79d8cac3739c0588d9ef19c19126f81accd86e9e2` |
-| `docs/specifications/sprint-6-planybot-excel.md` | `f498e70b697950cbf687d0ddcb9abb8c804114112505f9aef8a7e38adc9437a5` |
+| `server.js` | `458a9c08cb26cc45ecb3613f7d743d996a70100bd4ccbf38416c221bcce29062` |
+| `app.js` | `d3bf84b126371213f59b18d1aac5612bfd2770f1aab205a66246894ee45e9d54` |
+| `tests/plany.test.js` | `34cbab3d8ffbc55cf961c801eb48ed6a11babace731939848136b9a4db3a7030` |
+| `tests/quotes.test.js` | `16e138f0a4bb50d72bed8a82e59e28c6aa1ebfa616a41ec6af0537fc4f02050a` |
+| `docs/specifications/sprint-6-planybot-excel.md` | `9c1468a368a299eb5ee5a80a5c11348778d027ea1e00eea4fd7ff96a86a915f1` |
 
-## Mesure fraîche de non-régression planning
+## Fermeture du constat bloquant
+
+### PERF-G6-01 — parsing synchrone et volume non borné : **FERMÉ**
+
+La décompression XLSX/PDF n'utilise plus `inflateRawSync`/`inflateSync` sur le chemin HTTP. Elle passe par les API asynchrones zlib, avec une limite par entrée et un budget décompressé cumulé de 16 MiB. Les nombres d'entrées, feuilles, flux, lignes, colonnes, cellules, chaînes et fusions sont plafonnés avant ou pendant le parcours. CSV applique les mêmes budgets structuraux utiles.
+
+Mesure parser représentative, commande Node locale appelant `parseClientPlanningXlsx` sur une feuille déflatée :
+
+- fixture : 4 001 lignes, 5 colonnes, 20 005 cellules, XML décompressé `1 201 698` octets, XLSX compressé `68 269` octets ;
+- 20 itérations : parsing p50 `23,90 ms`, p95 `28,42 ms`, max `35,46 ms` ;
+- retard de boucle événementielle mesuré à résolution 1 ms : p50 `1,15 ms`, p95 `23,54 ms`, p99 `27,44 ms`, max `29,57 ms` ;
+- état mémoire final : RSS `168 230 912` octets, heap utilisé `13 324 048` octets.
+
+Le traitement XML restant est local et séquentiel, mais son coût est désormais strictement borné. Sur la volumétrie métier mesurée, le retard maximum reste inférieur à 30 ms et ne remet pas en cause l'interactivité du serveur local.
+
+Un test de dépassement cumulé avec 3 feuilles de 6 MiB, soit `18 874 368` octets déclarés décompressés pour `18 772` octets compressés, est refusé en `17,25 ms` avec l'erreur stable attendue. La limite intervient avant toute persistance.
+
+## Non-régression planning 250 / 10 000
 
 Commande : `npm run benchmark:http`
 
-Environnement : Node `v26.6.0`, macOS local, données générées par le script : **250 ressources / 10 000 réservations**, fichier `10 847 533` octets.
+Environnement : Node `v26.6.0`, macOS local, **250 ressources / 10 000 réservations**, fichier `10 847 533` octets.
 
-| Chemin | Mesure | Seuil | Résultat |
+| Chemin | Mesure fraîche | Seuil | Résultat |
 |---|---:|---:|---|
-| Lecture réservations | p95 `127,56 ms` | `< 300 ms` | PASS |
-| Détection conflit | p95 `179,97 ms` | `< 250 ms` | PASS |
-| Écriture unitaire | p95 `218,22 ms` | `< 250 ms` | PASS |
-| Batch 100 | p95 `276,51 ms` | seuil Sprint 6 non explicite | information |
-| Rejeu idempotent | `197,16 ms` | — | information |
+| Lecture réservations | p95 `125,35 ms` | `< 300 ms` | PASS |
+| Détection conflit | p95 `180,97 ms` | `< 250 ms` | PASS |
+| Écriture unitaire | p95 `230,37 ms` | `< 250 ms` | PASS |
+| Batch 100 | p95 `300,95 ms` | aucun seuil G6 explicite | information |
+| Rejeu idempotent | `213,45 ms` | — | information |
 
-Durée totale de la commande : `17,91 s`. Mémoire finale du processus : RSS `537 264 128` octets, heap utilisé `74 787 408` octets. Les seuils historiques lecture/conflit/écriture restent respectés ; le batch100 dépasse toutefois 250 ms si ce seuil était étendu aux lots.
+Durée de la commande : environ `18,4 s`. État mémoire final du processus : RSS `544 768 000` octets, heap utilisé `74 856 208` octets. Les trois seuils contractuels restent respectés.
 
-## Constat bloquant
+## P2 non bloquant
 
-### P1 — PERF-G6-01 — analyse de fichier synchrone et volume décompressé non borné globalement
+### PERF-G6-02 — double parcours de la première feuille générique
 
-La route d'analyse décode et analyse XLSX/PDF/CSV dans le gestionnaire HTTP avant la mutation. Pour XLSX, jusqu'à 2 000 entrées sont décompressées avec `inflateRawSync`, chacune jusqu'à 20 MiB, puis toutes conservées en mémoire ; aucun plafond agrégé n'existe (`server.js:1961-1966`). Le PDF utilise aussi `inflateSync` par flux sans budget cumulé (`server.js:1999`). Les feuilles XML sont ensuite parcourues par expressions régulières sur le même thread.
+`parseClientPlanningXlsx` tente d'abord le format spécialisé post-production, puis reparcourt la première feuille avec le même budget mutable lorsqu'il ne le reconnaît pas. Une feuille générique consomme donc deux fois les compteurs de lignes/cellules : la limite pratique peut être inférieure aux constantes annoncées et du travail XML est répété.
 
-Un classeur compressé conforme à la limite d'entrée peut donc bloquer durablement la boucle événementielle et provoquer une très forte consommation mémoire. Le critère Sprint 6 « analyse représentative interactive et non bloquante » n'est pas démontrable avec cette architecture et peut être violé par une entrée autorisée.
+Impact observé : le fichier représentatif de 4 001 lignes reste très rapide, mais un fichier générique proche de 5 000 lignes peut être rejeté avant la limite nominale de 10 000. Recommandation : analyser une fois vers une représentation intermédiaire ou utiliser un budget de sécurité physique distinct des compteurs fonctionnels. Ce point ne crée ni charge non bornée ni dépassement des seuils mesurés ; il ne bloque pas G6.
 
-Condition de fermeture : plafonds cumulés et structuraux, parsing incrémental ou traitement isolé/interruptible avec budget temps/mémoire, puis mesure concurrente démontrant que les lectures planning/SSE restent réactives pendant l'analyse d'un fichier représentatif à la borne.
+## Preuves fraîches complémentaires
 
-## P2 de preuve
-
-### P2 — PERF-G6-02 — absence de benchmark représentatif PlanyBot/import
-
-Les tests fonctionnels PlanyBot et devis passent rapidement, mais le classeur de test n'établit pas une volumétrie métier représentative ni la latence UI `< 2 s`. Aucun profil n'isole recommandation PlanyBot, analyse Excel, mémoire de pic et impact SSE sous concurrence. Après correction du P1, ces mesures doivent être ajoutées à la preuve G6.
-
-## Analyse d'impact PlanyBot
-
-- Les conversations (20/utilisateur), messages (environ 50/conversation), propositions actives (40/utilisateur), résultats et recommandations (listes tronquées) sont bornés.
-- Les recherches et recommandations parcourent en mémoire projets, réservations et ressources autorisés ; aucun appel réseau ni dépendance distante.
-- La confirmation réutilise le moteur de réservation, le contrôle de conflit, l'écriture atomique et l'émission SSE existants.
-- Les tests ciblés frais `node --test tests/plany.test.js tests/quotes.test.js` passent **60/60** en `5020 ms`, sans constituer un benchmark de charge.
+- `node --test tests/plany.test.js tests/quotes.test.js` : **62/62 PASS**, durée `4825 ms`.
+- Benchmark parser 20 itérations et retard de boucle événementielle, résultats détaillés ci-dessus.
+- Test du quota décompressé cumulé supérieur à 16 MiB : refus contrôlé en `17,25 ms`.
+- `npm run benchmark:http` : lecture, conflit et écriture sous leurs seuils contractuels.
 
 ## Limites
 
-- Aucun fichier « bombe » n'a été exécuté pour préserver la disponibilité de la machine.
-- Pas de chronométrage navigateur ni de mesure du temps interactif UI PlanyBot/import.
-- Le benchmark HTTP mesure le planning, pas une analyse Excel concurrente ; sa mémoire finale n'est pas un pic d'import.
-- `docs/project-status.md` reste à mettre à jour par l'intégrateur.
+- Le smoke HTTP concurrent supplémentaire n'a pas produit de mesure : l'ouverture locale du port a été bloquée par le sandbox, puis la demande d'autorisation a été interrompue. Aucun résultat n'en est revendiqué.
+- La réactivité est donc démontrée par le retard direct de boucle événementielle et par le benchmark HTTP planning séparé, pas par une analyse XLSX et une lecture HTTP lancées exactement en parallèle.
+- Pas de chronométrage navigateur du panneau PlanyBot dans ce gate ; les corrections évaluées n'ajoutent ni réseau, ni dépendance, ni traitement continu côté interface.
+- La mémoire rapportée est un état final, pas un profil complet du pic RSS. Les limites structurelles constituent la protection principale contre les pics.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur conformément à l'ownership demandé.
 
 ## Verdict
 
-La non-régression du moteur planning est démontrée sur 250/10 000 pour les trois seuils contractuels, mais l'import synchrone à décompression cumulée non bornée est bloquant. **PERFORMANCE REJECTED** jusqu'à correction et preuve représentative.
+Le P1 de performance est fermé : décompression asynchrone, volume strictement borné, import représentatif rapide et non-régression planning sous les seuils. Le double parcours générique reste un P2 d'efficacité et de capacité utile, sans caractère bloquant. **PERFORMANCE APPROVED** pour G6 sur `6381cbeb7020d57ac21e2086a3d5475d9d675325`.
