@@ -1,3 +1,51 @@
+# Re-QA indépendante S7-A — durcissement du registre du réalisé
+
+Date : 2026-08-23
+Commit contrôlé : `e4af056e5203bace13ce09821c80a7dc768cef32` (`fix: harden Sprint 7 actuals ledger`)
+Verdict : **APPROVED — 0 P0 / 0 P1**
+
+Ce verdict est limité à S7-A (`US-077` à `US-080`). Il ne vaut pas approbation du Sprint 7 complet ni du Gate G7.
+
+## État exact et environnement
+
+`HEAD` correspondait exactement au commit demandé et le dépôt était propre avant le démarrage des gates concurrents. Environnement : Node `v26.6.0`, macOS/Darwin arm64.
+
+```text
+server.js                              c63e5f0465ad7621bed356933e14d8679c8e1a2518ee43ae204ef08a72bf0906
+app.js                                 eb2c927f161dfbb45e05942bcda929bb37c8217c133a0913c6a0f0cd58263afa
+docs/api/openapi-v1.yaml               59df65fca73f2f80d49c0dca46a6f288a674174bedb1b24b4d581855f75c2352
+packages/quote-consumption/index.js    58bba2239793950530f93392794b0e71ac388c9be7670bd2ee70a176afa1f63b
+tests/sprint7-actuals.test.js           e9d755f5b58db0df15adc6614492b819aa5aa24452ea3b0c11e6ad47f05f8b75
+tests/migration-sprint7.test.js         129f32023259f7eb98d2f845c5cfcd11f28199ba378bcb5b8eff6fbb88e72a94
+scripts/benchmark-actuals.js            2f0847a809ac93dbdf018a8ad8ed50a0370301e55b13ba2b5b8a2e0c95916456
+package.json                            e4abd8439367918d160015fe87a40006b0b6447a889f209da21f306f1ef41410
+```
+
+## Commandes et résultats frais
+
+- `node --test tests/migration-sprint7.test.js tests/sprint7-actuals.test.js` : **13/13 réussis**, 0 échec, 0 ignoré, code 0, durée 0,643 s.
+- `npm test` : **283/283 réussis**, 0 échec, 0 ignoré, code 0, durée 9,861 s.
+- `npm run lint` : **PASS**, y compris le nouveau benchmark Actuals, code 0.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés, code 0.
+- `git diff --check` : **PASS**, code 0.
+
+## Fermeture des risques ciblés
+
+- **Unité** : confirmation et correction refusent désormais toute unité différente de l'instantané planifié avec `422 ACTUAL_UNIT_CONVERSION_REQUIRED`. L'interface rend le champ unité en lecture seule et le contrat OpenAPI explicite l'exigence d'un contrat de conversion versionné.
+- **Version courante** : après modification de la Réservation, `GET /reservations/{id}/actual` ne renvoie plus le réalisé de l'ancienne version ; il retourne un état `pending` portant la nouvelle `reservationVersion`.
+- **Provenance Devis** : une réalisation liée à un Devis exige `quote.read` et le scope du Devis source, tant pour la file et le détail que pour la confirmation, la correction et les replays. Le négatif couvre permission absente, scope absent et accès autorisé complet.
+- **Digest** : les nouvelles révisions utilisent `digestVersion: 2`; le digest protège aussi société, auteurs et horodatages immuables. Une altération de `confirmedAt`, comme une altération de quantité, invalide l'état avec `MIGRATION_MARKER_CONFLICT`. Les révisions v1 historiques restent vérifiables pour compatibilité.
+
+Les preuves antérieures restent également vertes : file dérivée sans écriture, isolation site, exactitude milli-unité, append-only, motif obligatoire, RBAC, valeurs Finance masquées, idempotence, versions obsolètes, scope retiré, audit/événement/métriques, migration rejouable et rollback byte-exact privé `0600`.
+
+## Smoke UI et limites
+
+Un serveur isolé a démarré correctement sur `127.0.0.1:8213`, puis a été arrêté proprement. Le navigateur intégré n'était toutefois plus disponible pour cette re-QA ; aucun résultat visuel n'est revendiqué sur `e4af056e`. Le test ciblé vérifie statiquement la page, le dialogue nommé par `aria-labelledby`, les actions de confirmation/correction et l'unité en lecture seule. Le smoke visuel nominal du candidat précédent reste informatif, pas une preuve sur ce commit.
+
+La mesure de performance du nouveau benchmark et les axes Sécurité/REVIEW appartiennent à leurs gates indépendants. S7-B, S7-C et S7-D restent hors périmètre.
+
+Conclusion : les quatre risques bloquants unité, version courante, provenance Devis et digest sont fermés, sans régression détectée. La re-QA indépendante S7-A est **APPROVED — 0 P0 / 0 P1** sur `e4af056e…`.
+
 # QA indépendante S7-A — registre du réalisé fiable
 
 Date : 2026-08-23

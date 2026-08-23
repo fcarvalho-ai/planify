@@ -1,66 +1,70 @@
-# Revue PERFORMANCE indépendante — S7-A Réalisé fiable
+# Revue PERFORMANCE indépendante — S7-A, revalidation
 
 Date : 2026-08-23
 
-Candidat Git : `5c613d3f683b73fd14830ad76e165dfa641f5749`
+Candidat Git : `e4af056e5203bace13ce09821c80a7dc768cef32`
 
-Verdict : **NOT APPROVED — 0 P0, 1 P1, 1 P2**
+Verdict : **APPROVED — 0 P0, 0 P1, 2 P2**
 
 ## Périmètre et seuils
 
-Le gate couvre file, liste, détail, confirmation, correction, persistance atomique, UI et SSE. Référence : 100 ressources/10 000 réservations, lecture API p95 `< 300 ms`, conflit + écriture p95 `< 250 ms`, UI exploitable `< 2 s` et interactive.
+Mesure HTTP locale du registre Actual avec persistance JSON réelle : **161 ressources**, **10 011 réservations**, **2 500 réalisations initiales**, page de 200 éléments. Seuils contractuels : lectures p95 `< 300 ms`, écritures p95 `< 250 ms`.
 
-Les empreintes sont celles de la revue SECURITY S7-A; commit exact `5c613d3f683b73fd14830ad76e165dfa641f5749`.
+Le jeu dépasse le minimum de 100 ressources et comprend 10 000 réservations ajoutées, six confirmations disponibles et 2 500 chaînes de révision V2.
 
-## Constat bloquant
+## Fermeture de PERF-S7A-01
 
-### PERF-S7A-01 — P1 — validation et projection quadratiques du registre
+- `sprint7ActualsStateValid()` construit `revisionsByRecordId` une fois puis valide les chaînes sans filtrage global par record : O(A+R), hors tri local des révisions.
+- `actualIndexes()` groupe les révisions une fois et fournit les index Réservation/Ressource/Devis.
+- `/actuals` filtre les records autorisés, applique la pagination, puis projette uniquement la page; le `pageSize` borne désormais le travail DTO.
+- correction réutilise le groupe indexé et dérive le numéro depuis la révision courante.
 
-Deux chemins communs croissent quadratiquement :
+## Benchmark frais
 
-1. `sprint7ActualsStateValid()` parcourt tous les records puis filtre toutes les révisions pour chacun. `readDb()` rejoue ce validateur sur chaque requête.
-2. `GET /api/v1/actuals` projette tous les records visibles avant `list()`; chaque `actualRecordDto()` refiltre toutes les révisions. `pageSize=200` ne borne donc pas le calcul.
+Commande : `npm run benchmark:actuals`
 
-Avec 5 000 records et 5 000 révisions, chaque boucle approche 25 millions de comparaisons; à 10 000, environ 100 millions. Les mutations ajoutent la sérialisation/écriture atomique du fichier complet. Cette complexité invalide la garantie des seuils représentatifs.
+Environnement : Node `v26.6.0`, runtime local, fichier temporaire privé nettoyé automatiquement. Vingt mesures par lecture après échauffement; cinq confirmations et cinq corrections uniques incluant validation, audit, événement et écriture atomique.
 
-Correction requise : indexer une fois `revisionsByActualRecordId`/`currentRevisionById`, valider en O(A+R), paginer les records autorisés avant projection, puis mesurer HTTP sur 100 ressources/10 000 réservations avec un volume représentatif de réalisations. Inclure validation, audit, événement et persistance dans les mesures d'écriture.
+| Chemin HTTP | p50 | p95 | max | Seuil |
+|---|---:|---:|---:|---:|
+| Liste Actual, page 200 | `103,92 ms` | `110,98 ms` | `114,65 ms` | `< 300 ms` |
+| File pending | `117,77 ms` | `127,96 ms` | `131,32 ms` | `< 300 ms` |
+| Détail Actual | `99,17 ms` | `108,01 ms` | `109,50 ms` | `< 300 ms` |
+| Confirmation | `206,99 ms` | `214,31 ms` | `214,31 ms` | `< 250 ms` |
+| Correction | `213,06 ms` | `234,70 ms` | `234,70 ms` | `< 250 ms` |
 
-## Constat important
+Tous les seuils passent. La lecture la plus lente conserve environ `172 ms` de marge; l'écriture la plus lente conserve `15,30 ms`.
 
-### PERF-S7A-02 — P2 — double agrégat complet à chaque invalidation
+## Tests et contrôle de complexité
 
-`loadActuals()` appelle en parallèle `/actuals/pending` et `/actuals`. Chaque événement SSE Actual relance les deux après 250 ms. Il n'existe ni annulation de requête précédente, ni chargement différentiel. Plusieurs confirmations répètent donc scans et reconstruction UI.
+- `node --test tests/sprint7-actuals.test.js tests/migration-sprint7.test.js` : **13/13 PASS**, `707,86 ms`.
+- Les tests du petit seed observent pending `5–6 ms`, confirmation `10–11 ms`, correction `11 ms` et détail `6 ms`.
+- La sortie du benchmark est non nulle si une lecture atteint 300 ms ou une écriture atteint 250 ms; cette exécution termine avec code `0`.
+- Le benchmark nettoie le fichier actif temporaire et ses sauvegardes.
 
-Recommandation : invalidation avec curseur/version, requêtes annulables ou rafraîchissement ciblé, en préservant focus et position.
+## P2 non bloquants
 
-## Mesures fraîches disponibles
+### PERF-S7A-02 — marge étroite sur la correction JSON
 
-Le petit seed fonctionnel donne seulement un contrôle informatif :
+La correction p95 atteint `234,70 ms`, soit seulement `15,30 ms` sous le seuil. Cinq échantillons d'écriture établissent le passage local mais donnent une faible précision statistique. Recommandation : augmenter les itérations et surveiller la taille du fichier; la future persistance cible SQLite devra préserver audit et atomicité.
 
-| Chemin observé | Durée serveur |
-|---|---:|
-| File pending | `4–5 ms` |
-| Confirmation | `9 ms` (rejeu `8 ms`) |
-| Correction | `7 ms` |
-| Détail Actual | `5 ms` |
+### PERF-S7A-03 — rafraîchissement UI complet après SSE
 
-Commande : `node --test tests/sprint7-actuals.test.js tests/migration-sprint7.test.js`, Node `v26.6.0`, **11/11 PASS**, durée totale `572,36 ms`; migration `258,24 ms`.
+Chaque invalidation Actual recharge encore pending et liste. Le debounce de 250 ms absorbe une rafale courte, mais il n'existe ni annulation ni mise à jour différentielle. Recommandation : rafraîchissement par identifiant/version et requêtes annulables avant les usages fortement concurrents.
 
-Ces valeurs concernent quelques réservations et une à deux révisions. Elles ne démontrent pas le dataset contractuel; l'analyse de complexité interdit une extrapolation linéaire.
+## UI et SSE
 
-## Parcours sans nouveau blocage constaté
+La page reçoit au plus 200 records et la projection serveur est paginée avant DTO. Les deux lectures nécessaires à la page sont parallèles; leurs p95 individuels sont `110,98` et `127,96 ms`, très inférieurs au budget UI de 2 s. Le DOM est borné par les pages reçues. L'invalidation SSE reste compacte et ne transporte aucun historique.
 
-- Le traitement propre de `pendingActualItems()` est O(R+A) avec index et `Set`, hors coût global de `readDb()`.
-- `actualIndexes()` utilise des `Map` pour Réservations/Ressources/Devis.
-- Réponses bornées à 200 éléments et invalidations SSE compactes.
-- Le coût serveur avant pagination reste toutefois bloquant.
+Aucun profil navigateur long n'a été exécuté; l'exploitabilité UI est déduite des réponses bornées, du smoke DEV antérieur et des mesures HTTP fraîches, pas présentée comme une mesure paint/interaction indépendante.
 
 ## Limites
 
-- La campagne représentative a été interrompue avant un résultat reproductible; aucun p95 10 000 n'est revendiqué.
-- Aucun profil CPU/heap navigateur; le seuil UI `< 2 s` n'est pas démontré.
-- `docs/project-status.md` reste à mettre à jour par l'intégrateur.
+- Cinq écritures seulement par type; pas de campagne soutenue multi-session.
+- Le benchmark utilise 161 ressources issues du seed complet plutôt qu'exactement 100, ce qui est plus exigeant mais ne constitue pas un comparatif isolé de cardinalité.
+- Pas de profil heap ni de mesure paint navigateur fraîche.
+- `docs/project-status.md` reste sous ownership intégrateur.
 
 ## Verdict
 
-Le petit seed est rapide, mais les boucles quadratiques et la pagination tardive empêchent toute garantie G7. **PERFORMANCE NOT APPROVED** sur `5c613d3f683b73fd14830ad76e165dfa641f5749`.
+La complexité quadratique et la pagination tardive sont corrigées. Toutes les mesures représentatives passent les seuils, sans P0/P1. **PERFORMANCE APPROVED** pour S7-A sur `e4af056e5203bace13ce09821c80a7dc768cef32`.

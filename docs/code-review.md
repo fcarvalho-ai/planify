@@ -1,3 +1,85 @@
+# Gate re-REVIEW S7-A — durcissement du registre réalisé
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7a_review`
+
+Candidat Git exact : `e4af056e5203bace13ce09821c80a7dc768cef32`
+
+Diff correctif contrôlé : `5c613d3f683b73fd14830ad76e165dfa641f5749..e4af056e5203bace13ce09821c80a7dc768cef32`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 1 P1 ouvert, 2 P2 ouverts.**
+
+Les deux P1 de la passe précédente sont fermés : une unité différente est refusée côté serveur et n'est plus modifiable dans l'UI; la route singulière d'une réservation sélectionne désormais exclusivement le réalisé de sa version courante. Le digest V2, le nom accessible du dialogue, le bornage de `asOf`, la pagination avant projection et les index de révisions sont également conformes. Un P1 de provenance commerciale subsiste cependant : les Devis complémentaires acceptés sont agrégés dans `sold` sans revalider leur scope individuel.
+
+## P1 — bloquant
+
+### P1-1 — Les compléments acceptés contribuent à la réconciliation sans contrôle de leur scope Devis
+
+`actualIndexes()` parcourt tous les Devis acceptés et additionne chaque ligne complémentaire dans `complementByLine`, uniquement à partir du couple `planningComplementSourceQuoteId:planningSourceQuoteLineId` (`server.js:1219-1224`). `actualCommercialSummary()` ajoute ensuite cette quantité globale au vendu de la ligne source (`server.js:1239-1244`).
+
+Le correctif revalide bien `quote.read` et `quoteAllowed()` pour le Devis source dans `actualRecordAllowed()`, la file, la confirmation, la correction, le rejeu et le SSE. Il ne conserve toutefois ni l'identité des Devis complémentaires contributeurs, ni un filtre `quoteAllowed(auth, complement)` avant agrégation. Un acteur dont le scope d'entité autorise le Devis principal mais exclut un complément accepté reçoit donc encore l'effet de ce complément dans :
+
+- `soldQuantityMilli` ;
+- `soldDeviationQuantityMilli` et `billableQuantityMilli` ;
+- potentiellement `billableValueMinor` s'il possède aussi `finance.read`.
+
+Cette sortie permet d'inférer une quantité commerciale hors scope et contredit la SPEC §9 : toutes les sources doivent être autorisées avant agrégation, jamais filtrées après calcul. Le test ajouté ne couvre que le Devis source (`tests/sprint7-actuals.test.js:110-118`) et laisse ce chemin sans régression.
+
+Correction attendue : indexer les compléments avec leur `quoteId/companyId/projectId/siteId` et leurs lignes, puis n'agréger que des compléments explicitement autorisés, ou échouer fermé si une réconciliation prétend couvrir des sources non consultables. Ajouter un test avec Devis principal autorisé + complément accepté hors `entityScopes.quote`, puis vérifier liste, détail, replay et SSE/DTO sans fuite.
+
+## P2 — importants non bloquants isolément
+
+1. **Compatibilité du contrat `digestVersion`.** Le validateur accepte volontairement les anciennes révisions sans champ `digestVersion` comme V1 (`server.js:617-629`), mais l'OpenAPI rend désormais ce champ obligatoire (`docs/api/openapi-v1.yaml:864-881`) et `actualRecordDto()` restitue les objets legacy sans le normaliser. Projeter `digestVersion: revision.digestVersion || 1` dans les DTO, ou rendre le champ facultatif pour la compatibilité documentée.
+2. **Jeu du benchmark partiellement représentatif.** La preuve mesure bien 10 011 réservations et 2 500 réalisés, mais seulement 161 ressources et aucun document commercial relié, contre 250 ressources et 2 000 documents dans la SPEC §12. Les seuils passent largement; compléter ultérieurement le dataset pour couvrir le coût des réconciliations Devis/compléments.
+
+## Fermetures confirmées
+
+1. **Unité et conversion : FERMÉ.** `actualRevisionInput()` impose l'unité canonique du snapshot et répond `422 ACTUAL_UNIT_CONVERSION_REQUIRED`; confirmation et correction sont testées. L'UI affiche une valeur en lecture seule et n'envoie plus le champ.
+2. **Version courante de réservation : FERMÉ.** `GET /reservations/{id}/actual` compare `sourceReservationVersion === reservation.version`; en l'absence de record courant il retourne `pending` avec la bonne version. La régression V1 → réservation V2 passe.
+3. **Provenance du Devis principal : PARTIELLEMENT FERMÉE.** `quote.read`, Projet/site et scope d'entité du Devis source sont vérifiés sur file, historique, détail, mutation, replay et SSE. Le P1 restant concerne exclusivement les compléments contributeurs.
+4. **Digest V2 : FERMÉ pour les nouvelles écritures.** Société, acteur, horodatages et données opérationnelles alimentent le digest; les utilisateurs référencés appartiennent à la société; la falsification de `confirmedAt` est refusée. La lecture des anciennes révisions V1 reste tolérée.
+5. **Complexité et pagination : CONFORMES.** Les révisions sont groupées une fois dans des maps; la liste pagine avant construction des DTO; file et détails restent linéaires/indexés. Aucun retour à une boucle quadratique complète n'a été observé.
+6. **Accessibilité : FERMÉE.** Le dialogue est relié à son titre par `aria-labelledby`, les champs restent labelisés, le focus initial est explicite et les statuts comportent du texte.
+7. **`asOf` : FERMÉ.** Une date future est refusée par `422`; la file UI continue d'utiliser l'instant serveur.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `e4af056e5203bace13ce09821c80a7dc768cef32` |
+| `node --test tests/migration-sprint7.test.js tests/sprint7-actuals.test.js` | **PASS, 13/13**, 0 échec/skip/todo, 0,666 s |
+| `npm test` | **PASS, 283/283**, 0 échec/skip/todo, 9,514 s |
+| `npm run lint` | **PASS** |
+| `npm run build` | **PASS**, 5 actifs runtime |
+| `git diff --check` | **PASS** |
+| `npm run benchmark:actuals` | **PASS** — list p95 106,18 ms; pending 124,26 ms; détail 103,36 ms; confirmation 219,45 ms; correction 218,33 ms |
+| Inspection de `5c613d3..e4af056` et consommateurs Devis/SSE | deux anciens P1 fermés; un P1 complément hors scope |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                           c63e5f0465ad7621bed356933e14d8679c8e1a2518ee43ae204ef08a72bf0906
+app.js                              eb2c927f161dfbb45e05942bcda929bb37c8217c133a0913c6a0f0cd58263afa
+docs/api/openapi-v1.yaml            59df65fca73f2f80d49c0dca46a6f288a674174bedb1b24b4d581855f75c2352
+tests/sprint7-actuals.test.js        e9d755f5b58db0df15adc6614492b819aa5aa24452ea3b0c11e6ad47f05f8b75
+scripts/benchmark-actuals.js        2f0847a809ac93dbdf018a8ad8ed50a0370301e55b13ba2b5b8a2e0c95916456
+```
+
+## Handoff
+
+- Gate re-REVIEW S7-A : **non approuvé** jusqu'à fermeture du P1 de provenance des compléments et nouvelle re-REVIEW sur le correctif.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée, statut ou autre rapport modifié.
+- `docs/project-status.md` reste sous responsabilité de l'intégrateur.
+
+---
+
 # Gate REVIEW S7-A — registre du réalisé
 
 Date : 2026-08-23

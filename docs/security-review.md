@@ -1,68 +1,74 @@
-# Revue SECURITY indépendante — S7-A Réalisé fiable
+# Revue SECURITY indépendante — S7-A, revalidation
 
 Date : 2026-08-23
 
-Candidat Git : `5c613d3f683b73fd14830ad76e165dfa641f5749`
+Candidat Git : `e4af056e5203bace13ce09821c80a7dc768cef32`
 
-Verdict : **NOT APPROVED — 0 P0, 1 P1, 1 P2**
+Verdict : **APPROVED — 0 P0, 0 P1, 1 P2**
 
 ## Périmètre et empreintes
 
 | Fichier | SHA-256 |
 |---|---|
-| `server.js` | `f81919705c8d5522580cc3a279ea56ca18756f399b34ee8e054cd8058e2e929f` |
-| `app.js` | `9387d6913f1cbe934b61e548908f7015aecd59a175201a39f19e4fa1939a9d6e` |
+| `server.js` | `c63e5f0465ad7621bed356933e14d8679c8e1a2518ee43ae204ef08a72bf0906` |
+| `app.js` | `eb2c927f161dfbb45e05942bcda929bb37c8217c133a0913c6a0f0cd58263afa` |
 | `packages/auth/rbac.js` | `068cb8cffb79be89a9c09d0aed81e98e5f971e8d45d4d3f5dfd2d70fdf5ee55b` |
 | `packages/quote-consumption/index.js` | `58bba2239793950530f93392794b0e71ac388c9be7670bd2ee70a176afa1f63b` |
-| `tests/sprint7-actuals.test.js` | `c94f884fc1f0f7a12ba6797e36f9507a1505d522d5e755509f01e6f3077e22f1` |
+| `tests/sprint7-actuals.test.js` | `e9d755f5b58db0df15adc6614492b819aa5aa24452ea3b0c11e6ad47f05f8b75` |
 | `tests/migration-sprint7.test.js` | `129f32023259f7eb98d2f845c5cfcd11f28199ba378bcb5b8eff6fbb88e72a94` |
-| `docs/api/openapi-v1.yaml` | `3a84d89420a734fb663483537abf39a1e4e3229feffdabfb40aa72ad5c607e44` |
-| `docs/specifications/sprint-7-actuals-finance-engine.md` | `9a0d63334a98d544f648dd9394149704c2cc1ab4ae83cb92111f95f73673a304` |
+| `scripts/benchmark-actuals.js` | `2f0847a809ac93dbdf018a8ad8ed50a0370301e55b13ba2b5b8a2e0c95916456` |
+| `docs/api/openapi-v1.yaml` | `59df65fca73f2f80d49c0dca46a6f288a674174bedb1b24b4d581855f75c2352` |
 
-La revue couvre authentification, origine/CSRF, RBAC `actual.read`/`actual.confirm`, isolation société/site/Projet/entités, rejeu et historique, SSE, validation, idempotence, audit, intégrité append-only, migration/rollback, XSS et abus.
+La revalidation couvre `quote.read`, scopes Devis/Actual/Réservation/Ressource/Projet/site, liste, détail, file pending, confirmation, correction, rejeu, historique, SSE, digest V2, validation d'unité, migration et rollback.
 
-## Constats bloquants
+## Fermeture de SEC-S7A-01
 
-### SEC-S7A-01 — P1 — le scope commercial du Devis source n'est pas revalidé
+La provenance commerciale est désormais fail-closed :
 
-`actualRecordAllowed()` revalide société, site, Projet, Réservation, ressource et scope `actual`, mais jamais `quote.read`, `entityScopes.quote` ni `quoteAllowed()` pour le Devis de `plannedSnapshot`. `actualCommercialSummary()` charge ensuite directement le Devis accepté et expose identifiants Devis/ligne, quantité vendue, état commercial et devise. Le DTO restitue aussi `sourceQuoteId`, `sourceQuoteVersionId` et `sourceQuoteLineId`.
+- `actualRecordAllowed()` exige `quote.read`, retrouve le Devis source et applique `quoteAllowed()`, donc société, Projet, site et `entityScopes.quote` ;
+- liste et détail réutilisent ce garde avec les mêmes index ;
+- la file pending et le détail d'une Réservation contrôlent le Devis avant de retourner le snapshot ;
+- confirmation et correction contrôlent le Devis source avant toute écriture ;
+- les rejeux exacts repassent par `actualRecordAllowed()` et retournent `404` après révocation ;
+- `sseScopeAllowed()` délègue les événements Actual à `actualRecordAllowed()`, empêchant l'invalidation après retrait de `quote.read` ou du scope Devis.
 
-Un rôle personnalisé avec `planning.read` obtient implicitement `actual.read` même sans `quote.read`. Après retrait du scope Devis, un utilisateur peut encore consulter l'historique, obtenir la réconciliation commerciale ou rejouer une commande, puisque le rejeu ne revalide que `actualRecordAllowed()`.
+Le test ciblé démontre que `actual.read` seul est insuffisant, que `actual.read + quote.read` avec le Devis autorisé passe et qu'un `entityScopes.quote` vide bloque. L'inspection des consommateurs confirme l'application à liste, détail, pending, rejeu et SSE.
 
-Correction requise : intégrer la provenance commerciale dans l'autorisation du DTO et du rejeu. Si le Devis n'est plus visible, répondre `404` ou retourner une projection opérationnelle expurgée selon un contrat explicite. Ajouter les tests de retrait de `quote.read`, réduction `entityScopes.quote`, liste, détail, historique, rejeu et SSE.
+## Fermeture de SEC-S7A-02
 
-## Constat important
+Les nouvelles révisions utilisent `digestVersion: 2`. L'empreinte couvre désormais société, valeurs opérationnelles, chaîne, confirmeur, date de confirmation, créateur et date de création. Le validateur vérifie aussi que `confirmedBy` et `createdBy` existent dans la société. Une altération de `confirmedAt` est refusée au rejeu de migration.
 
-### SEC-S7A-02 — P2 — l'empreinte append-only omet l'identité et la date de confirmation
+Le format V1 reste lisible pour compatibilité et rollback. Aucun nouveau record V1 n'est créé.
 
-`sourceDigest` couvre les valeurs opérationnelles et la chaîne, mais pas `companyId`, `confirmedAt`, `confirmedBy`, `createdAt` ni `createdBy`. Le validateur exige seulement une date ISO et un identifiant non vide; il ne vérifie pas le confirmeur dans la société. Une altération locale de l'auteur ou de la date reste acceptée au redémarrage.
+## P2 non bloquant
 
-Correction recommandée : versionner l'empreinte, inclure ces métadonnées immuables et vérifier les références utilisateur/société, avec migration/rollback.
+### SEC-S7A-03 — couverture HTTP incomplète de la révocation Devis
 
-## Contrôles satisfaisants
+Le comportement est démontré directement sur le garde central et vérifié statiquement dans tous ses consommateurs. Il manque toutefois un scénario HTTP automatisé complet qui crée une réalisation liée, retire `quote.read` ou `entityScopes.quote`, puis vérifie liste, détail, pending, rejeu et absence SSE. Recommandation : conserver ce parcours comme test d'intégration de non-régression.
 
-- Session et permissions dédiées sur toutes les routes; mutation réservée à `actual.confirm`.
-- Origine stricte et CSRF sur les mutations; corps générique plafonné à 1 Mio.
-- Champs tenant client refusés; société issue de la session.
-- Scopes site, Projet, Réservation et ressources vérifiés côté serveur avec `404` hors scope.
-- Rejeu exact borné à l'acteur et aux scopes opérationnels; contenu divergent en `409`.
-- Versions Réservation/Actual contrôlées; correction append-only.
-- Audit et événement dans la mutation atomique; SSE seulement après commit, revalidé, limité à une connexion/session et 256 globales.
-- Données UI échappées via `esc()`; aucun nouveau HTML utilisateur non échappé trouvé.
-- Migration ordonnée S6→S7, sauvegarde `0600`, marqueur vérifié, export obligatoire et rollback exact.
+## Autres contrôles satisfaisants
+
+- Authentification et permissions `actual.read`/`actual.confirm` côté serveur.
+- Origine stricte, CSRF, taille de corps bornée, rejet des champs tenant.
+- Contrôles optimistes Réservation/Actual et idempotence par acteur/commande/cible/clé.
+- Changement arbitraire d'unité refusé sans contrat de conversion versionné.
+- Audit et événement dans l'écriture atomique; SSE seulement après succès.
+- Sorties UI échappées et montants Finance masqués sans `finance.read`.
+- Migration ordonnée, sauvegarde/export `0600`, intégrité et rollback exact.
 
 ## Preuves fraîches
 
-- `node --test tests/sprint7-actuals.test.js tests/migration-sprint7.test.js`, Node `v26.6.0` : **11/11 PASS**, 0 échec, `572,36 ms`; migration `258,24 ms`.
-- Inspection des routes Actual, de `actualRecordAllowed`, `actualCommercialSummary`, des gardes de mutation, de l'idempotence, du SSE et des invariants.
-- Les tests couvrent la réduction de scope site au rejeu, pas la révocation du Devis source décrite par `SEC-S7A-01`.
+- `node --test tests/sprint7-actuals.test.js tests/migration-sprint7.test.js`, Node `v26.6.0` : **13/13 PASS**, 0 échec, `707,86 ms`; migration `234,70 ms`.
+- Inspection indépendante du diff `5c613d3…e4af056` et des consommateurs de `actualRecordAllowed()`.
+- Benchmark HTTP représentatif exécuté sans erreur, incluant cinq confirmations et cinq corrections avec audit/persistance.
 
 ## Limites
 
-- Aucun fuzzing externe ni test de saturation hostile.
-- Revue limitée à S7-A; coûts et agrégats S7-B/C/D absents.
-- `docs/project-status.md` reste à mettre à jour par l'intégrateur.
+- Aucun fuzzing externe.
+- Digest V1 volontairement conservé pour les éventuels enregistrements historiques; seule la V2 garantit les métadonnées renforcées.
+- Revue limitée à S7-A; S7-B/C/D ne sont pas présents.
+- `docs/project-status.md` reste sous ownership intégrateur.
 
 ## Verdict
 
-La provenance commerciale traverse le registre Actual sans revalidation du droit et du scope Devis. Ce P1 bloque le gate. **SECURITY NOT APPROVED** sur `5c613d3f683b73fd14830ad76e165dfa641f5749`.
+Les deux constats précédents sont fermés. Aucun P0/P1 sécurité n'est ouvert. **SECURITY APPROVED** pour S7-A sur `e4af056e5203bace13ce09821c80a7dc768cef32`.
