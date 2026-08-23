@@ -1,3 +1,96 @@
+# Gate REVIEW indépendante G7-D — occupation et rentabilité
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7d_review`
+
+Candidat applicatif exact : `5f61fd4` (`feat(finance): add occupancy profitability analytics`)
+
+HEAD documentaire contrôlé : `5dcbd7a` (`docs(status): record sprint 7 d candidate`)
+
+Diff fonctionnel : `c556024..5f61fd4`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 7 P1 ouverts, 3 P2.**
+
+Le candidat ne peut pas être approuvé. Les tests existants sont verts, mais plusieurs critères explicites de `US-089` à `US-093` ne sont pas implémentés ou produisent des agrégats incorrects. Les constats ci-dessous imposent un retour en DEV, puis une nouvelle REVIEW indépendante et la reprise des gates aval impactés.
+
+## P1 — bloquants
+
+### REV-S7D-01 — les doubles options sont comptées plusieurs fois
+
+`financeOccupancy()` additionne chaque réservation `option` sans regrouper `optionGroupId` ni appliquer `optionPriority` (`server.js:3704-3708`). Cela contredit directement la règle de la spécification : « Les doubles options ne sont comptées qu’une fois selon leur groupe/priorité canonique. »
+
+Une sonde fraîche construite à partir de la fixture S7-D, avec deux options de 8 h sur la même ressource et le même groupe, retourne `plannedCapacityMs=57 600 000` (16 h), au lieu de `28 800 000` (8 h). Le taux d’occupation et les alertes `US-089/090` sont donc faux dans un cas métier déjà supporté par le Planning.
+
+### REV-S7D-02 — la rentabilité à date inclut des coûts réalisés futurs
+
+`financeProfitability()` délègue à `financeMargins()` (`server.js:3714`), dont la boucle des réalisés ne borne ni `revision.endsAt` ni `confirmedAt` par `asOf` (`server.js:1548-1552`). Une requête historique peut ainsi inclure un coût réel postérieur à sa date de situation.
+
+Sonde fraîche : sur la fixture S7-D, `asOf=2026-08-31` retourne `actualCostMinor=4000` alors que la révision réalisée commence et se termine le 1er septembre. `US-091` n’est donc pas historiquement réconciliable.
+
+### REV-S7D-03 — les dépenses Projet disparaissent des axes de rentabilité
+
+`financeMargins()` ajoute les `ProjectCost` confirmés uniquement à ses totaux globaux (`server.js:1552-1554`) et ne les ventile jamais dans `items`. Or `financeProfitability()` agrège exclusivement ces `items`. Même l’axe obligatoire `projectId` omet donc les dépenses Projet, tandis que le total de marge de la source peut les inclure. Les axes Projet/Site/Prestation de `US-091` ne réconcilient pas les mêmes revenus et coûts que les formules Finance publiées.
+
+### REV-S7D-04 — un acteur limité à un Site peut modifier le seuil global Société
+
+La mutation `/api/v1/finance/occupancy-thresholds` exige bien `finance.cost.manage`, mais accepte `siteId=null` sans exiger `organizationScope` (`server.js:2808`). Le contrôle de scope n’est exécuté que lorsque `siteId` est non nul. Un gestionnaire Finance limité à un seul Site peut donc créer ou remplacer le seuil global appliqué à tous les Sites de la société. Le rejeu idempotent conserve le même défaut avec `(!item.siteId || siteAllowed(...))`.
+
+Il faut refuser le scope global à tout acteur non organisationnel et ajouter un test HTTP négatif vérifiant absence d’écriture, d’audit et de SSE.
+
+### REV-S7D-05 — le non-facturé n’est pas drillable jusqu’à la réservation et n’est pas actionnable
+
+La réponse `financeUnbilledOverages()` expose Devis, version, ligne et `actualRecordIds`, mais omet le `reservationId` pourtant présent sur chaque `ActualRecord`, et n’expose aucune action commerciale suggérée (`server.js:3715`). `accountingStatus:'unbilled'` décrit un état, pas l’action prévue par la spécification.
+
+`US-092` exige explicitement « Devis/ligne/réservation sources et action commerciale suggérée ». L’interface affiche seulement Projet, Devis/ligne, quantité, valeur et statut (`app.js:362`) ; elle ne permet donc pas le drill-down demandé.
+
+### REV-S7D-06 — l’analyse tarifaire ne livre pas la marge moyenne et peut inventer une référence catalogue
+
+`financeRateDiscounts()` calcule uniquement `weightedDiscountBps`; aucun coût/marge ni moyenne de marge pondérée n’est renvoyé (`server.js:3716`). La moitié « remise et marge moyennes » de `US-093` est absente.
+
+De plus, en l’absence de tarif catalogue applicable, `reference` se replie sur `appliedRateSnapshot.resolvedSaleUnitMinor`, puis sur le prix réel. La réponse présente alors cette valeur comme `catalogueUnitPriceMinor` avec `catalogueRateId:null`, au lieu d’un état explicite `unavailable`. Une grille Client/Projet peut ainsi être faussement qualifiée de catalogue et produire une remise trompeuse.
+
+### REV-S7D-07 — les listes bornées sont tronquées sans pagination exploitable
+
+Les quatre read-models effectuent des `slice` fixes (`1000`, `200`, `500`, `500`) tout en n’acceptant ni `page/pageSize` ni curseur. Au-delà de la limite, `itemCount` annonce davantage d’éléments mais le consommateur ne peut jamais récupérer la suite. Cela viole le contrat S7 « listes paginées et filtres bornés » et rend incomplets les contrôles d’occupation, de sources de rentabilité et de non-facturé sur les volumes de référence.
+
+## P2 — importants, non bloquants isolément
+
+1. Le frontend reçoit `occupancyThreshold.updated.v1`, mais `startEvents()` ne recharge Finance que pour `costRate|projectCost`; une modification de seuil par une autre session reste donc obsolète jusqu’à un rechargement manuel (`app.js:54`).
+2. OpenAPI décrit les quatre réponses avec un objet générique `FinanceAnalyticsResponse` à `additionalProperties:true`. Les unités, statuts, seuils, identifiants sources et formules ne sont pas contractuels ; `/analytics/rate-discounts` omet même le filtre `projectId` accepté par le runtime.
+3. Les quatre tests S7-D appellent surtout les fonctions exportées. Aucun test HTTP dédié ne couvre RBAC, scope global/Site, CSRF, idempotence/version/audit/SSE de seuil, pagination, migration réelle ou rollback byte-exact. Le rollback existe et exige un export, mais sa preuve automatisée manque sur ce lot.
+
+## Éléments conformes observés
+
+- La migration est additive, ordonnée après S7 Finance, conserve une sauvegarde privée et vérifie marqueur/digest/état au rejeu ; le rollback exige un export distinct avant restauration.
+- Les maintenances/indisponibilités superposées sont fusionnées par ressource avec capacité bornée ; la capacité disponible ne devient pas négative.
+- La période d’occupation est bornée à 366 jours et le dénominateur nul produit des taux `null` avec statut textuel `unavailable`.
+- Les routes de lecture exigent `finance.read`; les agrégations filtrent société, Site, Projet, Client, Devis, Ressource et Réalisé via les helpers centraux avant les totaux.
+- Le non-facturé reste explicitement hors CA signé et hors CA facturé ; aucune mutation commerciale automatique n’est déclenchée.
+- L’UI échappe les valeurs, expose des régions tabulaires focusables et complète la couleur par des libellés textuels.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `node --test tests/sprint7-occupancy.test.js` : **4/4 réussis**, 0 échec.
+- `npm test` hors sandbox, après un premier essai limité par `listen EPERM` : **307/307 réussis**, 0 échec, durée `8,701 s`.
+- `node --check server.js` et `node --check app.js` : **PASS**.
+- `git diff --check` avant rédaction : **PASS**.
+- Sonde double option : deux options du même groupe de 8 h donnent `plannedCapacityMs=57 600 000` au lieu de `28 800 000`.
+- Sonde temporelle : `financeProfitability(..., asOf:'2026-08-31')` inclut `actualCostMinor=4000` provenant d’un réalisé du 1er septembre.
+- Empreintes contrôlées : `server.js` `4ae25134dfff067b8e438204f168cf6faf04c84d06b44453f1be44199aa02d93`; `app.js` `bc53201ac1e56619ea9ea3212b0c488e54fd73e1255c34c1eed4d51d3100eaca`; OpenAPI `f677c159e2e412e966dd6eb421132f7a788ee08a36ef6053c69f15b1a32f413d`; test S7-D `8b5bfcc8387c25385a83c869621ddc2e4ea892b522a6686b8b1bce25b69669d0`.
+
+## Handoff
+
+Seul `docs/code-review.md` a été modifié. L’intégrateur doit reporter le verdict bloquant dans `docs/project-status.md`. Toute correction du code, des tests ou de l’OpenAPI invalidera cette revue et exigera une re-REVIEW indépendante sur les nouvelles empreintes.
+
+---
+
 # Gate re-REVIEW indépendante S7-C — réconciliation temporelle et compléments
 
 Date : 2026-08-23
