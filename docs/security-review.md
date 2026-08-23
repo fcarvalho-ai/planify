@@ -1,75 +1,64 @@
-# Revue SECURITY indépendante — S7-A, verdict final
+# Revue SECURITY indépendante — S7-B
 
 Date : 2026-08-23
 
-Candidat Git : `27ad4965dc6c4c4fc3336e58b1dff70ea59e3d91`
+Candidat Git : `59ad25a339112dc4faa7df556e43aace6c1cb1ae`
 
-Verdict : **APPROVED — 0 P0, 0 P1, 1 P2**
+Verdict : **REJECTED — 0 P0, 1 P1, 2 P2**
 
 ## Périmètre et empreintes
 
 | Fichier | SHA-256 |
 |---|---|
-| `server.js` | `857243146a3aa2b5b136f0a4f57f50186c18c0df211d756a1dad3e118ccc8d98` |
-| `app.js` | `eb2c927f161dfbb45e05942bcda929bb37c8217c133a0913c6a0f0cd58263afa` |
-| `packages/auth/rbac.js` | `068cb8cffb79be89a9c09d0aed81e98e5f971e8d45d4d3f5dfd2d70fdf5ee55b` |
-| `packages/quote-consumption/index.js` | `58bba2239793950530f93392794b0e71ac388c9be7670bd2ee70a176afa1f63b` |
-| `tests/sprint7-actuals.test.js` | `30c03d2fd46c277833913527c64920398d6226864eab21f79361ecd8fae8ebb9` |
-| `tests/migration-sprint7.test.js` | `129f32023259f7eb98d2f845c5cfcd11f28199ba378bcb5b8eff6fbb88e72a94` |
-| `scripts/benchmark-actuals.js` | `2f0847a809ac93dbdf018a8ad8ed50a0370301e55b13ba2b5b8a2e0c95916456` |
-| `docs/api/openapi-v1.yaml` | `59df65fca73f2f80d49c0dca46a6f288a674174bedb1b24b4d581855f75c2352` |
+| `server.js` | `3e4921e359e7b3455460443230e7b607b9711b93cae66c45367f32712fed35ee` |
+| `app.js` | `39da92b68af5f4faf9c08b783d4d493cfe7c1965e70568e741f5e8a2d7c7ec04` |
+| `tests/sprint7-finance.test.js` | `677569280b52e399242855b9f4576cff8fc328fa5e8761f43811f7641fb475e6` |
+| `tests/sprint7-actuals.test.js` | `d83667ecd893ed88046f95474dd33bf1f5b508cbd83676db774e349f0742a7c9` |
+| `docs/api/openapi-v1.yaml` | `eaa86411c7bea417ecf8e28494122dfb9cc8fbae42f06e285db95b5a3f3ba1cc` |
 
-La revue finale couvre le Devis principal et chacun de ses compléments, `quote.read`, société/site/Projet et `entityScopes.quote`, liste/détail/pending/rejeu, DTO, SSE, digest V2, idempotence, audit et migration.
+Revue statique indépendante du diff `27ad496…59ad25a`, des consommateurs HTTP/UI/SSE, de la migration/du rollback et des tests S7-B. Axes contrôlés : session, Origin/CSRF, RBAC, société/site/Projet/entités, rejeu idempotent, entrées et montants, XSS, audit/SSE, confidentialité Finance et intégrité des snapshots.
 
-## Agrégation des compléments
+## P1 bloquant
 
-`actualIndexes()` ne préagrège plus une quantité opaque. Il conserve pour chaque ligne source la paire `{ quoteId, quantityMilli }`. `actualCommercialSummary()` retrouve ensuite chaque Devis complémentaire et ne l'inclut que si `quoteAllowed(auth, complement)` réussit.
+### SEC-S7B-01 — instantanés de coût exposés aux rôles non Finance
 
-Le contrôle est donc appliqué individuellement à chaque complément :
+`actualCostSnapshot()` ajoute à chaque `ActualRevision` `costRateId`, `costRateVersion`, `costUnitMinor`, montants par ressource et `totalMinor`. Or `actualRecordDto()` restitue `currentRevision` et, en détail, toutes les `revisions` sans retirer `costSnapshot` lorsque l'acteur ne possède pas `finance.read`.
 
-- même société via `quoteAllowed()` ;
-- Projet autorisé ;
-- site autorisé, ou scope organisationnel pour un document sans site ;
-- identifiant présent dans `entityScopes.quote` lorsque ce scope est restreint.
+Les routes Actual n'exigent que `actual.read`; le rôle `planner` possède cette permission mais pas `finance.read`. Il peut donc lire les coûts internes par `GET /api/v1/actuals`, `GET /api/v1/actuals/{id}` ou `GET /api/v1/reservations/{id}/actual`. Cela contredit directement la SPEC §9 : aucun coût ou montant Finance ne doit être inclus dans une réponse destinée à un acteur sans `finance.read`.
 
-Le test ajoute un complément autorisé de `500` milli-unités et un complément masqué de `9 000`. Le résultat visible reste `1 500`; après autorisation explicite du complément masqué, il devient `10 500`. Aucune quantité cachée ne contribue à la réconciliation.
+Correction requise : construire un DTO de révision contextualisé et supprimer intégralement `costSnapshot` (ou ne renvoyer qu'un état non financier explicitement autorisé) sans `finance.read`, pour la révision courante, l'historique, les listes, le détail et les replays. Ajouter des tests HTTP avec un planner et un rôle custom `actual.read` seul.
 
-## DTO, rejeu et SSE
+## P2 importants non bloquants isolément
 
-- Liste, détail et historique n'acceptent le record qu'après `actualRecordAllowed()`, qui exige le Devis principal visible.
-- Le DTO recalcule la réconciliation avec les seuls compléments autorisés; les révisions V1 sont projetées explicitement avec `digestVersion: 1` sans mutation de la base.
-- Confirmation, correction et rejeu repassent par les gardes actuels avant restitution/écriture.
-- `sseScopeAllowed()` délègue les événements Actual à `actualRecordAllowed()`. L'invalidation ne contient que société, site, entité et version; elle n'expose aucun complément. Après réception, le DTO applique à nouveau le filtrage individuel des compléments.
-- Un utilisateur autorisé sur le réalisé principal peut légitimement recevoir son invalidation même si certains compléments lui sont cachés; aucune donnée commerciale de ces compléments n'est présente dans l'événement.
+### SEC-S7B-02 — invariants du snapshot de coût trop faibles au rejeu
 
-## Intégrité et autres contrôles satisfaisants
+`sprint7ActualsStateValid()` vérifie seulement que le snapshot V3 existe et que son `state` vaut `resolved|unavailable`, puis compare un digest non authentifié. Il ne valide pas la devise, les entiers minor, les identifiants/révisions de taux, l'unicité des ressources ni `totalMinor = somme(entries.amountMinor)`. Une corruption accompagnée d'un digest recalculé peut donc produire un historique Finance structurellement incohérent tout en passant la validation.
 
-- `digestVersion: 2` protège société, valeurs, chaîne, auteurs et horodatages; auteurs validés dans la société.
-- `actual.read`/`actual.confirm`, origine, CSRF, rejet des champs tenant et plafonds de corps restent inchangés et fail-closed.
-- Contrôles optimistes et idempotence revalident les scopes au rejeu.
-- L'unité ne peut pas être changée sans contrat de conversion versionné.
-- Audit/événement sont atomiques; SSE est émis après commit.
-- Migration/rollback, sauvegarde/export `0600` et compatibilité V1 restent conformes.
+Recommandation : valider le schéma et les bornes de chaque entrée, la devise société, la somme et l'état `unavailable`; conserver le digest comme détection accidentelle, pas comme substitut aux invariants.
 
-## P2 non bloquant
+### SEC-S7B-03 — matrice HTTP de révocation/scopes incomplète
 
-### SEC-S7A-03 — parcours HTTP de révocation commerciale à compléter
+Les gardes de création, lecture, rejeu et SSE sont présents : tenant injecté depuis la session, Origin/CSRF sur mutation, permission serveur, `version`, idempotence, audit avant SSE, et revalidation SSE. Les tests S7-B ne démontrent toutefois pas la révocation après création pour site/Projet/ressource/personne ni l'absence d'événement après retrait de `finance.read`.
 
-Les tests prouvent directement le garde du Devis principal et l'agrégation complémentaire autorisée. Un scénario HTTP/SSE bout en bout retirant successivement le Devis principal puis un complément n'est pas encore conservé. Recommandation : vérifier liste, détail, rejeu, événement et recalcul après chaque révocation.
+Recommandation : conserver des scénarios HTTP/SSE retirant successivement scope Projet, site, entité et permission avant lecture et rejeu.
 
-## Preuves fraîches
+## Contrôles satisfaisants
 
-- `node --test tests/sprint7-actuals.test.js tests/migration-sprint7.test.js`, Node `v26.6.0` : **14/14 PASS**, 0 échec, `621,10 ms`; migration `198,89 ms`.
-- Inspection indépendante du diff `e4af056…27ad496` et des chemins DTO/SSE/rejeu.
-- Benchmark HTTP représentatif complet avec confirmations/corrections : code `0`.
+- Les mutations Finance passent par session, `finance.cost.manage`, Origin, CSRF, contrôle de version et clé idempotente bornée.
+- `companyId` est issu de la session; les champs tenant sont refusés.
+- Les montants acceptent uniquement des chaînes entières positives bornées et la devise société.
+- Ressources, catégories, personnes, unités, Projets, sites, prestations et réservations sont revalidés côté serveur.
+- Les réponses Finance sont échappées dans l'UI; aucune injection HTML non échappée n'a été trouvée dans les nouvelles tables/formulaires.
+- Les événements `costRate`/`projectCost` sont compacts, exigent `finance.read`, sont filtrés société/site/Projet/entité et émis après commit.
+- La migration est additive, ordonnée, sauvegarde en `0600`, vérifie marqueur/digest/source; le rollback exige un export privé distinct et restaure les octets source.
+- Aucun secret, actif distant, dépendance ou télémétrie n'est ajouté.
 
 ## Limites
 
-- Aucun fuzzing externe.
-- Digest V1 conservé uniquement pour compatibilité historique.
-- L'absence d'un marqueur « agrégat partiel » peut être clarifiée fonctionnellement lorsqu'un complément est caché, sans constituer une fuite.
-- `docs/project-status.md` reste sous ownership intégrateur.
+- Aucun fuzzing externe ni test dynamique de navigateur n'a été exécuté.
+- Une tentative de sonde HTTP locale indépendante a été bloquée par le sandbox (`listen EPERM`); le constat P1 résulte néanmoins du chemin de code déterministe et des permissions seed explicites.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur.
 
 ## Verdict
 
-Chaque complément est autorisé individuellement avant agrégation et aucune donnée cachée ne traverse DTO ou SSE. Aucun P0/P1 n'est ouvert. **SECURITY APPROVED** sur `27ad4965dc6c4c4fc3336e58b1dff70ea59e3d91`.
+La confidentialité Finance n'est pas respectée sur les DTO de réalisé. Cette exposition d'un coût interne à un rôle Planning est bloquante. **SECURITY REJECTED** sur `59ad25a339112dc4faa7df556e43aace6c1cb1ae`.

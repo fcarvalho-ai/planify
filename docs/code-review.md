@@ -1,3 +1,96 @@
+# Gate REVIEW S7-B — coûts historiques et marges
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7b_review`
+
+Candidat Git exact : `59ad25a339112dc4faa7df556e43aace6c1cb1ae`
+
+Diff contrôlé : `fa9b3e5..59ad25a339112dc4faa7df556e43aace6c1cb1ae`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 3 P1 ouverts, 2 P2 ouverts.**
+
+Les 20 tests ciblés et les 291 tests complets sont verts. Les dépenses Projet sont bien versionnées, leur annulation est terminale, les nouvelles révisions Actual protègent leur instantané de coût par le digest V3, et migrations/idempotence/audit/SSE suivent les conventions du monolithe. Le candidat ne peut toutefois pas être approuvé : le coût planifié n'est pas historisé, les tarifs internes ne sont pas filtrés par le site de leur source en lecture, et l'agrégat de marges ne respecte ni la provenance/drill-down publiée ni tous les scopes d'entité avant calcul.
+
+## P1 — bloquants
+
+### P1-1 — Modifier un `CostRate` réécrit le coût historique planifié
+
+`PATCH /finance/cost-rates/{id}` modifie l'objet `CostRate` en place et incrémente seulement son champ `version`; aucune collection de révisions ni copie de l'ancienne version n'est créée (`server.js:2581`). `financeMargins()` résout ensuite chaque réservation à chaque lecture depuis la collection courante (`server.js:1427-1429`). Une modification du montant, de la période ou de l'état d'un tarif change donc rétroactivement `plannedCost` et `plannedMargin` d'une réservation existante.
+
+L'instantané du réalisé est correctement figé (`server.js:1412-1418`), mais il ne couvre pas le planifié. Cela contredit la SPEC §6.1 : le calcul historique doit conserver `costRateId`, `version` et le montant résolu, et une modification/archivage ne doit pas changer un résultat figé.
+
+Correction attendue : conserver les versions de `CostRate` de manière immuable et/ou figer un snapshot analytique lors de la planification, puis calculer la marge planifiée depuis ce snapshot. Ajouter une régression « réservation planifiée → marge lue → tarif modifié/archivé → même coût historique ».
+
+### P1-2 — `finance.read` peut lire des tarifs internes hors de ses sites
+
+La liste `GET /finance/cost-rates` filtre uniquement avec `financeEntityAllowed()` (`server.js:2579`). Pour un tarif `resource`, `resourceCategory` ou `person`, cette fonction appelle seulement `entityAllowed()` sur l'identifiant source (`server.js:1367-1375`) : elle ne retrouve pas la source et n'applique ni `resourceAllowed()`, ni `siteAllowed()`, ni `unitAllowed()`/le périmètre du membre. Un acteur Finance limité à Paris, mais sans liste d'entités explicite, peut donc recevoir les coûts d'une ressource ou catégorie de Boulogne. `personCategory` tombe même dans le fallback `entityAllowed(auth, 'costRate', value.id)`, sans contrôle de l'unité source.
+
+La création revalide correctement la source (`server.js:1383`), ce qui ne corrige pas la fuite de la lecture. Le problème contredit la SPEC §9 et concerne des montants internes confidentiels.
+
+Correction attendue : résoudre chaque source au GET/replay/SSE et appliquer les mêmes prédicats complets que pour sa création. Ajouter des tests négatifs multi-sites pour les quatre `scopeType`, y compris après réduction de scope et au rejeu idempotent.
+
+### P1-3 — `/analytics/margins` n'est ni réconciliable ni filtré sur toutes ses sources
+
+`financeMargins()` sélectionne les Projets puis les Devis avec `quoteAllowed()`, mais ne vérifie pas `clientAllowed()` et additionne toutes les lignes d'un Devis sans appliquer `resourceAllowed()` ou `offeringAllowed()` aux sources des lignes (`server.js:1423-1425`). Un acteur autorisé sur le Projet/Devis mais restreint sur le Client, une Ressource ou une Prestation reçoit donc encore leur revenu et leur coût dans les totaux. Le moteur analytique existant `commercialAnalyticRows()` montre pourtant le contrat attendu : filtrer les lignes sources avant allocation.
+
+La réponse ne contient par ailleurs que des totaux et une liste `{id,name}` de Projets (`server.js:1434`). Elle omet `definitionVersion`, période complète, fraîcheur, sources et drill-down Devis/ligne/réservation/réalisé exigés par les SPEC §7 et §10. L'OpenAPI `MarginAnalytics` documente cette sortie minimale au lieu du contrat publié. L'UI affiche des KPI et les référentiels, mais aucun tableau analytique filtrable ou drill-down (`app.js:357-360`). Il est donc impossible d'expliquer ou de réconcilier les trois marges à leurs sources.
+
+Correction attendue : produire les marges sur des lignes analytiques autorisées avant agrégation, inclure définition/fraîcheur/provenance et un drill-down borné, aligner OpenAPI/UI, puis tester des scopes Client/Ressource/Prestation partiels.
+
+## P2 — importants non bloquants isolément
+
+1. **Couverture Finance trop heureuse.** Les tests ne couvrent ni les coûts `person`/`personCategory`, ni les bornes semi-ouvertes exactes, ni les scopes multi-sites/Client/Ressource/Prestation, ni les formules des trois marges sur plusieurs Devis et dépenses datées. Le test UI est une recherche statique de chaînes, pas un parcours clavier ou un contrôle des états obsolètes.
+2. **Intégrité structurelle incomplète des révisions de dépense.** `sprint7FinanceStateValid()` impose l'unicité du couple dépense/numéro et le digest du snapshot, mais pas une suite contiguë de révisions ni la cohérence des champs/versions/auteurs du snapshot. Compléter ces invariants pour détecter une suppression ou une chaîne tronquée au rejeu.
+
+## Contrôles conformes
+
+- **Résolution :** priorité ressource avant catégorie et dernière période applicable; chevauchements actifs refusés.
+- **Dépenses Projet :** montants entiers/devise société, version optimiste, motif de correction, snapshot antérieur digesté, transition `cancelled` terminale.
+- **Réalisé :** les nouvelles confirmations/corrections portent un snapshot de coût et un digest V3; une modification ultérieure du tarif ne change pas cette révision.
+- **Mutations :** clé d'idempotence, revalidation du résultat au rejeu, audit dans la transaction et SSE après commit.
+- **Migration/rollback :** ordre S7-A → S7-B, sauvegarde privée `0600`, marqueur et références contrôlés, export obligatoire et restauration byte-exacte.
+- **UI de saisie :** labels explicites, tables dans des régions focusables, échappement des textes et gestion chargement/vide/erreur.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-23.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `59ad25a339112dc4faa7df556e43aace6c1cb1ae` |
+| `node --check server.js && node --check app.js` | **PASS** |
+| `node --test tests/sprint7-finance.test.js tests/sprint7-actuals.test.js` | **PASS, 20/20**, 0 échec/skip/todo, 0,600 s |
+| `npm test` | **PASS, 291/291**, 0 échec/skip/todo, 8,740 s |
+| `git diff --check fa9b3e5..59ad25a` | **PASS** |
+| Inspection indépendante du diff, des routes, scopes, UI et OpenAPI | **3 P1 et 2 P2** |
+
+Une tentative de probe API supplémentaire multi-sites a été interrompue pendant l'attente d'autorisation locale et n'est pas comptée comme preuve. Les constats P1 sont directement démontrés par les chemins d'autorisation et de calcul ci-dessus.
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                           3e4921e359e7b3455460443230e7b607b9711b93cae66c45367f32712fed35ee
+app.js                              39da92b68af5f4faf9c08b783d4d493cfe7c1965e70568e741f5e8a2d7c7ec04
+index.html                          63713e30a59e7192c60b023b9f78d7e85bfef5904788f816e2cec190bd573590
+planning.css                        fc6168de5e0e3d4295592680cdc0a70b1155feb51bca18cdfa7e29d4a186e009
+docs/api/openapi-v1.yaml            eaa86411c7bea417ecf8e28494122dfb9cc8fbae42f06e285db95b5a3f3ba1cc
+tests/sprint7-finance.test.js       677569280b52e399242855b9f4576cff8fc328fa5e8761f43811f7641fb475e6
+tests/sprint7-actuals.test.js       d83667ecd893ed88046f95474dd33bf1f5b508cbd83676db774e349f0742a7c9
+```
+
+## Handoff
+
+- Gate REVIEW S7-B : **non approuvé**; retour DEV requis, puis nouvelle REVIEW et tous les gates aval impactés.
+- Fichier modifié : `docs/code-review.md` uniquement. Aucun code, test, donnée, statut ou autre rapport modifié.
+- L'intégrateur doit mettre `docs/project-status.md` à jour : S7-B `Bloqué / retour DEV`, 3 P1 et 2 P2, candidat `59ad25a`.
+
+---
+
 # Gate re-REVIEW finale S7-A — provenance commerciale et compatibilité legacy
 
 Date : 2026-08-23
