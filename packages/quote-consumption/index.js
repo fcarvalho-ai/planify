@@ -44,6 +44,23 @@ class QuoteConsumptionEngine {
       state: planned === 0n ? 'unplanned' : difference < 0n ? 'partiallyPlanned' : difference === 0n ? 'compliant' : 'overPlanned',
     };
   }
+
+  summarizeActualLine(input) {
+    const sold = integer(input.soldQuantityMilli || '0', 'soldQuantityMilli');
+    const planned = integer(input.plannedQuantityMilli || '0', 'plannedQuantityMilli');
+    const actual = integer(input.actualQuantityMilli || '0', 'actualQuantityMilli');
+    if (sold < 0n || planned < 0n || actual < 0n) throw new DomainError('QUANTITY_INVALID', 'Les quantités vendu, planifié et réalisé doivent être positives.');
+    const billable = actual > sold ? actual - sold : 0n;
+    return {
+      soldQuantityMilli: sold.toString(),
+      plannedQuantityMilli: planned.toString(),
+      actualQuantityMilli: actual.toString(),
+      plannedDeviationQuantityMilli: (actual - planned).toString(),
+      soldDeviationQuantityMilli: (actual - sold).toString(),
+      billableQuantityMilli: billable.toString(),
+      state: actual === planned ? 'compliant' : actual > planned ? 'overActual' : 'underActual',
+    };
+  }
 }
 
 module.exports = { QuoteConsumptionEngine };

@@ -21,6 +21,7 @@ tags:
   - name: Planning
   - name: PlanyBot
   - name: People
+  - name: Actuals
 paths:
   /auth/login:
     post:
@@ -420,6 +421,77 @@ paths:
         '200': { description: Proposition refusée ou rejeu, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /actuals/pending:
+    get:
+      operationId: listPendingActuals
+      tags: [Actuals]
+      description: File dérivée des réservations terminées confirmées ou réalisées. Cette lecture ne crée aucune donnée.
+      parameters:
+        - { name: asOf, in: query, schema: { type: string, format: date-time } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200': { description: Réalisations à confirmer dans les scopes courants, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /actuals:
+    get:
+      operationId: listActuals
+      tags: [Actuals]
+      parameters:
+        - { name: projectId, in: query, schema: { type: string } }
+        - { name: reservationId, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200': { description: Réalisations visibles, content: { application/json: { schema: { $ref: '#/components/schemas/Rc1List' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /actuals/{actualId}:
+    get:
+      operationId: getActual
+      tags: [Actuals]
+      parameters:
+        - { name: actualId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Réalisation et révisions append-only, content: { application/json: { schema: { $ref: '#/components/schemas/ActualRecord' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /actuals/{actualId}/revisions:
+    post:
+      operationId: correctActual
+      tags: [Actuals]
+      parameters:
+        - { name: actualId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ActualCorrectionCommand' } } } }
+      responses:
+        '201': { description: Nouvelle révision append-only, content: { application/json: { schema: { $ref: '#/components/schemas/ActualRecord' } } } }
+        '200': { description: Rejeu idempotent, content: { application/json: { schema: { $ref: '#/components/schemas/ActualRecord' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /reservations/{reservationId}/actual:
+    get:
+      operationId: getReservationActual
+      tags: [Actuals]
+      parameters:
+        - { name: reservationId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Réalisation ou état pending et snapshot planifié, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /reservations/{reservationId}/actual/confirm:
+    post:
+      operationId: confirmReservationActual
+      tags: [Actuals]
+      parameters:
+        - { name: reservationId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ActualConfirmCommand' } } } }
+      responses:
+        '201': { description: Réalisation confirmée et historisée, content: { application/json: { schema: { $ref: '#/components/schemas/ActualRecord' } } } }
+        '200': { description: Rejeu idempotent, content: { application/json: { schema: { $ref: '#/components/schemas/ActualRecord' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /reservations:
     get:
       operationId: listReservations
@@ -765,6 +837,93 @@ components:
     Page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
     PageSize: { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
   schemas:
+    ActualValueFields:
+      type: object
+      properties:
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        quantityMilli: { type: string, pattern: '^\d+$' }
+        unit: { type: string, enum: [heure, demi_journee, jour, semaine, mois, forfait, unite, go_mois, to_mois] }
+    ActualConfirmCommand:
+      allOf:
+        - { $ref: '#/components/schemas/ActualValueFields' }
+        - type: object
+          required: [reservationVersion]
+          properties:
+            reservationVersion: { type: integer, minimum: 1 }
+            deviationReason: { type: string, minLength: 3, maxLength: 1000 }
+    ActualCorrectionCommand:
+      allOf:
+        - { $ref: '#/components/schemas/ActualValueFields' }
+        - type: object
+          required: [actualVersion, correctionReason]
+          properties:
+            actualVersion: { type: integer, minimum: 1 }
+            correctionReason: { type: string, minLength: 3, maxLength: 1000 }
+    ActualRevision:
+      allOf:
+        - { $ref: '#/components/schemas/ActualValueFields' }
+        - type: object
+          required: [id, actualRecordId, revisionNumber, confirmationKind, sourceReservationVersion, priorRevisionId, confirmedBy, confirmedAt, sourceDigest, createdBy, createdAt]
+          properties:
+            id: { type: string }
+            actualRecordId: { type: string }
+            revisionNumber: { type: integer, minimum: 1 }
+            confirmationKind: { type: string, enum: [confirmed, corrected] }
+            deviationReason: { type: string }
+            correctionReason: { type: string }
+            sourceReservationVersion: { type: integer, minimum: 1 }
+            priorRevisionId: { type: [string, 'null'] }
+            confirmedBy: { type: string }
+            confirmedAt: { type: string, format: date-time }
+            sourceDigest: { type: string, pattern: '^[a-f0-9]{64}$' }
+            createdBy: { type: string }
+            createdAt: { type: string, format: date-time }
+    ActualReconciliation:
+      type: object
+      required: [soldQuantityMilli, plannedQuantityMilli, actualQuantityMilli, plannedDeviationQuantityMilli, soldDeviationQuantityMilli, billableQuantityMilli, state, commercialState, amountVisibility]
+      properties:
+        soldQuantityMilli: { type: string, pattern: '^-?\d+$' }
+        plannedQuantityMilli: { type: string, pattern: '^-?\d+$' }
+        actualQuantityMilli: { type: string, pattern: '^-?\d+$' }
+        plannedDeviationQuantityMilli: { type: string, pattern: '^-?\d+$' }
+        soldDeviationQuantityMilli: { type: string, pattern: '^-?\d+$' }
+        billableQuantityMilli: { type: string, pattern: '^\d+$' }
+        state: { type: string, enum: [compliant, overActual, underActual] }
+        commercialState: { type: string, enum: [matched, unmatched] }
+        quoteId: { type: [string, 'null'] }
+        quoteLineId: { type: [string, 'null'] }
+        currency: { type: [string, 'null'] }
+        billableValueMinor: { type: [string, 'null'], pattern: '^\d+$' }
+        amountVisibility: { type: string, enum: [available, restricted] }
+    ActualRecord:
+      type: object
+      required: [id, companyId, reservationId, projectId, sourceReservationVersion, plannedSnapshot, currentRevisionId, version, currentRevision, reconciliation]
+      properties:
+        id: { type: string }
+        companyId: { type: string, readOnly: true }
+        reservationId: { type: string }
+        projectId: { type: string }
+        siteId: { type: [string, 'null'] }
+        sourceReservationVersion: { type: integer, minimum: 1 }
+        sourceQuoteId: { type: [string, 'null'] }
+        sourceQuoteVersionId: { type: [string, 'null'] }
+        sourceQuoteLineId: { type: [string, 'null'] }
+        plannedSnapshot: { type: object, additionalProperties: true, readOnly: true }
+        reservation:
+          type: [object, 'null']
+          additionalProperties: false
+          properties:
+            id: { type: string }
+            title: { type: string }
+            status: { type: string }
+            startsAt: { type: string, format: date-time }
+            endsAt: { type: string, format: date-time }
+        currentRevisionId: { type: string }
+        currentRevision: { $ref: '#/components/schemas/ActualRevision' }
+        reconciliation: { $ref: '#/components/schemas/ActualReconciliation' }
+        revisions: { type: array, items: { $ref: '#/components/schemas/ActualRevision' } }
+        version: { type: integer, minimum: 1 }
     ClientPlanningAnalyzeCommand:
       type: object
       additionalProperties: false
