@@ -1,11 +1,13 @@
 # État du projet — Planning Post Prod
 
-Version : `0.3.0-dev`
+Version : `0.3.0-rc1`
 Date : 2026-08-23
 
 Organisation : gouvernance multi-agents formalisée dans `AGENTS.md`; dépôt Git initialisé sur `main`.
 
 Architecture cible : le synoptique global fourni par le Product Owner est adopté comme cible de développement. La migration reste incrémentale depuis la RC1, sans big bang.
+
+Décision RELEASE G6 2026-08-23 : **APPROVED — Planify `0.3.0-rc1`**. Tous les gates SPEC, DEV, REVIEW, QA, SECURITY/PERFORMANCE, INTEGRATION et E2E portent sur le candidat applicatif exact `1eab12023a44d65bb9d63dc3bfeba6e04399826f`, complété uniquement par les documents d’intégration/E2E et les métadonnées de release. La release livre PlanyBot et l’import contrôlé Excel/CSV/PDF texte selon la règle « propose, confirme, exécute ». Preuves finales : ciblés PlanyBot/Devis/API 104/104, suite complète 270/270, lint/build/diff-check PASS, démarrage local et rollback Sprint 6 documentés. P2 non bloquant conservé : double parcours de lecture XLSX générique réduisant la capacité pratique.
 
 Décision E2E G6 2026-08-23 : **APPROVED — 0 P0 / 0 P1** sur le candidat applicatif `1eab12023a44d65bb9d63dc3bfeba6e04399826f` et le commit d’intégration `a9a75c9`. La recette navigateur isolée a vérifié connexion, panneau PlanyBot, prévisualisation complète, refus sans création, confirmation humaine créant une seule réservation, mise à jour temps réel, rôle lecteur sans mutation et persistance après redémarrage. Les négatifs conflit/override, idempotence, import Excel/CSV/PDF, clarification versionnée et réduction de scopes ont été rejoués dans les tests ciblés. Preuves fraîches : ciblés PlanyBot/Devis/API 104/104, suite complète 270/270, lint/build/diff-check PASS. Rapport : `docs/e2e-report.md`. Étape suivante : RELEASE sur le même candidat ; le P2 de double lecture XLSX reste suivi.
 

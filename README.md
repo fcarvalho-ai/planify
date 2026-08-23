@@ -11,9 +11,9 @@ npm start
 
 Puis ouvrir <http://localhost:8080>.
 
-## Version candidate V1 — 0.2.0-rc2
+## Version candidate V1 — 0.3.0-rc1
 
-Le développement V1 suit l'ordre et le backlog placés dans `docs/specifications/`. Les gates G0 à G5 ainsi que les parcours Integration/E2E sont franchis. Le candidat `0.2.0-rc2` ajoute la page Équipe opérationnelle et son annuaire minimal sécurisé, revalidés par les gates indépendants. Le détail des preuves, limites P2 et empreintes est conservé dans `docs/project-status.md` et les rapports indépendants `docs/code-review.md`, `docs/qa-report.md`, `docs/security-review.md` et `docs/performance-report.md`.
+Le développement V1 suit l'ordre et le backlog placés dans `docs/specifications/`. Les gates G0 à G6 ainsi que les parcours Integration/E2E sont franchis. Le candidat `0.3.0-rc1` ajoute PlanyBot et l’import contrôlé des plannings clients : l’assistant analyse et propose, l’opérateur confirme, puis le moteur métier exécute. Aucun dialogue, fichier ou aperçu ne crée silencieusement de réservation. Le détail des preuves, limites P2 et empreintes est conservé dans `docs/project-status.md` et les rapports indépendants `docs/code-review.md`, `docs/qa-report.md`, `docs/security-review.md`, `docs/performance-report.md`, `docs/integration-report.md` et `docs/e2e-report.md`.
 
 Le runtime RC1 reste local et autonome. Les contrats V1 sont introduits de façon additive dans `packages/` : erreurs/enveloppes, RBAC et scopes, idempotence, audit, événements, planning, pricing et consommation Devis/Planning. Les décisions structurantes sont dans `docs/adr/` et l'API candidate dans `docs/api/openapi-v1.yaml`.
 
@@ -27,7 +27,7 @@ npm run build
 node scripts/generate-performance-dataset.js --output /tmp/planify-performance.json
 ```
 
-État de référence de la candidate : `npm test` exécute 262 tests. Les fichiers `data/*.json`, `output/` et `tmp/` restent locaux et sont exclus de Git afin qu'aucune donnée de travail, export client ou artefact temporaire n'entre dans la release.
+État de référence de la candidate : `npm test` exécute 270 tests. Les fichiers `data/*.json`, `output/` et `tmp/` restent locaux et sont exclus de Git afin qu'aucune donnée de travail, export client ou artefact temporaire n'entre dans la release.
 
 Le générateur produit un jeu déterministe de 250 ressources et 10 000 réservations sur six mois. Il n'écrit jamais dans les données métier sans chemin `--output` explicite.
 

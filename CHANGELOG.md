@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0-rc1 — 2026-08-23
+
+- PlanyBot contextuel : dialogue local, résumés Projet, conflits, disponibilité et recommandations de ressources explicables ;
+- cycle sécurisé « PlanyBot propose, l’humain confirme, le moteur exécute », sans réservation ni écriture commerciale silencieuse ;
+- propositions persistées, expirables et idempotentes, avec revalidation des droits, sites, Projets, ressources, versions et disponibilités au moment de confirmer ;
+- analyse locale et bornée de plannings clients Excel/CSV/PDF texte, avec corrections humaines versionnées avant application ;
+- provenance compacte des faits PlanyBot, historique et rejeu invalidés après révocation de permission ou réduction de scopes ;
+- audit complet préparation/refus/confirmation/exécution, synchronisation SSE et persistance après redémarrage ;
+- migration Sprint 6 avec sauvegarde privée vérifiée et rollback byte-exact précédé d’un export obligatoire ;
+- REVIEW, QA, SECURITY, PERFORMANCE, INTEGRATION et E2E approuvés sans P0/P1 ; suite finale 270/270, lint et build verts.
+
 ## 0.2.0-rc2 — 2026-08-22
 
 - page Équipe opérationnelle indépendante de l’onboarding Organisation : annuaire, compétences et indisponibilités ;
