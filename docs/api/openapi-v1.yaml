@@ -675,6 +675,8 @@ paths:
       operationId: analyzeClientPlanning
       tags: [Commercial, Planning]
       description: Analyse un fichier client borné sans créer de ligne commerciale ni de réservation.
+      parameters:
+        - { name: quoteId, in: path, required: true, schema: { type: string } }
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ClientPlanningAnalyzeCommand' } } } }
       responses:
         '201': { description: Analyse persistée, content: { application/json: { schema: { $ref: '#/components/schemas/ClientPlanningAnalysis' } } } }
@@ -686,7 +688,9 @@ paths:
       operationId: applyClientPlanningLines
       tags: [Commercial, Planning]
       description: Ajoute au devis brouillon uniquement des lignes issues de la dernière révision humaine confirmée. Ne crée aucune réservation.
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { name: quoteId, in: path, required: true, schema: { type: string } }
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ClientPlanningApplyLinesCommand' } } } }
       responses:
         '201': { description: Lignes ajoutées au devis brouillon, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
@@ -699,6 +703,8 @@ paths:
       operationId: previewQuotePlanningConversion
       tags: [Commercial, Planning]
       description: Revalide le devis accepté, sa version, l’analyse client et les conflits sans écrire de réservation.
+      parameters:
+        - { name: quoteId, in: path, required: true, schema: { type: string } }
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/QuotePlanningConversionCommand' } } } }
       responses:
         '200': { description: Prévisualisation sans mutation, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
@@ -710,7 +716,9 @@ paths:
       operationId: convertQuoteToPlanning
       tags: [Commercial, Planning]
       description: Crée atomiquement les réservations après confirmation humaine explicite sur un devis accepté et versionné.
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { name: quoteId, in: path, required: true, schema: { type: string } }
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/QuotePlanningConversionCommand' } } } }
       responses:
         '201': { description: Réservations créées et liées, content: { application/json: { schema: { type: object, additionalProperties: true } } } }

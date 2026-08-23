@@ -133,6 +133,19 @@ test('le replay et l’historique revalident les projets inférés après réduc
   const hidden = await request(`/api/v1/plany/conversations/${first.data.conversationId}/messages`, {}, viewer); assert.equal(hidden.response.status, 404); assert.equal(hidden.data.error.code, 'NOT_FOUND');
 });
 
+test('les réponses PlanyBot revalident les permissions commerciales et les sources des agrégats', async () => {
+  let memberships = await request('/api/v1/memberships?pageSize=200', {}, admin), membership = memberships.data.items.find(item => item.userId === 'user_viewer'); assert.ok(membership);
+  const restored = await request(`/api/v1/memberships/${membership.id}/scopes`, { method: 'PUT', headers: { 'Idempotency-Key': 'plany-source-scope-restore' }, body: JSON.stringify({ version: membership.version, scope: 'sites', siteIds: ['site_paris'], organizationUnitIds: [], projectIds: ['project_1'], entityScopes: {} }) }, admin); assert.equal(restored.response.status, 200);
+  const commercial = await ask('Explique le planning client', 'plany-quote-permission', { workflow: 'clientPlanning', phase: 'compare', quoteId: 'quote_plany_client_planning' }, undefined, viewer); assert.equal(commercial.response.status, 201); assert.ok(commercial.data.assistant.access.requiredPermissions.includes('quote.read'));
+  const commercialHistory = await request(`/api/v1/plany/conversations/${commercial.data.conversationId}/messages`, {}, viewer); assert.equal(commercialHistory.response.status, 200);
+  const summary = await ask('Résume le projet actif', 'plany-summary-sources', { projectId: 'project_1', siteId: 'site_paris' }, undefined, viewer); assert.equal(summary.response.status, 201); assert.ok(summary.data.assistant.access.reservationIds.length > 0); assert.ok(summary.data.assistant.access.resourceIds.length > 0);
+  const planningRole = await request('/api/v1/roles', { method: 'POST', headers: { 'Idempotency-Key': 'plany-planning-only-role' }, body: JSON.stringify({ code: 'planyPlanningOnly', name: 'Planning sans devis', permissions: ['planning.read'] }) }, admin); assert.equal(planningRole.response.status, 201);
+  const assigned = await request(`/api/v1/memberships/${membership.id}/roles`, { method: 'PUT', headers: { 'Idempotency-Key': 'plany-remove-quote-read' }, body: JSON.stringify({ version: restored.data.version, roleIds: [planningRole.data.id] }) }, admin); assert.equal(assigned.response.status, 200);
+  const commercialReplay = await ask('Explique le planning client', 'plany-quote-permission', { workflow: 'clientPlanning', phase: 'compare', quoteId: 'quote_plany_client_planning' }, undefined, viewer); assert.equal(commercialReplay.response.status, 404); assert.equal((await request(`/api/v1/plany/conversations/${commercial.data.conversationId}/messages`, {}, viewer)).response.status, 404);
+  const restricted = await request(`/api/v1/memberships/${membership.id}/scopes`, { method: 'PUT', headers: { 'Idempotency-Key': 'plany-summary-source-reduction' }, body: JSON.stringify({ version: assigned.data.version, scope: 'sites', siteIds: ['site_paris'], organizationUnitIds: [], projectIds: ['project_1'], entityScopes: { reservation: [], resource: [] } }) }, admin); assert.equal(restricted.response.status, 200);
+  const summaryReplay = await ask('Résume le projet actif', 'plany-summary-sources', { projectId: 'project_1', siteId: 'site_paris' }, undefined, viewer); assert.equal(summaryReplay.response.status, 404); assert.equal((await request(`/api/v1/plany/conversations/${summary.data.conversationId}/messages`, {}, viewer)).response.status, 404);
+});
+
 test('l’interface annonce PlanyBot et le contrôle humain sans mutation directe', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   const contract = fs.readFileSync(path.join(__dirname, '..', 'docs', 'api', 'openapi-v1.yaml'), 'utf8');
@@ -142,4 +155,5 @@ test('l’interface annonce PlanyBot et le contrôle humain sans mutation direct
   assert.match(source, /rooms=planningDomain==='postProduction'\?state\.resources\.filter/, 'le formulaire doit conserver toutes les salles éligibles même lorsqu’une vue Projet est vide');
   const planyBlock = source.slice(source.indexOf('const plany=')); assert.doesNotMatch(planyBlock, /api\('\/api\/v1\/reservations',\{method:'POST'/); assert.match(planyBlock, /\/plany\/proposals\/\$\{encodeURIComponent\(proposalId\)\}\/confirm/);
   assert.match(contract, /\/plany\/conversations\/\{conversationId\}\/messages:/);
+  for(const template of ['/quotes/{quoteId}/client-planning/analyze','/quotes/{quoteId}/client-planning/apply-lines','/quotes/{quoteId}/planning-conversion/preview','/quotes/{quoteId}/planning-conversion']){const start=contract.indexOf(`  ${template}:`),next=contract.indexOf('\n  /',start+3),block=contract.slice(start,next<0?contract.length:next);assert.ok(start>=0,`${template} doit être documenté`);assert.match(block,/name: quoteId, in: path, required: true/,`${template} doit déclarer quoteId comme paramètre de chemin requis`)}
 });

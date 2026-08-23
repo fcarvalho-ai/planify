@@ -168,3 +168,9 @@ Preuves fraîches : Devis 48/48, suite complète 266/266, lint, build, syntaxe e
 - l’OpenAPI couvre la lecture de conversation, l’analyse du planning client, l’application contrôlée des lignes ainsi que la prévisualisation et la conversion vers le Planning.
 
 Preuves DEV fraîches : Clients + PlanyBot 24/24, Devis 49/49, suite complète 269/269, lint, build, syntaxe, OpenAPI YAML 3.1 et diff-check verts. Ces correctifs reviennent au workflow REVIEW → QA → SECURITY/PERFORMANCE ; aucun verdict indépendant n’est revendiqué ici.
+
+### Durcissement final de la provenance — intégré le 2026-08-23
+
+La provenance persistée est versionnée et inclut les permissions effectivement mobilisées ainsi que les identifiants sources des agrégats. Une réponse commerciale exige donc encore `quote.read` lors d’un rejeu, et un résumé Projet devient inaccessible si les scopes Réservation ou Ressource ayant servi à son calcul sont retirés, même lorsque le Projet reste autorisé. Une ancienne entrée qui ne démontre pas cette provenance reste conservée mais n’est pas restituée : le contrôle échoue fermé. Les opérations OpenAPI contenant `{quoteId}` déclarent toutes ce paramètre de chemin comme requis et un test vérifie cette propriété pour chaque template.
+
+Preuves DEV fraîches : PlanyBot 14/14, suite complète 270/270, lint, build, validation sémantique des 46 chemins OpenAPI et diff-check verts. Revalidation indépendante requise.
