@@ -825,8 +825,10 @@ function migrateCommercialQuotesV1(db) {
 function atomicWriteFile(filename, db) {
   fs.mkdirSync(path.dirname(filename), { recursive: true });
   const temp = `${filename}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-  fs.writeFileSync(temp, `${JSON.stringify(db)}\n`, { mode: 0o600 });
+  const raw = `${JSON.stringify(db)}\n`;
+  fs.writeFileSync(temp, raw, { mode: 0o600 });
   fs.renameSync(temp, filename);
+  return raw;
 }
 function organizationSeedRows(createdAt = '2026-08-14T08:00:00.000Z') {
   const fixtures = [
@@ -1050,7 +1052,7 @@ function migrateLegacyDb(db, raw) {
 function readDb() {
   ensureData();
   const initialSignature = databaseFileSignature();
-  if (validatedDatabaseCache?.signature === initialSignature) return structuredClone(validatedDatabaseCache.db);
+  if (validatedDatabaseCache?.signature === initialSignature) return JSON.parse(validatedDatabaseCache.raw);
   let raw = fs.readFileSync(DATA_FILE, 'utf8');
   let db = migrateLegacyDb(JSON.parse(raw), raw);
   if (Number(db.schemaVersion) === 2) {
@@ -1079,12 +1081,12 @@ function readDb() {
   const sprint7ActualsChanged = migrateSprint7ActualsV1(db, raw); if (sprint7ActualsChanged) { atomicWriteFile(DATA_FILE, db); raw = fs.readFileSync(DATA_FILE, 'utf8'); db = JSON.parse(raw); }
   const sprint7FinanceChanged = migrateSprint7FinanceV1(db, raw); if (sprint7FinanceChanged) atomicWriteFile(DATA_FILE, db);
   cacheValidatedDatabase(db);
-  return structuredClone(db);
+  return JSON.parse(validatedDatabaseCache.raw);
 }
 function databaseFileSignature() { const stat = fs.statSync(DATA_FILE, { bigint: true }); return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`; }
-function cacheValidatedDatabase(db) { validatedDatabaseCache = { signature: databaseFileSignature(), db }; }
+function cacheValidatedDatabase(db, raw = `${JSON.stringify(db)}\n`) { validatedDatabaseCache = { signature: databaseFileSignature(), raw }; }
 function atomicWrite(db, options = {}) {
-  const normalized = normalizeSprint1RateFields(db); atomicWriteFile(DATA_FILE, normalized); if (options.cacheValidated) cacheValidatedDatabase(normalized);
+  const normalized = normalizeSprint1RateFields(db), raw = atomicWriteFile(DATA_FILE, normalized); if (options.cacheValidated) cacheValidatedDatabase(normalized, raw);
 }
 function mutate(fn, options = {}) {
   const operation = writeChain.then(() => { const db = readDb(), trackReservationCosts = options.trackReservationCosts !== false, reservationState = trackReservationCosts ? reservationPlanningMutationState(db) : null; const result = fn(db); if (trackReservationCosts) freezeMutatedReservationPlannedCosts(db, reservationState); atomicWrite(db, { cacheValidated: true }); return result; });
@@ -1097,6 +1099,13 @@ function send(res, status, body, headers = {}) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers }); res.end(payload);
 }
 function fail(res, status, code, message, requestId, details) { send(res, status, { error: { code, message, ...(details ? { details } : {}), error_id: requestId, requestId } }); }
+const FINANCE_AUDIT_ENTITY_TYPES = new Set(['actualRecord', 'costRate', 'projectCost']);
+const SAFE_FINANCE_AUDIT_DETAIL_KEYS = new Set(['reservationId', 'projectId', 'siteId', 'revisionId']);
+function auditEventDto(auth, event) {
+  if (has(auth, 'finance.read') || !FINANCE_AUDIT_ENTITY_TYPES.has(event.entityType)) return event;
+  const details = Object.fromEntries(Object.entries(event.details || {}).filter(([key]) => SAFE_FINANCE_AUDIT_DETAIL_KEYS.has(key)));
+  return { ...event, before: null, after: null, details, financialDetailsRestricted: true };
+}
 function list(items, url) {
   const page = Math.max(1, Number(url.searchParams.get('page')) || 1); const pageSize = Math.min(200, Math.max(1, Number(url.searchParams.get('pageSize')) || 100));
   return { items: items.slice((page - 1) * pageSize, page * pageSize), page, pageSize, total: items.length };
@@ -3112,7 +3121,7 @@ async function api(req, res, url, requestId) {
     return send(res, 200, { from: from || null, to: to || null, recognitionRule: 'acceptedQuoteVersion', currencies: Object.values(currencies), items });
   }
   if (route === '/api/v1/dashboard/occupancy' && method === 'GET') return occupancyResponse(db, auth, url, res, requestId);
-  if (route === '/api/v1/audit' && method === 'GET') { if (!has(auth, 'audit.read')) return fail(res, 403, 'FORBIDDEN', 'Action non autorisée.', requestId); return send(res, 200, list(db.auditEvents.filter(e => e.companyId === companyId).reverse(), url)); }
+  if (route === '/api/v1/audit' && method === 'GET') { if (!has(auth, 'audit.read')) return fail(res, 403, 'FORBIDDEN', 'Action non autorisée.', requestId); return send(res, 200, list(db.auditEvents.filter(e => e.companyId === companyId).reverse().map(event => auditEventDto(auth, event)), url)); }
   if (route === '/api/v1/technical-metrics' && method === 'GET') { if (!has(auth, 'audit.read')) return fail(res, 403, 'FORBIDDEN', 'Action non autorisée.', requestId); const durations = runtimeMetrics.durationsMs.slice().sort((left, right) => left - right), percentile = ratio => durations[Math.max(0, Math.ceil(durations.length * ratio) - 1)] || 0; return send(res, 200, { startedAt: runtimeMetrics.startedAt, requests: runtimeMetrics.requests, errors: runtimeMetrics.errors, mutations: runtimeMetrics.mutations, mutationErrors: runtimeMetrics.mutationErrors, actuals: { confirmations: runtimeMetrics.actualConfirmations, corrections: runtimeMetrics.actualCorrections }, latencyMs: { p50: percentile(0.5), p95: percentile(0.95), max: durations.at(-1) || 0 }, sse: { active: sseClients.size, opened: runtimeMetrics.sseOpened, closed: runtimeMetrics.sseClosed }, domainEvents: db.domainEvents.length }); }
   if (route === '/api/v1/domain-events' && method === 'GET') { if (!has(auth, 'audit.read')) return fail(res, 403, 'FORBIDDEN', 'Action non autorisée.', requestId); const afterSequence = Math.max(0, Number(url.searchParams.get('afterSequence')) || 0), limit = Math.min(1000, Math.max(1, Number(url.searchParams.get('limit')) || 100)), items = replayEvents(db.domainEvents, { companyId, afterSequence, limit }); return send(res, 200, { data: items, meta: { request_id: requestId, afterSequence, limit, nextSequence: items.at(-1)?.sequence || afterSequence } }); }
   if (route === '/api/v1/events' && method === 'GET') { const readableFamilies = ['planning.read', 'actual.read', 'resource.read', 'quote.read', 'client.read', 'client.manage', 'project.manage', 'organization.read', 'membership.read', 'vatRate.read', 'equipment.read', 'maintenance.read', 'stock.read']; if (!hasAnyPermission(auth, readableFamilies)) return fail(res, 403, 'FORBIDDEN', 'Aucun flux temps réel n’est autorisé.', requestId); if ([...sseClients].some(client => !client.closed && client.token === auth.token)) return fail(res, 429, 'SSE_SESSION_LIMIT', 'Une seule connexion temps réel est autorisée par session.', requestId); if (sseClients.size >= MAX_SSE_CLIENTS) return fail(res, 503, 'SSE_CAPACITY_REACHED', 'La capacité temps réel est atteinte.', requestId); res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' }); res.write(': connected\n\n'); const client = { res, auth, companyId, token: auth.token, closed: false }; sseClients.add(client); runtimeMetrics.sseOpened++; client.timer = setInterval(() => { if (revalidateSseClient(client) && !res.writableEnded) res.write(': keep-alive\n\n'); }, SSE_REVALIDATE_MS); req.on('close', () => closeSseClient(client)); return; }
