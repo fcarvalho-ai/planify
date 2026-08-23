@@ -1,3 +1,48 @@
+# Gate SECURITY indépendant S7-C — Backlog, Forecast et chaîne de revenus
+
+Date : 2026-08-23
+
+Candidat exact : `05f65c54851701e2ada724d22fed7987edfeef08`
+
+Reviewer : agent indépendant `g7b_review`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 4 P2 ouverts.**
+
+Les trois lectures S7-C sont protégées par `finance.read` et construisent leurs totaux, compteurs et drill-down uniquement à partir des lignes autorisées. Les scopes Société, Site, Projet, Client, Devis, Ressource/Prestation sont appliqués avant agrégation. Le transfert d'un dépassement du Devis principal vers un complément n'a lieu que si ce complément fait lui-même partie des lignes visibles : un complément masqué ne contribue ni aux montants, ni aux `sourceCount`, ni aux identifiants retournés.
+
+## Autorisation et isolation
+
+- **Permission :** toute la famille `/api/v1/analytics/*` exige `finance.read` avant dispatch. C'est conforme à la SPEC Sprint 7, qui définit cette permission comme l'autorité de lecture du CA, du facturable et des analyses Finance. Le rôle standard `FINANCE` possède aussi `quote.read`; aucun droit d'écriture Devis/Planning n'est ajouté par ces routes GET.
+- **Société/Site/Projet/Client/Devis :** `financeFlowLineRows()` construit d'abord la map des Projets autorisés avec `companyId`, `projectAllowed`, `clientAllowed` et `siteAllowed`; il ne retient ensuite que les Devis acceptés autorisés par `quoteAllowed`.
+- **Ressources et prestations :** chaque ligne passe `financeQuoteLineAllowed`. Réservations et réalisés sont filtrés par les snapshots autorisés, les scopes Ressource et la provenance Devis avant d'être indexés par ligne.
+- **Principal visible / complément masqué :** les compléments sont recherchés uniquement dans `rows`, déjà filtré. Un complément hors scope n'est donc ni alimenté ni compté; le dépassement provenant d'un Actual autorisé reste facturable sur la ligne principale visible, sans révéler l'existence, le numéro, le montant ou la capacité du complément masqué.
+- **Absence d'inférence :** `totals`, `sources`, `itemCount`, fenêtres et groupes sont recalculés sur ce sous-ensemble. Les listes d'IDs proviennent des mêmes Réservations/Actuals autorisés; aucune somme globale n'est calculée puis filtrée. Les réponses n'exposent ni montant ni `sourceCount` d'un complément invisible.
+- **Temporalité :** `asOf` est une date bornée et validée; les Actuals dont la fin est postérieure sont exclus avant calcul. Les lignes analytiques `planned`, `actual` et `billable` gardent la date de leur source, ce qui permet à Revenue Chain d'appliquer `from`/`to` sans réattribuer les événements.
+- **Sortie/OpenAPI/UI :** les endpoints et schémas structurés Backlog/Forecast documentent la permission, `asOf`, la validation 422 et la provenance `quoteId`/`quoteVersionId`/`quoteLineId`. L'UI ne charge Finance qu'avec `finance.read` et échappe les labels/identifiants affichés. Aucune mutation, persistance, CSRF, audit ou SSE sensible n'est introduite par S7-C.
+
+## P2 importants / limites
+
+1. Le cas négatif automatisé « principal visible, complément hors scope » n'est pas isolé dans un test dédié. La construction filtrée rend le canal fermé par inspection, mais une fixture explicite protégerait mieux ce contrat.
+2. Un rôle personnalisé doté de `finance.read` sans `quote.read` peut lire le drill-down Finance — autorisé par la définition de `finance.read` — tandis que `actualRecordAllowed()` écarte les Actuals liés à un Devis faute de `quote.read`. Le rôle standard Finance possède les deux droits; documenter ou valider cette dépendance éviterait un résultat incomplet pour un rôle personnalisé.
+3. Plusieurs sous-objets OpenAPI (`sources`, `filters`, `freshness` et certaines propriétés d'item) restent extensibles via `additionalProperties`; aucun champ non autorisé n'est actuellement produit, mais des DTO entièrement fermés limiteraient le risque d'une future dérive de réponse.
+4. La coupure `asOf` des Actuals utilise la date UTC de `endsAt` (`slice(0, 10)`) plutôt que la date métier du site. Il n'y a pas de fuite inter-scope, mais une réalisation proche de minuit peut changer de jour par rapport au fuseau local.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- HEAD : `05f65c54851701e2ada724d22fed7987edfeef08`.
+- Hashes : `server.js` `fe2c0714ae125515ab4faa61c6141518ac5ad860654e2247bc1fbd8281f456ca`; `app.js` `608f84b3235c746e997077e596d562c9b3588d3af52fc650de7333806285f571`; `tests/sprint7-forecast.test.js` `25948794870bc01963e8d96505d62cd868713c7052a94b5a4c060238490d8351`; OpenAPI `019e16ad0c2dc531fc5670a6525da4aa24efa877ecdc9e296c2af3e802dfb8d3`.
+- `node --test tests/sprint7-forecast.test.js` : **PASS, 6/6**, `85,79 ms`; couvre `asOf`, conservation d'arrondi, transfert principal/complément, scopes Ressource et planned/actual/billable.
+- Inspection fraîche des routes, de `financeFlowLineRows`, `financeFlowAnalyticRows`, `revenueChain`, `financeBacklog`, `financeForecast`, des helpers de scopes et des schémas OpenAPI.
+- La suite complète du même candidat a été exécutée par la REVIEW/QA indépendante et n'est pas revendiquée comme une nouvelle preuve SECURITY.
+
+L'intégrateur doit reporter ce verdict dans `docs/project-status.md`.
+
+---
+
 # Revalidation SECURITY indépendante S7-B — alignement frontend import tarifaire
 
 Date : 2026-08-23

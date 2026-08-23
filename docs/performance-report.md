@@ -1,3 +1,57 @@
+# Gate PERFORMANCE indépendant S7-C — Backlog et Forecast représentatifs
+
+Date : 2026-08-23
+
+Candidat exact : `05f65c54851701e2ada724d22fed7987edfeef08`
+
+Reviewer : agent indépendant `g7b_review`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 4 P2 ouverts.**
+
+Le benchmark Finance frais couvre exactement le volume demandé : 250 ressources, 10 000 réservations, 2 000 Devis acceptés, 2 000 ActualRecords et 2 000 dépenses Projet. Les lectures Backlog et Forecast restent très largement sous le seuil p95 `< 300 ms`.
+
+## Mesures fraîches
+
+Commande : `npm run benchmark:finance` — macOS arm64, Node `v26.6.0`, sortie 0.
+
+| Lecture directe | p50 | p95 | max | Seuil |
+|---|---:|---:|---:|---:|
+| Marges | `24,73 ms` | `27,47 ms` | `27,47 ms` | `< 300 ms` |
+| Backlog | `75,05 ms` | `76,13 ms` | `76,13 ms` | `< 300 ms` |
+| Forecast | `47,15 ms` | `71,48 ms` | `71,48 ms` | `< 300 ms` |
+
+Jeu : 250 ressources, 10 000 réservations, 2 000 documents commerciaux, 2 000 ActualRecords, 2 000 ProjectCosts. Résultat témoin : 2 000 lignes, CA signé `20 000 000` unités mineures, coût planifié `25 200 000`, coût réel `5 200 000`.
+
+## Analyse de complexité
+
+- **Construction commune :** Projets, Réservations et Actuals sont parcourus une fois et indexés par `quoteId:lineId`; les agrégats Backlog/Forecast réutilisent ensuite les lignes calculées. La ventilation par sources est linéaire dans les Réservations/Actuals visibles.
+- **Principal/compléments :** le transfert conserve les quantités par découpage séquentiel, sans duplication de sources. La recherche des compléments utilise actuellement `rows.filter()` pour chaque ligne de base, soit `O(L²)` dans le pire cas en nombre de lignes commerciales; au jeu de 2 000 lignes demandé, la p95 reste `76,13 ms` au maximum.
+- **Forecast :** chaque ligne répartit son backlog sur au plus trois fenêtres fixes; la complexité supplémentaire est `O(L)` et la mémoire du drill-down est bornée à 200 éléments dans la réponse.
+- **Revenue Chain :** la chaîne réutilise le même read-model puis ventile `planned`, `actual` et `billable` par source avant groupement. Son coût est dominé par `financeFlowLineRows` et le nombre de sources visibles; elle n'a pas de benchmark autonome dans le harness actuel, donc aucun chiffre distinct n'est revendiqué.
+- **UI :** deux lectures supplémentaires sont lancées en parallèle avec les autres cartes Finance. Les détails sont bornés à 200 items et le rendu reste linéaire; aucun traitement quadratique n'est ajouté côté navigateur. Aucun profil navigateur frais `< 2 s` n'est revendiqué.
+- **Persistance/écritures :** S7-C est un read-model pur, sans nouvelle collection, migration, écriture atomique, audit ou SSE. Les seuils d'écriture `< 250 ms` ne sont objectivement pas impactés.
+
+## P2 importants / limites
+
+1. La liaison compléments repose sur un balayage `rows.filter()` par ligne (`O(L²)`). Elle est conforme à 2 000 lignes avec une marge importante, mais un index `baseQuoteId:baseLineId -> complements[]` serait préférable avant d'augmenter la volumétrie contractuelle.
+2. Le benchmark mesure directement le moteur et non les endpoints HTTP, la sérialisation JSON ou une rafale SSE. La marge au seuil est large, mais le coût transport n'est pas chiffré ici.
+3. Revenue Chain n'est pas chronométrée séparément avec les 10 000 sources; l'analyse de code montre qu'elle réutilise le moteur mesuré, puis ajoute une ventilation/groupement linéaire.
+4. Le critère UI « exploitable et interactive `< 2 s` » n'a pas de profil navigateur frais sur 200 lignes de drill-down ni de mesure d'erreur partielle des cinq appels Finance concurrents.
+
+## Preuves
+
+- HEAD : `05f65c54851701e2ada724d22fed7987edfeef08`.
+- Hashes : `server.js` `fe2c0714ae125515ab4faa61c6141518ac5ad860654e2247bc1fbd8281f456ca`; `app.js` `608f84b3235c746e997077e596d562c9b3588d3af52fc650de7333806285f571`; benchmark Finance `ffaf2a1ce2797df73871712a60b461069a9da0de580ecc2db55ce1cdab18eecc`.
+- `npm run benchmark:finance` : **PASS**, 8 itérations par lecture, tous les p95 `< 300 ms`.
+- `node --test tests/sprint7-forecast.test.js` : **PASS, 6/6**, `85,79 ms`.
+- Inspection fraîche de la complexité du transfert vers compléments, de la ventilation par source, du bornage des réponses et des consommateurs UI.
+
+L'intégrateur doit reporter ce verdict dans `docs/project-status.md`.
+
+---
+
 # Revalidation PERFORMANCE indépendante S7-B — garde frontend import tarifaire
 
 Date : 2026-08-23

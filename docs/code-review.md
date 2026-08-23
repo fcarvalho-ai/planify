@@ -1,3 +1,75 @@
+# Gate re-REVIEW indépendante S7-C — réconciliation temporelle et compléments
+
+Date : 2026-08-23
+
+Reviewer : agent indépendant `g7b_review`
+
+Candidat Git exact : `05f65c54851701e2ada724d22fed7987edfeef08` (`fix(finance): reconcile forecast sources`)
+
+Diff correctif contrôlé : `43bea95f74ad6d6bcb602254c25deff7e9f1205e..05f65c54851701e2ada724d22fed7987edfeef08`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert. Quatre P2 restent suivis.**
+
+Les quatre P1 de la REVIEW précédente sont fermés. Les read-models utilisent maintenant la date de situation pour les réalisés, conservent les montants lors de la ventilation, portent la version commerciale dans des schémas structurés et répartissent le dépassement principal sur les compléments acceptés visibles avant de calculer le billable.
+
+## Fermetures confirmées
+
+### REV-S7C-01 — date de situation et attribution par source : FERMÉ
+
+- `financeFlowLineRows()` exclut une révision dont la date de fin est postérieure à `asOf`; les tests vérifient le même réalisé absent au 31 août puis présent au 30 septembre.
+- `financeFlowAnalyticRows()` ne date plus une ligne agrégée sur une source arbitraire. `sourceRows()` ventile séparément chaque réservation sur `startsAt` et chaque réalisé/billable sur `endsAt`, tout en conservant exactement le montant cible sur la dernière tranche.
+- Les filtres `from/to` de `revenueChain()` s'appliquent donc après une attribution temporelle par source, et non après écrasement sur première/dernière date.
+
+### REV-S7C-02 — conservation des arrondis : FERMÉ
+
+- Le forecast initialise un budget monétaire avec `backlogMinor`, borne chaque tranche arrondie par le solde disponible et affecte le reliquat exact à `unscheduledMinor`.
+- Par construction, les tranches consommées et le reste ne peuvent ni dépasser ni perdre le backlog de la ligne. La ventilation analytique utilise également le reliquat sur sa dernière source.
+- Le test de montant indivisible vérifie la borne de conservation et la cohérence fenêtre/drill-down.
+
+### REV-S7C-03 — version du Devis et OpenAPI : FERMÉ
+
+- Chaque ligne capture `revenueRecognition.quoteVersionId`, avec repli sur `currentVersionId` pour les documents compatibles existants.
+- Backlog et forecast propagent `quoteVersionId`; les deux tests nominaux le vérifient.
+- OpenAPI remplace les objets libres par `FinanceBacklogItem` et `FinanceForecastItem`, avec `quoteId`, `quoteVersionId`, `quoteLineId` et les montants/quantités structurés.
+
+### REV-S7C-04 — principal et compléments acceptés : FERMÉ
+
+- Le regroupement s'effectue après construction des seules lignes autorisées. Un complément hors scope n'entre donc ni dans la capacité vendue visible ni dans le transfert des sources.
+- `moveOverflowToComplements()` conserve sur la ligne principale sa capacité vendue, transfère ensuite les fractions de réservations/réalisés vers les compléments visibles jusqu'à leur capacité, puis laisse uniquement le surplus non couvert sur la principale.
+- Toutes les quantités et valeurs backlog/earned/billable sont recalculées après cette répartition. Le cas principal 10 + complément 2 + réalisé 12 donne CA signé/produit 120, backlog 0 et billable 0.
+
+## Compatibilité et consommateurs
+
+- Aucun changement de persistance, migration ou rollback : S7-C reste un read-model à la demande.
+- Les permissions `finance.read`, scopes Société/Site/Client/Projet/Devis/Ressource et filtrages avant agrégation sont conservés.
+- L'UI et le SSE sont inchangés par le correctif ; le format ajouté reste compatible avec les consommateurs existants et enrichit le drill-down.
+- Les stages `invoiced` et `collected` restent indisponibles ; aucun billable n'est ajouté au CA signé.
+
+## P2 importants / limites
+
+1. Aucun test négatif dédié ne combine explicitement un principal visible avec un complément hors scope. La construction à partir des seules `rows` autorisées ferme le canal, mais cette invariance mérite une non-régression directe.
+2. Plusieurs compléments sont ordonnés par identifiant opaque. C'est déterministe, mais une règle métier explicite (séquence/version/date d'acceptation) serait préférable lorsque leurs prix unitaires diffèrent.
+3. OpenAPI exige un `quoteVersionId` chaîne alors que le code possède un dernier repli `null`. Les invariants actuels des Devis acceptés fournissent une version, mais un test de base historique incomplète devrait verrouiller la réponse ou produire une erreur stable.
+4. Le drill-down reste tronqué à 200 éléments sans curseur/pagination exploitable pour parcourir tous les items.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `node --test tests/sprint7-forecast.test.js tests/sprint1-data.test.js` : **21/21 réussis**, 0 échec, durée `672,04 ms`.
+- `npm test` : **303/303 réussis**, 0 échec, 0 ignoré, durée `8,056 s`.
+- `node --check server.js && node --check tests/sprint7-forecast.test.js` : **PASS**.
+- `git diff --check 43bea95f..05f65c5` : **PASS**.
+- Hashes : `server.js` `fe2c0714ae125515ab4faa61c6141518ac5ad860654e2247bc1fbd8281f456ca`; `app.js` `608f84b3235c746e997077e596d562c9b3588d3af52fc650de7333806285f571`; `tests/sprint7-forecast.test.js` `25948794870bc01963e8d96505d62cd868713c7052a94b5a4c060238490d8351`; OpenAPI `019e16ad0c2dc531fc5670a6525da4aa24efa877ecdc9e296c2af3e802dfb8d3`.
+
+L'intégrateur doit reporter ce verdict dans `docs/project-status.md`.
+
+---
+
 # Gate REVIEW indépendante S7-C — backlog signé et forecast 30/60/90
 
 Date : 2026-08-23

@@ -1,3 +1,47 @@
+# Re-QA indépendante S7-C — réconciliation des sources Finance
+
+Date : 2026-08-23
+
+Commit applicatif exact : `05f65c54851701e2ada724d22fed7987edfeef08` (`fix(finance): reconcile forecast sources`)
+
+Environnement : Node `v26.6.0`, Darwin `25.5.0` arm64
+
+Verdict : **APPROVED — 0 P0 / 0 P1**
+
+Ce verdict couvre exclusivement S7-C (US-083/084), les trois corrections issues de la QA précédente, l'affectation du dépassement à un complément accepté et les filtres temporels de `revenue-chain-g7-v1`. Aucun code, test, statut projet ni autre rapport n'a été modifié par cette re-QA.
+
+## Fermeture des constats précédents
+
+- **Situation `asOf`** : un réalisé du 10 septembre est exclu au 31 août puis inclus au 30 septembre. Le test ciblé observe respectivement `earnedSignedRevenueMinor=20000` puis `30000`; le backlog et le forecast partent donc de l'état réalisé borné à la date demandée.
+- **Conservation des unités mineures** : le moteur consomme un budget monétaire `availableMinor` borné au backlog et affecte le reliquat déterministe au non-planifié. La sonde QA historique — `2` unités mineures signées, `3000` milli-unités, deux réservations futures de `1000` et `1000` — retourne désormais à 60 jours `scheduled=2`, `unscheduled=0`, `total=2`, pour un backlog de `2`, sans création de centime.
+- **Version commerciale** : les items Backlog et Forecast exposent `quoteVersionId`. Les schémas structurés `FinanceBacklogItem` et `FinanceForecastItem` le rendent obligatoire et de type chaîne ; toutes les références OpenAPI restent résolues.
+
+## Régressions transverses demandées
+
+- **Complément accepté** : sur une base vendue `10000` et réalisée `12000`, puis un complément accepté de `2000`, la base produit `100000` sans billable, le complément produit `20000` avec backlog nul, et les totaux se réconcilient à `signed=120000`, `earned=120000`, `backlog=0`. Le surplus n'est donc plus déclaré facturable lorsqu'il est déjà couvert commercialement.
+- **Filtres période par source** : une sonde indépendante place deux réservations de `1000` sur une ligne de `20000`, l'une en septembre et l'autre en novembre. `revenueChain()` retourne `planned=20000` sans filtre, `10000` pour septembre seul et `10000` pour novembre seul. Les lignes analytiques portent les identifiants et dates de leurs réservations/réalisés sources, avec conservation déterministe du montant.
+- **Scopes et permissions** : les lectures restent protégées par `finance.read`; les scopes Société, Site, Client, Projet, Devis et Ressource sont appliqués avant agrégation. Un Devis complémentaire hors scope ne contribue pas à la couverture visible.
+
+## Commandes et résultats frais
+
+- `node --test tests/sprint7-forecast.test.js tests/sprint1-data.test.js tests/sprint7-actuals.test.js tests/quotes.test.js` : **83/83 réussis**, 0 échec, 0 ignoré, durée `4,161 s`.
+- `npm test` : **303/303 réussis**, 0 échec, 0 annulé, 0 ignoré, durée `8,556 s`.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés, code 0.
+- `git diff --check HEAD^ HEAD` : **PASS**, code 0.
+- Validation sémantique Ruby/Psych de `docs/api/openapi-v1.yaml` : **PASS** — OpenAPI `3.1.0`, 59 chemins, 81 schémas, 308 références locales (86 distinctes) toutes résolues, 72 `operationId` uniques ; `quoteVersionId` obligatoire dans les deux nouveaux schémas d'item.
+- Sondes déterministes directes, sans fichier ni persistance : conservation des centimes et filtre temporel par source **PASS**.
+
+## Limites non bloquantes
+
+- La ventilation septembre/novembre par source a été prouvée par sonde QA directe mais ne possède pas encore une assertion dédiée dans `tests/sprint7-forecast.test.js`.
+- La campagne couvre les contrats OpenAPI sémantiquement et par inspection des réponses déterministes ; elle n'exécute pas de validateur JSON Schema externe, conformément au runtime sans dépendance.
+- Aucun smoke navigateur n'est revendiqué. L'UI statique et la suite complète restent vertes ; le parcours visuel relève du gate E2E.
+
+Conclusion : les trois P1 précédents sont fermés, les compléments acceptés et les filtres temporels par source sont réconciliés, et aucun nouveau P0/P1 n'a été observé. La re-QA S7-C sur `05f65c5…` est **APPROVED — 0 P0 / 0 P1**. `docs/project-status.md` reste à actualiser par l'intégrateur selon la limite d'ownership de ce lot.
+
+---
+
 # QA indépendante terminale S7-B — import grille client et permissions Finance
 
 Date : 2026-08-23
