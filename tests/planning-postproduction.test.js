@@ -50,17 +50,13 @@ const period = {
   version: 1,
 };
 
-test('les cinq vues temporelles conservent la date de référence dans une plage civile déterministe', () => {
+test('les quatre vues temporelles conservent la date de référence dans une plage civile déterministe', () => {
   assert.deepEqual(planningDatesFor('day', '2026-08-19'), ['2026-08-19']);
   const week = planningDatesFor('week', '2026-08-19');
   assert.equal(week.length, 21);
   assert.equal(week[0], '2026-08-10');
   assert.equal(week[9], '2026-08-19');
   assert.equal(week.at(-1), '2026-08-30');
-  const sixWeeks = planningDatesFor('sixWeeks', '2026-08-19');
-  assert.equal(sixWeeks.length, 42);
-  assert.equal(sixWeeks[0], '2026-07-27');
-  assert.ok(sixWeeks.includes('2026-08-19'));
   const month = planningDatesFor('month', '2026-08-19');
   assert.equal(month.length, 92);
   assert.equal(month[0], '2026-07-01');
@@ -73,26 +69,24 @@ test('les cinq vues temporelles conservent la date de référence dans une plage
   assert.ok(quarter.includes('2026-08-19'));
 });
 
-test('les vues Jour, Semaine, 6 semaines, Mois et 3 mois restent disponibles hors plein écran', () => {
+test('les vues Jour, Semaine, Mois et 3 mois restent disponibles hors plein écran', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8');
-  assert.match(source, /views=\['day','week','sixWeeks','month','quarter'\]/);
+  assert.match(source, /views=\['day','week','month','quarter'\]/);
+  assert.doesNotMatch(source, /sixWeeks|6 semaines/);
   assert.match(source, /quarter:'3 mois'/);
   assert.match(source, /view==='quarter'\?3:1/);
-  assert.doesNotMatch(source, /if\(!planningFullscreen&&view==='sixWeeks'\)view='month'/);
   assert.match(css, /view-quarter/);
 });
 
 test('le plein écran partage les mêmes largeurs entre CSS et virtualisation horizontale', () => {
-  assert.equal(planningColumnWidth('sixWeeks', 'day', true), 44);
   assert.equal(planningColumnWidth('month', 'day', true), 52);
   assert.equal(planningColumnWidth('quarter', 'day', true), 38);
-  assert.equal(planningColumnWidth('sixWeeks', 'day', false), 104);
   assert.equal(planningColumnWidth('month', 'day', false), 104);
   assert.equal(planningColumnWidth('quarter', 'day', false), 76);
   const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8');
-  assert.equal((css.match(/minmax\(var\(--planning-day-width\),1fr\)/g)||[]).length, 3);
+  assert.equal((css.match(/minmax\(var\(--planning-day-width\),1fr\)/g)||[]).length, 2);
   assert.match(source,/matrixTrack\.style\.width=`\$\{Number\(matrixShell\.dataset\.totalColumns\)\*Number\(matrixShell\.dataset\.columnWidth\)\}px`/);
   assert.match(css,/\.planning-matrix-shell \.postprod-matrix\.is-virtualized\{box-sizing:border-box\}/);
   const quarterWidth=planningColumnWidth('quarter','day',true),quarter=planningVirtualSlice(92,99999,2239,quarterWidth,5);

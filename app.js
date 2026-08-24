@@ -78,10 +78,10 @@ const title=(a,b,c='')=>`<div class="page-title"><div><p class="eyebrow">${esc(o
 function planningDatesFor(viewValue,anchorValue){
   const anchorDate=new Date(`${anchorValue}T12:00:00Z`),out=[],pushDays=(start,count)=>{for(let index=0;index<count;index++){const day=new Date(start);day.setUTCDate(day.getUTCDate()+index);out.push(day.toISOString().slice(0,10))}};
   if(viewValue==='day')return[anchorValue];
-  if(viewValue==='week'||viewValue==='sixWeeks'){
+  if(viewValue==='week'){
     const monday=new Date(anchorDate);monday.setUTCDate(monday.getUTCDate()-((monday.getUTCDay()+6)%7));
-    monday.setUTCDate(monday.getUTCDate()-(viewValue==='week'?7:21));
-    pushDays(monday,viewValue==='week'?21:42);
+    monday.setUTCDate(monday.getUTCDate()-7);
+    pushDays(monday,21);
     return out;
   }
   const year=anchorDate.getUTCFullYear(),month=anchorDate.getUTCMonth();
@@ -113,7 +113,7 @@ function planningInitialScrollLeft(dates,columnWidth){
 function planningColumnWidth(viewValue,granularity='day',fullscreen=false){
   if(viewValue==='day')return granularity==='hour'?72:granularity==='halfDay'?180:260;
   if(viewValue==='week')return 170;
-  if(fullscreen)return viewValue==='month'?52:viewValue==='sixWeeks'?44:viewValue==='quarter'?38:104;
+  if(fullscreen)return viewValue==='month'?52:viewValue==='quarter'?38:104;
   return viewValue==='quarter'?76:104;
 }
 function planningReservationPath(){const dates=dateRange(),from=dates[0]||anchor,to=shiftDate(dates[dates.length-1]||anchor,1);return`/api/v1/reservations?from=${encodeURIComponent(`${from}T00:00:00Z`)}&to=${encodeURIComponent(`${to}T00:00:00Z`)}`}
@@ -185,7 +185,7 @@ function planningRowHeight(baseHeight,stackDepth){const depth=Math.max(1,Number(
 function planningMatrix(){
   const dates=dateRange(),rooms=postProductionRooms(),siteId=filters.site||rooms[0]?.siteId,slots=planningTimelineSlots(view,planningGranularity,dates,siteId),timedGrid=view==='day'&&planningGranularity!=='day',bookings=state.bookings.filter(matches),columnWidth=planningColumnWidth(view,planningGranularity,planningFullscreen),today=new Date().toISOString().slice(0,10);
   if(!rooms.length)return'<div class="planning-empty"><strong>Aucune salle de post-production</strong><p>Créez ou activez une salle de montage, d’étalonnage, de mixage ou de PAD dans Ressources.</p></div>';
-  const compactView=view==='month'||view==='sixWeeks'||view==='quarter',baseRowHeight=timedGrid?104:planningFullscreen&&compactView?64:compactView?74:92,stackDepth=filters.project?planningMaxCellStack(bookings,rooms,slots,timedGrid,planningGranularity,3):1,rowHeight=planningRowHeight(baseRowHeight,stackDepth),virtualKey=[view,planningGranularity,planningFullscreen,anchor,filters.site,filters.resource,filters.type,filters.project,filters.status,rowHeight,dates[0],dates.at(-1),rooms.map(room=>room.id).join(',')].join('|');
+  const compactView=view==='month'||view==='quarter',baseRowHeight=timedGrid?104:planningFullscreen&&compactView?64:compactView?74:92,stackDepth=filters.project?planningMaxCellStack(bookings,rooms,slots,timedGrid,planningGranularity,3):1,rowHeight=planningRowHeight(baseRowHeight,stackDepth),virtualKey=[view,planningGranularity,planningFullscreen,anchor,filters.site,filters.resource,filters.type,filters.project,filters.status,rowHeight,dates[0],dates.at(-1),rooms.map(room=>room.id).join(',')].join('|');
   if(planningVirtualState.key!==virtualKey){planningVirtualState.key=virtualKey;planningVirtualState.scrollLeft=view==='day'&&planningGranularity==='hour'?16*columnWidth:planningInitialScrollLeft(dates,columnWidth);planningVirtualState.scrollTop=0;planningVirtualState.rowStart=0;planningVirtualState.columnStart=0}
   const rowWindow=planningVirtualSlice(rooms.length,Math.max(0,planningVirtualState.scrollTop-62),planningVirtualState.viewportHeight,rowHeight,16),columnWindow=planningColumnSlice(slots.length,planningVirtualState.scrollLeft,planningVirtualState.viewportWidth,columnWidth,compactView),visibleRooms=rooms.slice(rowWindow.start,rowWindow.end),visibleSlots=slots.slice(columnWindow.start,columnWindow.end);
   planningVirtualState.rowStart=rowWindow.start;planningVirtualState.columnStart=columnWindow.start;
@@ -198,7 +198,7 @@ function planningMatrix(){
 }
 function writeCellCreate(room,slot){return can('planning.write')?`<button type="button" class="cell-add" data-cell-create data-date="${slot.date}" data-time="${slot.time}" data-end-time="${slot.endTime}" ${slot.startsAt?`data-starts-at="${slot.startsAt}" data-ends-at="${slot.endsAt}"`:''} data-resource="${esc(room.id)}" aria-label="Créer une réservation dans ${esc(room.name)} le ${slot.date}${slot.label?` à ${slot.label}`:''}">＋</button>`:''}
 function planning(){bindPlanningConnectivity();
-  const write=can('planning.write'),domainSelector=`<div class="planning-domain" role="group" aria-label="Type de planning"><button type="button" data-planning-domain="postProduction" class="${planningDomain==='postProduction'?'active':''}"><span>POST</span><strong>Post-production</strong><small>Salles et studios</small></button><button type="button" data-planning-domain="rental" class="${planningDomain==='rental'?'active':''}"><span>LOC</span><strong>Location</strong><small>Matériel et sorties</small></button></div>`,views=['day','week','sixWeeks','month','quarter'],viewLabels={day:'Jour',week:'Semaine',sixWeeks:'6 semaines',month:'Mois',quarter:'3 mois'};
+  const write=can('planning.write'),domainSelector=`<div class="planning-domain" role="group" aria-label="Type de planning"><button type="button" data-planning-domain="postProduction" class="${planningDomain==='postProduction'?'active':''}"><span>POST</span><strong>Post-production</strong><small>Salles et studios</small></button><button type="button" data-planning-domain="rental" class="${planningDomain==='rental'?'active':''}"><span>LOC</span><strong>Location</strong><small>Matériel et sorties</small></button></div>`,views=['day','week','month','quarter'],viewLabels={day:'Jour',week:'Semaine',month:'Mois',quarter:'3 mois'};
   const activeProject=find(state.projects,activePlanningProjectId),activeProjectBar=`<div class="planning-active-project"><span>Projet utilisé à la création</span><strong>${activeProject?esc(activeProject.name):'À choisir lors de la réservation'}</strong><select data-active-planning-project aria-label="Projet utilisé pour une nouvelle réservation"><option value="">Choisir dans le formulaire</option>${opts(state.projects)}</select><small>${activeProject?'Toute nouvelle réservation reprend ce projet.':'Le filtre de vue ci-dessous reste indépendant.'}</small></div>`;
   const viewedProject=find(state.projects,filters.project),projectBookings=filters.project?state.bookings.filter(booking=>booking.projectId===filters.project&&booking.status!=='cancelled'):[],projectRooms=filters.project?planningProjectRoomIds(filters.project):new Set,projectView=filters.project?`<div class="planning-project-view" role="status"><div><span>Vue par projet</span><strong>${esc(viewedProject?.name||'Projet introuvable')}</strong><small>${projectBookings.length} réservation${projectBookings.length>1?'s':''} · ${projectRooms.size} salle${projectRooms.size>1?'s':''} utilisée${projectRooms.size>1?'s':''}</small></div><button type="button" class="secondary-button" data-clear-project-view>Afficher tous les projets</button></div>`:'';
   const content=planningDomain==='postProduction'?`${filtersUI()}${projectView}<div class="planning-horizontal-scroll" data-planning-scroll role="scrollbar" tabindex="0" aria-label="Défilement horizontal du planning"><div></div></div><article class="card planning-card postprod-planning-card">${planningMatrix()}</article>`:`<article class="card planning-location-placeholder"><span>LOC</span><h2>Planning Location</h2><p>Le planning matériel sera construit dans l’étape suivante. Revenez sur Post-production pour gérer les salles.</p><button class="secondary-button" data-planning-domain="postProduction">Afficher la post-production</button></article>`;
