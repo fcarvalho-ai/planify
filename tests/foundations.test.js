@@ -50,6 +50,11 @@ test('le shell authentifié reste entièrement masqué hors session', () => {
   assert.match(source, /shell\.hidden=!authenticated/);
   assert.match(source, /shell\.setAttribute\('aria-hidden',String\(!authenticated\)\)/);
   assert.match(source, /shell\.inert=!authenticated/);
+  assert.match(source, /\['modalBackdrop','commandPalette','stockDrawerBackdrop'\]/);
+  assert.match(source, /overlay\.inert=!authenticated/);
+  assert.match(source, /if\(!authenticated\)overlay\.hidden=true/);
+  assert.match(source, /if\(!authenticated\)app\.replaceChildren\(\)/);
+  assert.match(source, /loginForm\.elements\.email\.focus\(\{preventScroll:true\}\)/);
   assert.match(css, /\.app-shell\[hidden\]\{display:none!important\}/);
 });
 
