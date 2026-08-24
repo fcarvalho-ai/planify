@@ -1146,6 +1146,64 @@ docs/api/openapi-v1.yaml            7395603efc38905461287d6c517d61653729869a7623
 
 ---
 
+# Revalidation PERFORMANCE indépendante — correctif scroll Planning RC2
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `d4c7fcfbe423940ff57fbeca541ef0e873d12c15`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 nouveau P2 UI, 1 P3.**
+
+Changer le niveau `z-index` d'éléments déjà `position:sticky` et déjà empilés ne modifie ni leur géométrie ni la taille du contenu défilable. Aucun reflow structurel, listener, animation, transformation, `will-change` ou nouveau contexte d'empilement n'est ajouté. Le scroll reste natif et la virtualisation lignes/colonnes, son état `scrollTop/scrollLeft` et son rendu différé par `requestAnimationFrame` sont inchangés.
+
+## Stacking, paint et virtualisation
+
+- Les dates ordinaires passent au-dessus des réservations normales (`z-index:1`) et des wrappers horaires (`z-index:4`).
+- Les cellules et spacers virtualisés ne changent ni ordre de grille, ni dimensions, ni fenêtres de rendu.
+- Le header sticky pouvait déjà être composité avec `z-index:4`; la nouvelle valeur ne crée pas à elle seule de couche supplémentaire. Elle peut provoquer uniquement une invalidation de paint locale lors du chargement de la feuille CSS.
+- Le sélecteur `.planning-matrix-scroll .matrix-corner` ne matche pas la structure actuelle et n'a donc aucun coût de paint effectif au-delà du matching CSS constant.
+
+## P2 UI — PERF-G8-08 — réservation focalisée au-dessus du header en vue non horaire
+
+`.planning-event[tabindex="0"]:focus-visible` conserve `z-index:9`. Dans les vues où l'événement n'est pas enfermé dans le wrapper horaire `z-index:4`, il peut donc encore peindre au-dessus de `.matrix-day{z-index:8}` pendant un scroll vertical. Le cas normal est corrigé, mais la promesse « header au-dessus des bookings » n'est pas absolue pour l'état clavier focalisé. Recommandation : donner au header un niveau supérieur aux états interactifs internes, tout en restant sous les overlays globaux, puis vérifier focus et redimensionnement par navigateur.
+
+## P3 — limite de mesure navigateur
+
+Le navigateur intégré est indisponible ; aucune trace FPS, paint ou screenshot de scroll n'a été obtenue. Les tests contractuels confirment le scroll et la virtualisation, mais pas la fluidité visuelle ni le chevauchement réel.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `d4c7fcfbe423940ff57fbeca541ef0e873d12c15` |
+| diff candidat | une règle `z-index` CSS + une assertion ; aucun JS/backend |
+| Foundations + Planning post-production | **PASS, 60/60**, durée `314,72 ms` |
+| `npm test` | **PASS, 340/340**, durée `8 311,31 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+```text
+planning.css                        acde3c58dfde5cc7a2d5614594eb20bca82610ae4067369a69936614a514629c
+styles.css                          8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+tests/foundations.test.js           a9063cc60fd43b94784f3725b5682ac1d243819885fb2cd9468e6bb247dc7906
+```
+
+## Handoff
+
+- Gate PERFORMANCE correctif scroll Planning : **APPROVED** sur `d4c7fcf`, 0 P0/0 P1/1 P2 (`PERF-G8-08`)/1 P3.
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation ultime PERFORMANCE — RC2 focus Pilotage
 
 Date : 2026-08-24

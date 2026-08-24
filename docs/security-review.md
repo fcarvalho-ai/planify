@@ -987,6 +987,60 @@ scripts/benchmark-finance.js        087702c7b9bf7d19c4f2a1042bd5318a234332f4863f
 
 ---
 
+# Revalidation SECURITY indépendante — correctif scroll Planning RC2
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `d4c7fcfbe423940ff57fbeca541ef0e873d12c15`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 P2 existant, 0 P3.**
+
+Le correctif modifie exclusivement l'ordre de peinture de deux classes constantes dans la grille Planning. Il n'ajoute aucune donnée, entrée, interpolation, URL, contenu généré ou comportement JavaScript. Authentification, RBAC, scopes Société/Site/Projet, échappement, XSS, overlays de session et backend sont bit-identiques au candidat précédemment approuvé.
+
+## Analyse sécurité et stacking
+
+- `.matrix-day` est déjà `position:sticky` avec un `z-index` non automatique ; passer de `4` à `8` ne crée pas une nouvelle surface interactive ni un nouveau contexte d'autorité.
+- Le header reste confiné par le conteneur `.planning-matrix-scroll{overflow:auto}` et ne peut pas recouvrir la connexion (`z-index:100`), les modales (`50`), le tiroir Stock (`80`) ou le menu contextuel Planning (`1200`).
+- La règle ne modifie ni `pointer-events`, ni focus, ni `tabindex`, ni contenu accessible. Les dates conservent leur comportement clavier existant.
+- Le sélecteur `.planning-matrix-scroll .matrix-corner` ne correspond à aucun nœud : `.matrix-corner` appartient à la colonne fixe sœur. Cette partie de la règle est sans effet, mais ne crée aucune exposition.
+- `SEC-G8-05` demeure le seul P2 : rémanence locale de valeurs dans certains overlays masqués/inertes, sans lien avec ce correctif.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `d4c7fcfbe423940ff57fbeca541ef0e873d12c15` |
+| diff candidat | une règle `z-index` CSS + une assertion statique ; aucun JS/backend |
+| Foundations + Planning post-production | **PASS, 60/60**, 0 échec/skip/todo, durée `314,72 ms` |
+| `npm test` | **PASS, 340/340**, 0 échec/skip/todo, durée `8 311,31 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+Le navigateur intégré demeure indisponible ; aucun contrôle visuel du chevauchement n'est affirmé. La preuve repose sur la structure DOM, les contextes de peinture déclarés et les tests de scroll/virtualisation.
+
+```text
+planning.css                        acde3c58dfde5cc7a2d5614594eb20bca82610ae4067369a69936614a514629c
+styles.css                          8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+tests/foundations.test.js           a9063cc60fd43b94784f3725b5682ac1d243819885fb2cd9468e6bb247dc7906
+```
+
+## Handoff
+
+- Gate SECURITY correctif scroll Planning : **APPROVED** sur `d4c7fcf`, 0 P0/0 P1/1 P2 existant/0 P3.
+- Aucun nouveau constat Sécurité.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation ultime SECURITY — RC2 focus Pilotage
 
 Date : 2026-08-24
