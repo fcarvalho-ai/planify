@@ -1,3 +1,59 @@
+# Gate SECURITY indépendant RC5 — Planning long, Pilotage et Forecast métier
+
+Date : 2026-08-24
+
+Candidat exact : `b715f4ba1453ed9a73db3fd2f32e996957a700d2`
+
+Code Forecast inclus : `d96281e0caf86777cdc21eba3ece9ab516420ddf`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 P2 résiduel, 0 P3.**
+
+Le périmètre cumulé post-RC4 ne crée aucune nouvelle autorité. Les quatre vues Planning restent alimentées par les réservations déjà filtrées ; le détail Pilotage est demandé exclusivement via le drill-down autorisé du KPI courant ; les occupations réelles sans réalisé sont supprimées après calcul scopé ; le Forecast présenté est la section serveur déjà filtrée par société, site, Projet, client et droits Finance. Aucun nouveau endpoint, secret, sink HTML non échappé ou mutation n'est introduit.
+
+## Threat-check frontend
+
+- **Planning long :** les largeurs et le nombre de colonnes proviennent de constantes internes (`38`, `52`, `76`, `92`) et de `data-total-columns` / `data-column-width` produits par le rendu. La conversion `Number()` ne transforme aucune donnée métier en HTML. Les cellules restent construites depuis `state.bookings.filter(matches)`, `visibleRooms` et les 92 dates bornées.
+- **Permissions visibles :** `pilotageKinds()` masque les tableaux non permis, mais le serveur reste l'autorité via `DASHBOARD_PERMISSIONS`. Direction exige Finance, Devis, Planning, Ressources et Réalisés ; Exploitation exige notamment `maintenance.read`. Les tests négatifs confirment le même refus 403 sur dashboard, drill-down et export.
+- **Drill-down modal :** le client n'accepte que le KPI présent dans `pilotageModule.data.kpis` et doté d'un lien serveur. `new URL()` est réduit à `target.pathname` et `target.searchParams`, empêchant une navigation externe. Pagination publique bornée à 500 et export à 10 000 ; les tokens de requête empêchent une réponse tardive de remplacer le détail courant.
+- **XSS/sorties :** libellés, statuts, IDs, sections génériques, titres et cellules du détail passent par `esc()`. Le Forecast convertit les montants par `BigInt`/`Intl.NumberFormat`, les jours par `Number` et échappe version/date ; aucune valeur libre n'est injectée comme markup. `CSS.escape()` borne la restauration de focus au bouton du KPI fermé.
+- **Accessibilité/focus :** `<dialog>.showModal()` fournit l'inertage modal natif ; fermeture explicite, touche Échap, clic backdrop et restauration du focus sont câblés. La table est une région nommée et focalisable. La preuve clavier réelle reste limitée par l'absence de navigateur connecté.
+
+## Threat-check API et données
+
+- `dashboardReadModel()` applique d'abord société, sites, projets, clients, documents, ressources et snapshots autorisés ; `dashboardDrilldownReadModel()` reconstruit les mêmes scopes avant toute ligne.
+- La section Forecast vient de `financeForecast(dashboardDb, auth, input)` : `dashboardDb` ne contient que les Devis/Budgets déjà visibles. Les fenêtres 30/60/90 ne réintroduisent aucun identifiant hors scope.
+- Le correctif Occupation filtre uniquement les lignes `actualOccupancyBps === null` pour `actualOccupancy` et `occupancyGap`, après `financeOccupancy()` scopé. Il réduit la sortie et réconcilie `sourceCount`; il ne transforme pas une absence en valeur ni ne révèle un compteur global.
+- Périodes, filtres, pagination, KPI explicite, export et tailles restent validés côté serveur. Aucune mutation, CSRF, audit, SSE ou persistance n'est touchée.
+
+## P2 résiduel
+
+**SEC-G8-05 reste ouvert hors impact RC5 :** des valeurs internes de certains overlays statiques masqués/inertes ne sont pas toutes purgées après fin de session. La modale Pilotage vit dans `#app`, qui est purgé à la déconnexion, et n'aggrave pas ce point.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `b715f4ba1453ed9a73db3fd2f32e996957a700d2` |
+| Planning + dashboards + sécurité G8 ciblés | **PASS, 63/63**, durée `1 986,44 ms` |
+| `npm test` | **PASS, 344/344**, durée `8 387,39 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+Le navigateur intégré ne disposait d'aucune instance connectée ; aucun parcours clavier/lecteur d'écran réel n'est revendiqué. Hashes : `app.js` `0fc0dad429e78aa6aea63884f6d903939189e2793b6505b3d363d7e49cbc36cd`; `server.js` `504ae0263fbe8674f1ab26f23863e7ebe206ef854ccb1b698e0b7bc9ff07ee13`; test dashboards `d9a0b681dcc21b53807c4559301bd9a676227814161717691d22a6e91b98af02`.
+
+## Handoff
+
+- Gate SECURITY RC5 : **APPROVED** sur `b715f4b`, 0 P0/0 P1/1 P2 résiduel/0 P3.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation d'impact SECURITY indépendante — chevauchement demi-journée Planning RC3
 
 Date : 2026-08-24

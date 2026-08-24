@@ -4680,3 +4680,82 @@ L'index construit 10 000 cellules sur 100 ressources et 28 slots en p95 inférie
 ## Verdict terminal
 
 La re-QA finale de `2fd37e212d19ecc507cfe12f077474f716ec0edd` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Le P1 demi-journée est fermé : 06:00–08:00 et 19:00–20:00 restent absents, les frontières/intersections usuelles sont exactes, et Le Grand Format, timed, multi-jours, overrides, densité, performance, axes et virtualisation ne régressent pas. Preuves terminales : ciblés **151/151**, suite complète **341/341**, lint, build et diff-check verts.
+
+---
+
+# Gate QA indépendant RC5 — cumul post-RC4
+
+Date : 2026-08-24 19:47 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat documentaire exact `b715f4ba1453ed9a73db3fd2f32e996957a700d2`, code Forecast et cumul applicatif exact `d96281e0caf86777cdc21eba3ece9ab516420ddf`. Contrôles : scroll horizontal des vues Jour/Semaine/Mois/3 mois, suppression de 6 semaines, détail Pilotage modal réconcilié et localisé, Forecast métier 30/60/90, cas limites et non-régression cumulative depuis `0.5.0-rc4` (`e0810ff`).
+
+Indépendance : aucun code, test, statut ni autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Environnement et empreintes
+
+```text
+Node                                     v26.6.0, Darwin arm64
+app.js                                   0fc0dad429e78aa6aea63884f6d903939189e2793b6505b3d363d7e49cbc36cd
+server.js                                504ae0263fbe8674f1ab26f23863e7ebe206ef854ccb1b698e0b7bc9ff07ee13
+planning.css                             1e5227f04bb781756318676054242713664e07dee048dee4e664198dd3ed289b
+styles.css                               8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+tests/planning-postproduction.test.js    4e22027eaef93ae335c5687aabc9997bc1aaceb335afba4dbcfa70ba4c21df35
+tests/sprint8-dashboards.test.js         d9a0b681dcc21b53807c4559301bd9a676227814161717691d22a6e91b98af02
+tests/sprint7-forecast.test.js           25948794870bc01963e8d96505d62cd868713c7052a94b5a4c060238490d8351
+tests/api.test.js                        69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e
+```
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| vues temporelles | PASS : commandes exactes Jour, Semaine, Mois, 3 mois ; aucune occurrence `sixWeeks` ou « 6 semaines » dans le client |
+| plage Jour | PASS : 1 colonne, largeur 260 px, dernière colonne atteinte |
+| plage Semaine | PASS : 21 jours `10/08→30/08`, ancre `19/08` incluse, piste 3 570 px ; au scroll maximal fenêtre `[9,21)`, dernière colonne atteinte |
+| plage Mois détaillée | PASS : 92 jours `01/07→30/09`, mois sélectionné centré, largeur plein écran 52 px, piste fixe 4 784 px ; 92 colonnes montées et dernier jour atteignable |
+| plage 3 mois compacte | PASS : 92 jours `01/07→30/09`, largeur plein écran 38 px, piste fixe 3 496 px ; 92 colonnes montées et dernier jour atteignable |
+| cohérence scroll/virtualisation | PASS : largeur DOM = `totalColumns × columnWidth`, axes timeline/barre synchronisés, scroll vertical/colonne fixe conservé ; virtualisation verticale inchangée |
+| détail Pilotage sans réalisé | PASS : `actualOccupancy` et `occupancyGap` ont carte/sourceCount/détail tous à 0, aucune valeur nulle ou ligne artificielle |
+| détail Pilotage planifié | PASS : `plannedOccupancy` réconcilie **46** sources carte/détail, toutes en `bps`, sans valeur nulle, état source `underutilized` traduit « Sous-utilisé » par le client |
+| contrat modal | PASS : élément natif `dialog`, fermeture bouton/fond/Échap, invalidation des requêtes tardives, restauration du focus sur la carte ; ancien détail injecté en page absent |
+| localisation du détail | PASS : types « Occupation », « Réalisation », « Ligne de devis », « Dépassement non facturé » ; états « Sous-utilisé », « Saturé », « Équilibré », « Confirmé », « Option » ; valeurs `4,2 %`, `123,45 €`, `12`, `—` |
+| Forecast Direction seed | PASS : section `FINANCE_FORECAST@1`, horizons exacts 30/60/90, dates limites cohérentes, et pour chaque fenêtre `planifié + à planifier = total` |
+| rendu Forecast métier non nul | PASS : trois cartes « Horizon 30/60/90 jours », dates françaises, montants EUR et libellés « Déjà planifié / À planifier » ; aucune clé technique imprimée comme en-tête |
+| cas Forecast métier ciblé | PASS : `30 jours = 30 000 + 0`, `60 jours = 30 000 + 50 000`, `90 jours = 30 000 + 50 000` minor ; sans date Projet isolé à 50 000 minor ; scopes appliqués avant agrégation |
+| périodes Pilotage invalides | PASS : intervalle inversé et date invalide refusés avec HTTP logique 422 / `DASHBOARD_PERIOD_INVALID` |
+| `node --test --test-reporter=dot tests/planning-postproduction.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint7-forecast.test.js tests/sprint8-bi.test.js tests/foundations.test.js tests/api.test.js` | PASS, **134/134**, code 0 |
+| `npm test` | PASS, **344/344**, 0 échec/annulé/ignoré/TODO, 8 937,79 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check`, diff RC4→code RC5 et code RC5→candidat | PASS, code 0 |
+
+## Planning horizontal
+
+La date d'ancrage demeure incluse dans chaque vue. Jour et Semaine conservent une fenêtre horizontale bornée qui atteint correctement la dernière colonne au scroll maximal. Mois et 3 mois rendent volontairement l'intégralité des 92 colonnes afin que la piste ne change plus pendant le mouvement ; leur largeur CSS et leur largeur de calcul sont identiques. La virtualisation verticale, les compensateurs et la synchronisation des axes restent actives.
+
+La vue Mois est désormais le ruban détaillé de trois mois glissants, tandis que 3 mois conserve la même période en densité compacte. La commande redondante 6 semaines est absente du tableau des vues et du code client.
+
+## Détail Pilotage
+
+Les détails `actualOccupancy` et `occupancyGap` excluent les périodes dépourvues de réalisé avant pagination : le total détaillé égale donc `sourceCount` et aucune ligne `— bps` n'est fabriquée. Le cas planifié seed réconcilie 46 lignes.
+
+Le détail est présenté dans un dialogue modal natif, avec titre lié, tableau régional, pagination dans le dialogue, fermeture par trois mécanismes et retour du focus vers la carte d'origine. Les types, états, pourcentages, montants et compteurs sont formatés en français. Un jeton de requête empêche une réponse obsolète de repeupler un détail fermé ou remplacé.
+
+## Forecast 30/60/90
+
+Le read-model Direction fournit trois fenêtres cumulatives `30/60/90` sous `FINANCE_FORECAST@1`. Les montants se réconcilient dans chaque fenêtre, les lignes sans date restent séparées et les scopes Finance/Devis sont appliqués avant agrégation. Le client transforme la structure technique en cartes métier : horizon, échéance française, total en euros, ventilation déjà planifiée/à planifier.
+
+Les cas d'arrondi, dépassement couvert par complément accepté, as-of, absence de date et scopes négatifs sont couverts par la sous-suite Forecast et restent verts.
+
+## Limites
+
+- la connexion au navigateur local a été tentée selon le mécanisme prévu, mais aucun navigateur contrôlable n'était exposé (`0` instance disponible) ; aucune capture, clic réel, mesure de fluidité subjective ou vérification console navigateur n'est donc revendiquée par ce gate ;
+- la preuve UI repose sur les fonctions et contrats DOM réellement exécutés ou inspectés, les calculs de piste/fenêtre et les tests automatisés ; la recette navigateur DEV déjà documentée n'est pas réutilisée comme preuve indépendante ;
+- aucune mesure de performance additionnelle n'est revendiquée ici : ce rapport est le gate QA, non le gate Performance ;
+- le verdict porte exclusivement sur le candidat et le hash code exacts ci-dessus et devient caduc si le client, les read-models, les styles ou les tests couverts changent.
+
+## Verdict terminal
+
+Le gate QA indépendant RC5 sur `b715f4ba1453ed9a73db3fd2f32e996957a700d2`, code `d96281e0caf86777cdc21eba3ece9ab516420ddf`, est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Les quatre vues Planning défilent jusqu'à leurs bornes sans divergence de piste, 6 semaines est supprimé, le détail Pilotage est modal/localisé/réconcilié, et Forecast expose correctement les horizons métier 30/60/90. Preuves terminales : ciblés **134/134**, suite complète **344/344**, lint, build et diff-check verts. Limite explicite : aucune instance de navigateur contrôlable n'était disponible pour une recette visuelle indépendante.

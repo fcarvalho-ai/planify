@@ -1,3 +1,76 @@
+# Gate PERFORMANCE indépendant RC5 — Planning long, Pilotage et Forecast métier
+
+Date : 2026-08-24
+
+Candidat exact : `b715f4ba1453ed9a73db3fd2f32e996957a700d2`
+
+Code Forecast inclus : `d96281e0caf86777cdc21eba3ece9ab516420ddf`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts, 1 P3.**
+
+Les chemins affectés respectent les seuils contractuels. Sur 250 ressources, 10 000 réservations, 2 000 documents, 2 000 réalisés et 2 000 coûts Projet, Forecast termine à `71,37 ms` p95, le dashboard Direction complet à `256,64 ms`, Finance à `196,65 ms` et le drill-down Occupation réelle à `61,48 ms`. L'index Planning représentatif 20 salles × 92 jours termine à `32,86 ms` p95 ; le stress de 10 000 périodes longues reste à `861,65 ms` avant DOM.
+
+## Planning long — mesures fraîches
+
+Deux warm-ups ; 20 itérations représentatives/concentrées et 8 longues. Les 10 000 réservations représentatives sont distribuées sur 250 ressources et 180 jours ; la fenêtre monte 20 ressources et les 92 colonnes du trimestre.
+
+| Scénario | Clés / entrées | Cartes bornées | p50 | p95 |
+|---|---:|---:|---:|---:|
+| représentatif 250 ressources / 180 jours, fenêtre 20 × 92 | `178 / 390`, max `3/cellule` | `390` | `32,24 ms` | `32,86 ms` |
+| concentré 10 000 dans une cellule | `1 / 10 000`, max `10 000/cellule` | `50` | `33,22 ms` | `35,41 ms` |
+| 10 000 périodes de 92 jours | `1 710 / 17 961`, max `21/cellule` | `17 961` | `828,42 ms` | `861,65 ms` |
+
+- `planningColumnSlice(..., true)` monte exactement 92 colonnes pour Mois/3 mois ; leur largeur totale est bornée à `4 784 px` en Mois plein écran et `3 496 px` en trimestre.
+- La virtualisation verticale reste active. À 20 lignes visibles, le socle est 1 840 cellules plus les cartes correspondantes ; au jeu représentatif, seulement 390 cartes sont produites.
+- Jour et Semaine conservent la virtualisation horizontale. Les quatre vues sont donc bornées ; aucune croissance avec une période utilisateur arbitraire n'est ajoutée.
+
+## Finance, Forecast et drill-down — dataset contractuel
+
+`npm run benchmark:finance`, 8 itérations après warm-up :
+
+| Lecture | p50 | p95 | seuil |
+|---|---:|---:|---:|
+| Forecast 30/60/90 | `67,89 ms` | `71,37 ms` | `< 300 ms` |
+| Backlog | `59,77 ms` | `75,80 ms` | `< 300 ms` |
+| Occupation journalière | `20,67 ms` | `25,16 ms` | `< 300 ms` |
+| Drill-down montant facturable | `207,59 ms` | `277,38 ms` | `< 300 ms` |
+
+Mesure additionnelle à 20 itérations sur le même dataset : Direction `193,29 / 256,64 ms` p50/p95 ; Finance `189,47 / 196,65 ms` ; drill-down Occupation réelle `58,03 / 61,48 ms`. Le rendu Forecast ajoute seulement trois cartes et deux sous-montants par horizon ; le détail modal rend au plus 100 lignes par page.
+
+## P2 importants
+
+1. Le cap de 50 cartes est local à chaque cellule. Les colonnes longues restent toutes montées pour stabiliser le scroll ; le stress artificiel produit encore 17 961 cartes visibles après indexation. Un plafond global ou une virtualisation DOM bidimensionnelle serait requis avant d'accepter des périodes longues fortement concentrées comme usage contractuel.
+2. Le drill-down montant facturable a atteint `277,38 ms` p95, soit seulement `22,62 ms` de marge au seuil, même si une seconde exécution est descendue à `213,71 ms`. Surveiller ce chemin et indexer davantage les lignes Finance avant d'augmenter les volumes.
+
+## P3 — limite de preuve UI
+
+Aucun navigateur n'était connecté. Les mesures couvrent calcul, index et read-models, mais pas l'attachement DOM, layout, paint, FPS, focus modal ou fluidité du scroll réel. L'exploitabilité `< 2 s` est fortement soutenue sur le dataset représentatif, mais doit être confirmée par le smoke E2E RC5.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `b715f4ba1453ed9a73db3fd2f32e996957a700d2` |
+| Planning + dashboards + sécurité G8 ciblés | **PASS, 63/63**, durée `1 986,44 ms` |
+| `npm test` | **PASS, 344/344**, durée `8 387,39 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+Hashes : `app.js` `0fc0dad429e78aa6aea63884f6d903939189e2793b6505b3d363d7e49cbc36cd`; `planning.css` `1e5227f04bb781756318676054242713664e07dee048dee4e664198dd3ed289b`; `server.js` `504ae0263fbe8674f1ab26f23863e7ebe206ef854ccb1b698e0b7bc9ff07ee13`; benchmark Finance `087702c7b9bf7d19c4f2a1042bd5318a234332f4863f7c3e571f34857d73e08e`.
+
+## Handoff
+
+- Gate PERFORMANCE RC5 : **APPROVED** sur `b715f4b`, 0 P0/0 P1/2 P2/1 P3.
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation d'impact PERFORMANCE indépendante — chevauchement demi-journée Planning RC3
 
 Date : 2026-08-24

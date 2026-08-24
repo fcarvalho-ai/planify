@@ -6583,3 +6583,98 @@ Environnement : macOS arm64, Node `v26.6.0`.
 ### Handoff
 
 La gate REVIEW G8 est **APPROVED** sur le commit exact ci-dessus. Seul `docs/code-review.md` est modifié. L'intégrateur doit reporter ce verdict dans `docs/project-status.md` et confirmer les autres gates indépendants sur le même hash avant INTEGRATION/E2E ; toute modification applicative ultérieure invalidera cette approbation.
+# Gate REVIEW indépendant RC5 — périmètre cumulé post-RC4
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat de gate exact : `b715f4ba1453ed9a73db3fd2f32e996957a700d2` (`docs: consolidate rc5 gate candidate`)
+
+Candidat applicatif exact : `d96281e0caf86777cdc21eba3ece9ab516420ddf` (`fix: present dashboard forecast in business terms`)
+
+Diff cumulé contrôlé : `v0.5.0-rc4..b715f4ba1453ed9a73db3fd2f32e996957a700d2`
+
+Nature : revue indépendante seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 1 P1 ouvert.**
+
+Le Planning longue durée, la suppression explicite de la vue 6 semaines, la modale Pilotage et la présentation métier du Forecast sont cohérents dans leurs chemins nominaux. La release reste toutefois bloquée : le KPI Exploitation `occupancyGap` n'utilise pas le même ensemble de périodes pour sa carte et son drill-down dès qu'une période planifiée ne possède aucun réalisé. La promesse de détail réconcilié est donc fausse sur un cas métier courant.
+
+## P1 — `occupancyGap` reste non réconcilié lorsque des périodes n'ont aucun réalisé
+
+Dans `dashboardReadModel()`, `plannedBps` est la moyenne de **toutes** les lignes d'occupation, alors que `actualBps` et `sourceCount` utilisent seulement `actualItems`, c'est-à-dire les lignes dont `actualOccupancyBps !== null`. La carte calcule ensuite `actualBps - plannedBps`.
+
+Le correctif RC5 filtre correctement les lignes nulles du drill-down, mais chaque ligne restante calcule `actualOccupancyBps - plannedOccupancyBps`. Son agrégat correspond donc à la moyenne des écarts sur le sous-ensemble `actualItems`, et non à la différence entre l'occupation réelle du sous-ensemble et l'occupation planifiée de l'ensemble complet.
+
+Preuve déterministe fraîche : deux jours planifiés sur la même ressource, `1 h` puis `8 h`, avec un réalisé de `1 h` uniquement le premier jour. Résultat :
+
+```text
+carte occupancyGap       = -1458 bps
+sourceCount carte        = 1
+total drill-down         = 1
+moyenne du drill-down    = 0 bps
+ligne drill-down         = 2026-08-10:resource_1 → 0 bps
+```
+
+Le nombre de sources est désormais aligné, mais la valeur ne l'est pas. Cela viole les critères Sprint 8 « détail réconcilié » et « chaque KPI réconcilie exactement ses lignes ». La correction doit soit calculer le `plannedBps` de la carte sur `actualItems` pour ce KPI, soit définir et exposer des poids permettant de reconstruire exactement la valeur annoncée ; un test doit comparer la valeur agrégée, pas seulement `total`, `sourceCount` et l'absence de `null`.
+
+## Contrôles conformes
+
+### Planning et scroll horizontal
+
+- `planningColumnWidth()` centralise les largeurs CSS/virtualisation et la piste reçoit une largeur totale stable `totalColumns × columnWidth`.
+- Mois et 3 mois gardent les 92 colonnes montées pendant le geste horizontal, tout en conservant la virtualisation verticale et l'index pré-DOM par cellule.
+- La vue Mois couvre juillet à septembre autour de l'ancre d'août ; la vue 3 mois conserve la même période avec densité compacte. Les extrémités restent représentées dans le modèle de scroll.
+- Le sélecteur et le code actif ne proposent plus que Jour, Semaine, Mois et 3 mois. La suppression de 6 semaines est une décision produit explicite du lot RC5 ; aucun contrat API ou format persisté ne dépend de cette valeur.
+
+### Pilotage UI
+
+- Le détail utilise un élément natif `dialog`, un titre relié par `aria-labelledby`, une fermeture accessible, Échap, clic backdrop, focus initial sur Fermer et restitution du focus au déclencheur.
+- Un jeton de requête distinct empêche une réponse tardive de rouvrir ou remplacer un détail fermé/changé. Le changement de dashboard ou de société invalide aussi la requête en cours.
+- Les sources, statuts, pourcentages, comptes et montants sont localisés et toutes les données injectées sont échappées.
+- La pagination reste dans la modale et conserve le KPI et les filtres portés par l'URL serveur.
+
+### Forecast 30/60/90
+
+- La section `forecast` reçoit un composant métier distinct : horizons, date terminale française, total, « Déjà planifié » et « À planifier » formatés avec devise/exposant du read-model.
+- Les trois fenêtres restent produites par l'autorité serveur ; l'UI n'en recalcule ni les montants ni les dates.
+- La grille est responsive à trois, puis une colonne, avec structure `article`/`dl` lisible et contenus échappés.
+
+## Tests manquants pertinents
+
+- Le nouveau test `actualOccupancy/occupancyGap` vérifie uniquement `detail.total === kpi.sourceCount` et l'absence de valeurs nulles. Il doit aussi reconstruire ou comparer la valeur du KPI sur un dataset mélangeant périodes avec et sans réalisés ; c'est précisément le P1 observé.
+- Les tests UI de la modale sont principalement lexicaux. Un test DOM pérenne de fermeture Échap/backdrop, focus retour et pagination serait utile, mais ce manque n'est pas bloquant au regard du code inspecté et des gates aval déjà exécutés.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` : `b715f4ba1453ed9a73db3fd2f32e996957a700d2`.
+- Inspection du diff cumulé et des consommateurs `app.js`, `server.js`, `planning.css`, tests Planning/Dashboards, README/CHANGELOG et état de gate : effectuée.
+- Sonde déterministe `occupancyGap` avec deux jours planifiés et un seul jour réalisé : **ÉCHEC de réconciliation**, carte `-1458 bps`, détail moyen `0 bps`.
+- `node --test tests/planning-postproduction.test.js` : **PASS, 46/46**, 0 échec/skip/todo, durée `198,956 ms`.
+- `node --test tests/sprint8-dashboards.test.js` : **PASS, 13/13**, 0 échec/skip/todo, durée `2,495 s`.
+- `npm test` : **PASS, 344/344**, 0 échec/cancelled/skip/todo, durée `8,750 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check v0.5.0-rc4..b715f4ba1453ed9a73db3fd2f32e996957a700d2` : **PASS**.
+- La tentative de smoke UI isolé a été interrompue avant démarrage ; aucune preuve navigateur supplémentaire n'est revendiquée par REVIEW. QA et SECURITY/PERFORMANCE ont fourni leurs verdicts indépendants séparément.
+
+Empreintes contrôlées :
+
+```text
+app.js                                 0fc0dad429e78aa6aea63884f6d903939189e2793b6505b3d363d7e49cbc36cd
+server.js                              504ae0263fbe8674f1ab26f23863e7ebe206ef854ccb1b698e0b7bc9ff07ee13
+planning.css                           1e5227f04bb781756318676054242713664e07dee048dee4e664198dd3ed289b
+tests/planning-postproduction.test.js  4e22027eaef93ae335c5687aabc9997bc1aaceb335afba4dbcfa70ba4c21df35
+tests/sprint8-dashboards.test.js        d9a0b681dcc21b53807c4559301bd9a676227814161717691d22a6e91b98af02
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette REVIEW. Le candidat RC5 `b715f4ba1453ed9a73db3fd2f32e996957a700d2` est **REJECTED** avec 0 P0 et 1 P1. Retour DEV ciblé requis sur la définition/réconciliation de `occupancyGap`, ajout du cas de non-régression, puis re-REVIEW et gates aval impactés sur un nouveau hash exact.
+
+---
