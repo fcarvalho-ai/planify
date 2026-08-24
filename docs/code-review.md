@@ -1,3 +1,63 @@
+# Gate re-REVIEW ultime indépendante G7-D — options et axe Prestation
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g7d_review`
+
+Candidat Git exact : `7051fe4ff4849b1e9849e81b8266d73fa6c2fda6` (`fix(finance): close g7 d analytics gates`)
+
+Diff correctif contrôlé : `5701450..7051fe4`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert ; 3 P2 suivis, non bloquants.**
+
+Les deux blocages restants de la re-review précédente sont fermés. Les sept P1 du candidat G7-D initial sont désormais résolus sur ce candidat exact, sans régression détectée par les preuves ciblées et la suite complète.
+
+## Fermeture des deux P1
+
+### REV-S7D-01 — FERMÉ : options perdues et canonicalisation après autorisation
+
+`financeOccupancy()` construit d’abord `visibleReservations` en appliquant société et `reservationSnapshotAllowed()`, puis canonicalise les groupes uniquement sur ce sous-ensemble autorisé. Les options portant `optionDecision.state === 'lost'` sont exclues à la sélection comme à l’agrégation.
+
+Les régressions couvrent les deux erreurs précédentes :
+
+- gagnant confirmé de 8 h + perdant conservé à l’état `lost` = **8 h planifiées**, sans double comptage ;
+- option prioritaire hors scope + option secondaire visible = **8 h visibles**, sans masquage par une réservation inaccessible.
+
+### REV-S7D-03 — FERMÉ : rattachement Prestation des dépenses Projet
+
+La projection des `ProjectCost` propage maintenant `cost.serviceOfferingId || null`. Une dépense Projet de `1 200 EUR` liée à `offering_occ` apparaît dans la dimension `serviceOfferingId` correspondante avec `actualCost=1200`, au lieu de `unmapped`.
+
+## P2 suivis, non bloquants
+
+1. `financeUnbilledOverages()` peut encore exposer des tableaux `actualRecordIds` et `reservationIds` non bornés à l’intérieur d’un item paginé ; un fan-out extrême peut produire une réponse volumineuse.
+2. L’UI consomme la première page des read-models sans contrôles de pagination visibles ; l’API permet la navigation, mais pas encore cette surface utilisateur.
+3. OpenAPI utilise encore un `FinanceAnalyticsResponse` générique à propriétés libres pour plusieurs réponses métier ; les contrats détaillés gagneraient à être typés séparément.
+
+Limite de couverture inchangée : aucun test S7-D dédié ne rejoue le rollback Occupation byte-exact ni un item non-facturé à très grand fan-out. Aucun de ces points ne constitue un P0/P1 sur ce candidat.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `node --test tests/sprint7-occupancy.test.js` : **8/8 réussis**, 0 échec, durée `91,68 ms`.
+- `npm test` hors sandbox : **312/312 réussis**, 0 échec, durée `10,7415 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check 5701450..7051fe4` : **PASS**.
+- Sonde option décidée : `plannedCapacityMs=28800000`, soit 8 h.
+- Sonde axe Prestation : `dimensionId='offering_occ'`, `actualCost=1200`.
+- Empreintes : `server.js` `6f633bd876977b2a05f6e6e09e0236dfd55f89da04ea38afe86a17ced2e2d575`; `app.js` `bd6bfb8fdc7e468e09c37a2eef5fe92c82e4988355976ab35fddaaf29b8b5641`; OpenAPI `9d2410c871f59d7f77aca5b902f1bd77e911c5ad333aad340629e3987283f565`; test S7-D `92c3c4215649220691f2cebb33320adeb22c2973d12e935d87050199e9252598`; test API `69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e`.
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW G7-D est **APPROVED** sur le candidat exact `7051fe4ff4849b1e9849e81b8266d73fa6c2fda6`. L’intégrateur doit reporter ce verdict dans `docs/project-status.md` et s’assurer que les gates aval portent sur le même état applicatif.
+
+---
+
 # Gate re-REVIEW indépendante G7-D — correctifs occupation et rentabilité
 
 Date : 2026-08-24
