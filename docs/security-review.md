@@ -987,6 +987,63 @@ scripts/benchmark-finance.js        087702c7b9bf7d19c4f2a1042bd5318a234332f4863f
 
 ---
 
+# Revalidation SECURITY indépendante — hauteur dynamique Planning RC3
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `e9752f4e791f42bfcd8ad584e898ce68e20a850f`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts, 0 P3.**
+
+Le calcul manipule uniquement des identifiants de ressources déjà filtrés, des dates visibles et des compteurs entiers. La hauteur injectée est produite par une opération numérique interne et suffixée en `px`; aucune chaîne utilisateur ne peut atteindre le style inline. Aucun nouveau vecteur XSS, traversée de scope, modification RBAC, mutation, API ou exposition inter-tenant n'est introduit.
+
+## Threat-check
+
+- `roomIds` et `visibleDates` ferment le comptage au périmètre rendu ; les réservations proviennent du read-model déjà autorisé.
+- La clé `resourceId|date/slot` reste interne à une `Map`, sans sérialisation HTML ni sélection de fichier/URL.
+- `planningRowHeight()` normalise les valeurs non numériques et impose un minimum ; le `stackDepth` réel est un entier positif borné par le nombre de cellules comptées.
+- Le serveur, les permissions, la session, CSRF, SSE et l'échappement des attributs restent inchangés.
+
+## P2 sécurité/disponibilité — SEC-G8-06
+
+Le compteur et la hauteur n'ont pas de plafond fonctionnel. Un utilisateur Planning autorisé peut accumuler des réservations ensuite annulées dans une même cellule : elles ne consomment plus la capacité mais restent rendues et comptées. Sur 10 000 lignes concentrées, la hauteur calculée atteint **620 008 px par ressource**, soit **155 002 000 px** théoriques pour 250 ressources. Il s'agit d'un risque de déni de service local/UI par un acteur authentifié, sans élévation de privilège ni effet serveur. Le gate Sécurité reste approuvé en P2, mais le même défaut bloque le gate Performance.
+
+`SEC-G8-05` demeure également ouvert : purge incomplète des valeurs internes de certains overlays masqués/inertes, sans lien avec ce lot.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `e9752f4e791f42bfcd8ad584e898ce68e20a850f` |
+| Foundations + Planning post-production | **PASS, 61/61**, 0 échec/skip/todo, durée `318,96 ms` |
+| `npm test` | **PASS, 341/341**, 0 échec/skip/todo, durée `8 885,81 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+| scénario concentré 10 000 | profondeur `10 000`, hauteur `620 008 px` |
+
+Le navigateur intégré demeure indisponible ; aucun crash/scroll réel à 155 millions de pixels n'a été provoqué. Le risque est démontré par les valeurs déterministes données au layout.
+
+```text
+app.js                              4a8427df94b98677a16e99e5795c6aabfff0ea6a0e3e42880ce1e9781f8d2005
+planning.css                        48a8ad5bec9e86c56d3444812632506a022be837eef82418f6db1b962d9bec36
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+tests/planning-postproduction.test.js 927dee2c88297b4457c381f42e399db65edfa3f888f1116b790754989266ecee
+```
+
+## Handoff
+
+- Gate SECURITY hauteur dynamique : **APPROVED** sur `e9752f4`, 0 P0/0 P1/2 P2/0 P3.
+- Nouveau durcissement `SEC-G8-06`; aucune atteinte à la confidentialité ou à l'autorité.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation finale SECURITY — hiérarchie sticky Planning RC2
 
 Date : 2026-08-24

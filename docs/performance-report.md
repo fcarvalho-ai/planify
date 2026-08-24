@@ -1146,6 +1146,81 @@ docs/api/openapi-v1.yaml            7395603efc38905461287d6c517d61653729869a7623
 
 ---
 
+# Revalidation PERFORMANCE indépendante — hauteur dynamique Planning RC3
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `e9752f4e791f42bfcd8ad584e898ce68e20a850f`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 1 P1 ouvert, 0 nouveau P2, 1 P3.**
+
+Le comportement nominal est rapide sur 250 ressources / 10 000 réservations courtes et distribuées, en vue classique comme horaire. En revanche, l'algorithme parcourt toutes les cellules rendues de chaque réservation avant virtualisation, et applique la profondeur maximale d'une seule cellule uniformément aux 250 lignes. Les durées longues et les accumulations historiques valides provoquent une amplification CPU et layout non bornée. Le critère UI exploitable `<2 s` n'est plus démontrable sur le contrat 10 000 sans contrainte de distribution.
+
+## Mesures fraîches 250 / 10 000
+
+30 itérations après warm-up :
+
+| Scénario | Résultat | p95 |
+|---|---:|---:|
+| non horaire, 10 000 réservations courtes distribuées sur 250 salles/92 jours | profondeur `1` | `76,90 ms` |
+| horaire, 10 000 réservations distribuées sur 250 salles/48 slots | profondeur `2` | `44,94 ms` |
+| 10 000 réservations concentrées dans une cellule | profondeur `10 000` | `36,58 ms` calcul CPU, mais hauteur `620 008 px` |
+| 10 000 réservations valides couvrant 92 jours | profondeur `40` | `1 064,18–1 068,64 ms` sur seulement deux mesures |
+
+Ces temps couvrent uniquement `planningMaxCellStack()`, avant le rendu des cellules, le DOM, le layout et le paint existants.
+
+## P1 — PERF-G8-09 — amplification globale non bornée
+
+1. **Complexité CPU :** non horaire, le coût est proportionnel au total des cellules matérialisées par `bookingRenderedCells`; horaire, chaque cellule ajoute un `slots.find`, donc jusqu'à O(cellules × slots). Dix mille périodes de 92 jours matérialisent environ 920 000 cellules et dépassent déjà une seconde hors DOM.
+2. **Amplification layout :** `planningRowHeight()` vaut `62 × profondeur + 8` et la valeur maximale globale est appliquée à chaque ressource. Une seule cellule dense agrandit les 250 lignes.
+3. **Virtualisation compromise :** à profondeur 10 000, le scroll théorique atteint 155 002 000 px. Les moteurs navigateur plafonnent couramment les dimensions de scroll ; même avant ce plafond, chaque ligne devient presque inutilisable et les calculs de fenêtre supposent une hauteur uniforme gigantesque.
+4. **Données légitimes :** les réservations annulées restent visibles/comptées et peuvent s'accumuler sans capacité consommée. Le cas ne dépend donc pas d'une corruption de données.
+
+Correction attendue avant re-gate : exclure/compacter les statuts historiques du calcul visuel, plafonner la pile avec un résumé `+N`, ou gérer des hauteurs par ressource avec une virtualisation adaptée ; pré-indexer les cellules par ressource/date/slot pour éviter les recomputations et `slots.find`. Ajouter une preuve 250/10 000 incluant périodes longues et cellule dense avec borne explicite de hauteur/temps.
+
+## Timed/non-timed, axes et paint
+
+- Les formules horaires et demi-journée classent correctement une réservation dans son slot de départ ; la largeur `span` demeure inchangée.
+- Inclure `rowHeight` dans `virtualKey` réinitialise correctement les fenêtres lorsque la profondeur change, mais remet aussi le scroll au sommet à chaque variation de pile.
+- Les axes et spacers utilisent tous la même hauteur, ce qui conserve l'alignement mathématique tant que la dimension reste supportée par le navigateur.
+- Le paint augmente directement avec la hauteur des cellules visibles ; la virtualisation réduit le nombre de lignes DOM, pas la dimension extrême d'une ligne.
+
+## P3 — limite navigateur
+
+Le navigateur intégré est indisponible. Aucune mesure réelle de scrollHeight maximal, FPS, layout ou paint n'a été capturée ; cette limite renforce la nécessité de borner mathématiquement la hauteur avant validation.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `e9752f4e791f42bfcd8ad584e898ce68e20a850f` |
+| Foundations + Planning post-production | **PASS, 61/61**, durée `318,96 ms` |
+| `npm test` | **PASS, 341/341**, durée `8 885,81 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+| benchmark ad hoc `planningMaxCellStack` | mesures ci-dessus, processus Node local sans DOM |
+
+```text
+app.js                              4a8427df94b98677a16e99e5795c6aabfff0ea6a0e3e42880ce1e9781f8d2005
+planning.css                        48a8ad5bec9e86c56d3444812632506a022be837eef82418f6db1b962d9bec36
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+tests/planning-postproduction.test.js 927dee2c88297b4457c381f42e399db65edfa3f888f1116b790754989266ecee
+```
+
+## Handoff
+
+- Gate PERFORMANCE hauteur dynamique : **REJECTED** sur `e9752f4`, 0 P0/1 P1 (`PERF-G8-09`)/0 nouveau P2/1 P3.
+- Retour DEV puis re-gate Performance requis avant validation RC3.
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation finale PERFORMANCE — hiérarchie sticky Planning RC2
 
 Date : 2026-08-24
