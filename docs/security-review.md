@@ -1,3 +1,50 @@
+# Revalidation d'impact SECURITY RC5 — réconciliation occupancyGap
+
+Date : 2026-08-24
+
+Candidat exact : `ace4048f20e3524b003c49df0f1ee42d01551ee8`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 P2 résiduel, 0 P3.**
+
+Le correctif recalcule l'écart planifié/réalisé sur le même sous-ensemble de périodes disposant d'une occupation réelle. Il intervient après `financeOccupancy()` et ses contrôles d'autorité, ne crée aucune entrée, route, mutation ou sortie supplémentaire, et réconcilie la carte `occupancyGap` avec son drill-down sans exposer les périodes sans réalisé.
+
+## Threat-check ciblé
+
+- **Scopes avant agrégation :** `occupancy` est produit par `financeOccupancy(db, auth, input)` avec les filtres société, site, Projet, client, ressource/catégorie et les helpers d'autorité existants. `actualItems` est dérivé ensuite par `filter(actualOccupancyBps !== null)` ; `plannedActualBps` ne peut donc agréger aucune ligne hors scope.
+- **Absence de canal latéral :** le nombre de sources reste `actualItems.length`, identique à `actualOccupancy` et au drill-down filtré. Les périodes planifiées sans réalisé ne contribuent plus implicitement au dénominateur et ne sont ni comptées ni matérialisées.
+- **Entrées/sorties bornées :** les deux valeurs agrégées sont numériques et issues du read-model interne. La réponse conserve le contrat `bps`; aucune donnée libre, identifiant, HTML, journal ou message d'erreur nouveau n'est produit.
+- **RBAC et matrice :** le dashboard Exploitation exige toujours `planning.read`, `resource.read` et `maintenance.read`; les KPI réels restent indisponibles sans `actual.read`. Le drill-down reconstruit les mêmes scopes et exige un KPI explicite.
+- **Aucune mutation :** `filter()` et `reduce()` opèrent sur de nouveaux agrégats en mémoire. Persistance, audit, SSE, CSRF, exports et données sources sont inchangés.
+
+## P2 résiduel
+
+**SEC-G8-05 reste ouvert hors impact :** certaines valeurs de quelques overlays statiques masqués/inertes ne sont pas entièrement purgées après fin de session. Le correctif serveur `occupancyGap` ne touche aucun overlay ou DOM.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `ace4048f20e3524b003c49df0f1ee42d01551ee8` |
+| Dashboards + sécurité G8 ciblés | **PASS, 18/18**, durée `1 954,76 ms` |
+| `npm test` | **PASS, 345/345**, durée `10 203,72 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+Hashes : `server.js` `59fd6560e67a399887e49d4ec9495573c658285d48b7959c1da2406f62249a8f`; test dashboards `c376b650d59ce736b29ab2f20f2abea9494c09340470facba09afd900298a723`; `app.js` inchangé `0fc0dad429e78aa6aea63884f6d903939189e2793b6505b3d363d7e49cbc36cd`.
+
+## Handoff
+
+- Gate SECURITY d'impact RC5 : **APPROVED** sur `ace4048`, 0 P0/0 P1/1 P2 résiduel/0 P3.
+- Fichier modifié : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Gate SECURITY indépendant RC5 — Planning long, Pilotage et Forecast métier
 
 Date : 2026-08-24

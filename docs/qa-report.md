@@ -4759,3 +4759,63 @@ Les cas d'arrondi, dépassement couvert par complément accepté, as-of, absence
 ## Verdict terminal
 
 Le gate QA indépendant RC5 sur `b715f4ba1453ed9a73db3fd2f32e996957a700d2`, code `d96281e0caf86777cdc21eba3ece9ab516420ddf`, est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Les quatre vues Planning défilent jusqu'à leurs bornes sans divergence de piste, 6 semaines est supprimé, le détail Pilotage est modal/localisé/réconcilié, et Forecast expose correctement les horizons métier 30/60/90. Preuves terminales : ciblés **134/134**, suite complète **344/344**, lint, build et diff-check verts. Limite explicite : aucune instance de navigateur contrôlable n'était disponible pour une recette visuelle indépendante.
+
+---
+
+# Re-QA RC5 ciblée — réconciliation `occupancyGap`
+
+Date : 2026-08-24 20:08 CEST
+
+Verdict : **REJECTED — 1 P1 QA ouvert**
+
+Périmètre : candidat exact `ace4048f20e3524b003c49df0f1ee42d01551ee8`, valeur/source/détail de l'écart d'occupation avec périodes planifiées partiellement réalisées, cas limites d'agrégation, puis critères RC5 antérieurs impactés (détail Pilotage, Forecast, Planning) et non-régression complète.
+
+Indépendance : aucun code, test, statut ni autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Environnement et empreintes
+
+```text
+Node                                     v26.6.0, Darwin arm64
+app.js                                   0fc0dad429e78aa6aea63884f6d903939189e2793b6505b3d363d7e49cbc36cd
+server.js                                59fd6560e67a399887e49d4ec9495573c658285d48b7959c1da2406f62249a8f
+planning.css                             1e5227f04bb781756318676054242713664e07dee048dee4e664198dd3ed289b
+tests/sprint8-dashboards.test.js         c376b650d59ce736b29ab2f20f2abea9494c09340470facba09afd900298a723
+tests/planning-postproduction.test.js    4e22027eaef93ae335c5687aabc9997bc1aaceb335afba4dbcfa70ba4c21df35
+tests/sprint7-forecast.test.js           25948794870bc01963e8d96505d62cd868713c7052a94b5a4c060238490d8351
+tests/api.test.js                        69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e
+```
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| scénario demandé : deux périodes planifiées (1 h et 8 h), seule la période 1 h réalisée à l'identique | PASS : carte `0 bps`, `sourceCount=1`, détail total 1, ligne `0 bps`, moyenne détail `0 bps` |
+| aucune période réalisée | PASS : carte `null`, `sourceCount=0`, détail total 0, aucune ligne nulle artificielle |
+| cas limite indépendant : deux périodes réalisées, planifié/réalisé `1 h/1 h` puis `3 h/1 h` | **FAIL** : carte `−417 bps`, `sourceCount=2`, détail total 2 avec `[0, −833] bps`, moyenne arrondie du détail `−416 bps` |
+| exclusion des périodes planifiées seules | PASS : elles ne contribuent plus au dénominateur planifié de la carte `occupancyGap` |
+| critères RC5 Planning | PASS : quatre vues, 6 semaines absente, pistes et dernières colonnes inchangées |
+| critères RC5 Forecast | PASS : horizons 30/60/90, arrondi, sans-date et scopes couverts par les ciblés |
+| contrat modal/localisation Pilotage | PASS sans changement client ; détails réels sans valeurs nulles et totaux source/détail conformes |
+| `node --test --test-reporter=dot tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/planning-postproduction.test.js tests/sprint7-forecast.test.js tests/foundations.test.js tests/api.test.js` | PASS, **135/135**, code 0 |
+| `npm test` | PASS, **345/345**, 0 échec/annulé/ignoré/TODO, 9 457,17 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check ace4048f^ ace4048f` | PASS, code 0 |
+
+## P1 — double arrondi encore non réconcilié sur plusieurs périodes réalisées
+
+Le correctif aligne correctement le périmètre : `plannedActualBps` et `actualBps` portent désormais tous deux sur les périodes disposant d'un réalisé. Il calcule toutefois séparément et arrondit chacune des deux moyennes, puis les soustrait. Le détail calcule pour chaque période `actual − planned`; sa moyenne arrondie peut donc différer d'un point de base de la différence des deux moyennes déjà arrondies.
+
+La reproduction indépendante utilise deux périodes réalisées : `1 h planifiée / 1 h réalisée`, puis `3 h planifiées / 1 h réalisée`. Les lignes détaillées valent `0` et `−833 bps`. Leur moyenne arrondie est `−416 bps`, tandis que la carte renvoie `−417 bps`. `sourceCount` et `detail.total` sont bien égaux à 2, mais la valeur ne se réconcilie toujours pas au détail, contrairement au critère explicite du lot et à la preuve annoncée dans le statut DEV.
+
+Correction attendue : calculer directement la moyenne arrondie des écarts des `actualItems`, par exemple la somme de `(actualOccupancyBps − plannedOccupancyBps)` divisée par le nombre de périodes, avec un unique arrondi final. Ajouter un test multi-réalisés produisant une demi-unité négative afin de protéger ce cas.
+
+## Points conformes et limites
+
+Le scénario exact ajouté par le développeur passe et ferme le mélange de périmètres initial. Les périodes planifiées sans réalisé sont correctement exclues ; aucune ligne nulle n'est recréée. Le défaut restant est borné à un point de base, mais il rompt une égalité métier explicitement requise entre la carte et la moyenne de ses sources, et touche les valeurs API/exportables du Pilotage ; il reste donc bloquant pour l'approbation du candidat.
+
+Les contrôles RC5 Planning, modal/localisation et Forecast restent verts, tout comme l'ensemble des suites. Aucun navigateur réel n'a été réutilisé pour cette re-QA ciblée ; le défaut est reproduit directement sur les read-models serveur et ne dépend pas du rendu.
+
+## Verdict terminal
+
+La re-QA RC5 ciblée sur `ace4048f20e3524b003c49df0f1ee42d01551ee8` est **REJECTED** avec **0 P0 et 1 P1 QA ouvert**. Le cas « plusieurs planifiées, une seule réalisée » est corrigé, mais plusieurs périodes réalisées peuvent encore produire une carte `occupancyGap` différente d'un point de base de la moyenne du détail (`−417` contre `−416 bps`). Les ciblés **135/135**, la suite complète **345/345**, lint, build et diff-check sont verts ; une correction de l'arrondi et une nouvelle re-QA restent requises.

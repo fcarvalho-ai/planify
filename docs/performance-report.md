@@ -1,3 +1,59 @@
+# Revalidation d'impact PERFORMANCE RC5 — réconciliation occupancyGap
+
+Date : 2026-08-24
+
+Candidat exact : `ace4048f20e3524b003c49df0f1ee42d01551ee8`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts, 1 P3.**
+
+Le changement ajoute une seconde réduction linéaire sur `actualItems`, après le calcul déjà dominant de `financeOccupancy()`. Sur le dataset contractuel de 250 ressources, 10 000 réservations, 2 000 documents, 2 000 réalisés et 2 000 coûts Projet, le dashboard Exploitation termine à `20,97 ms` p95 et le drill-down `occupancyGap` à `42,15 ms`, très sous le seuil de lecture `< 300 ms`.
+
+## Complexité et mesure ciblée
+
+- `actualItems = occupancy.items.filter(...)` existait déjà ; `plannedActualBps` ajoute un seul `reduce()` O(A), où A est le nombre de périodes autorisées disposant d'un réalisé et A ≤ 10 000 par borne interne.
+- La mémoire additionnelle est O(1) au-delà du tableau `actualItems` préexistant : un accumulateur numérique et une moyenne.
+- Aucun calcul frontend, rendu DOM, export, écriture, index Planning ou requête supplémentaire n'est ajouté.
+
+Deux warm-ups puis 20 itérations, filtre Projet + Ressource, période du 1er au 23 août 2026 :
+
+| Chemin | p50 | p95 | max | Seuil |
+|---|---:|---:|---:|---:|
+| dashboard Exploitation complet | `20,26 ms` | `20,97 ms` | `22,40 ms` | `< 300 ms` |
+| drill-down `occupancyGap`, page 100 | `40,13 ms` | `42,15 ms` | `45,57 ms` | `< 300 ms` |
+
+La campagne longue Planning/Forecast n'a pas été rejouée, conformément au périmètre d'impact : `app.js`, `planning.css`, Forecast, exports et autres dashboards sont byte-identiques au candidat RC5 déjà mesuré.
+
+## P2/P3 hérités, sans aggravation
+
+1. Le cap Planning de 50 cartes reste local à la cellule ; les vues longues très concentrées peuvent encore produire un DOM important.
+2. Le drill-down montant facturable RC5 avait une marge réduite au seuil (`277,38 ms` p95) ; il n'est pas appelé par Exploitation et ce correctif ne touche pas son chemin.
+3. La limite P3 de preuve navigateur RC5 reste ouverte pour scroll/layout/focus ; aucun comportement UI n'est modifié ici.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `ace4048f20e3524b003c49df0f1ee42d01551ee8` |
+| Dashboards + sécurité G8 ciblés | **PASS, 18/18**, durée `1 954,76 ms` |
+| `npm test` | **PASS, 345/345**, durée `10 203,72 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+Hashes : `server.js` `59fd6560e67a399887e49d4ec9495573c658285d48b7959c1da2406f62249a8f`; test dashboards `c376b650d59ce736b29ab2f20f2abea9494c09340470facba09afd900298a723`; `app.js` inchangé `0fc0dad429e78aa6aea63884f6d903939189e2793b6505b3d363d7e49cbc36cd`.
+
+## Handoff
+
+- Gate PERFORMANCE d'impact RC5 : **APPROVED** sur `ace4048`, 0 P0/0 P1/2 P2/1 P3 hérités.
+- Fichier modifié : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Gate PERFORMANCE indépendant RC5 — Planning long, Pilotage et Forecast métier
 
 Date : 2026-08-24

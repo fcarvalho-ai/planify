@@ -1,3 +1,85 @@
+# Re-REVIEW RC5 ciblée — réconciliation `occupancyGap`
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat exact : `ace4048f20e3524b003c49df0f1ee42d01551ee8` (`fix: reconcile occupancy gap with its detail`)
+
+Correctif contrôlé : `b715f4ba1453ed9a73db3fd2f32e996957a700d2..ace4048f20e3524b003c49df0f1ee42d01551ee8`
+
+Nature : revue indépendante seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 1 P1 ouvert.**
+
+Le P1 initial est fortement réduit : la carte et le drill-down utilisent désormais le même sous-ensemble `actualItems`, et le scénario demandé « 1 h / 8 h, une seule période réalisée » restitue bien `0 bps` des deux côtés. La réconciliation n'est cependant pas exacte pour plusieurs périodes réalisées, car la carte arrondit séparément les deux moyennes avant soustraction, tandis que le détail expose les écarts ligne par ligne.
+
+## P1 — double arrondi résiduel entre la carte et le drill-down
+
+Le candidat calcule :
+
+```text
+carte = round(moyenne(actualOccupancyBps))
+      - round(moyenne(plannedOccupancyBps))
+```
+
+Le drill-down expose chaque `actualOccupancyBps - plannedOccupancyBps`; sa réconciliation naturelle est donc :
+
+```text
+round(moyenne(actualOccupancyBps - plannedOccupancyBps))
+```
+
+Ces deux expressions peuvent différer d'un point de base. Sonde fraîche avec deux périodes toutes deux réalisées : planifié `1 h` puis `3 h`, réel `1 h` puis `1 h`. Les taux journaliers sont planifiés `[417, 1250]` et réels `[417, 417]` :
+
+```text
+carte occupancyGap       = -417 bps
+sourceCount carte        = 2
+total drill-down         = 2
+valeurs drill-down       = [0, -833] bps
+moyenne arrondie détail  = -416 bps
+```
+
+Le compteur et le sous-ensemble sont identiques, mais la valeur reste non reconstructible exactement depuis ses lignes, contrairement au contrat Sprint 8. La correction minimale est de calculer directement la moyenne des écarts sur `actualItems` puis d'arrondir une seule fois. Le test doit inclure au moins deux périodes réalisées provoquant des moyennes demi-entières ; le test ajouté avec une seule ligne ne peut pas détecter ce défaut.
+
+## Contrôles conformes
+
+- `actualItems` est désormais la source commune de `actualBps`, de la composante planifiée du KPI, de `sourceCount` et des lignes du drill-down.
+- Les périodes sans réalisé restent exclues du détail et n'ajoutent plus de fausse valeur `null`.
+- La définition utilisateur a été précisée : « sur les périodes disposant d'un réalisé ».
+- Le KPI `plannedOccupancy` conserve volontairement sa moyenne sur toutes les périodes ; les autres dashboards, permissions, filtres et consommateurs UI ne sont pas modifiés.
+- Le scénario de non-régression imposé, avec une seule période réalisée parmi deux périodes planifiées 1 h/8 h, est présent et vert.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` : `ace4048f20e3524b003c49df0f1ee42d01551ee8`.
+- Sonde imposée 1 h/8 h avec une seule période réalisée : **PASS**, carte = détail = `0 bps`.
+- Sonde multi-périodes réalisées 1 h/3 h planifiées et 1 h/1 h réelles : **ÉCHEC**, carte `-417 bps`, détail moyen `-416 bps`.
+- `node --test tests/sprint8-dashboards.test.js` : **PASS, 14/14**, 0 échec/skip/todo, durée `2,586 s`.
+- `node --test tests/planning-postproduction.test.js` : **PASS, 46/46**, 0 échec/skip/todo, durée `160,890 ms`.
+- `npm test` : **PASS, 345/345**, 0 échec/cancelled/skip/todo, durée `8,743 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check b715f4ba1453ed9a73db3fd2f32e996957a700d2..ace4048f20e3524b003c49df0f1ee42d01551ee8` : **PASS**.
+
+Empreintes contrôlées :
+
+```text
+server.js                       59fd6560e67a399887e49d4ec9495573c658285d48b7959c1da2406f62249a8f
+tests/sprint8-dashboards.test.js c376b650d59ce736b29ab2f20f2abea9494c09340470facba09afd900298a723
+app.js                          0fc0dad429e78aa6aea63884f6d903939189e2793b6505b3d363d7e49cbc36cd
+planning.css                    1e5227f04bb781756318676054242713664e07dee048dee4e664198dd3ed289b
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le candidat `ace4048f20e3524b003c49df0f1ee42d01551ee8` est **REJECTED** avec 0 P0 et 1 P1 résiduel. Retour DEV minimal requis pour moyenner les écarts avant arrondi, ajouter le cas à deux périodes réalisées, puis relancer la re-REVIEW et les gates aval impactés.
+
+---
+
 # Impact re-REVIEW — filtrage des créneaux demi-journée
 
 Date : 2026-08-24
