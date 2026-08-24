@@ -401,6 +401,77 @@ docs/api/openapi-v1.yaml            b3d48360e946ac3d854c22a6915dc398a2fc6951e2f8
 
 ---
 
+# Revalidation SECURITY indépendante — S7-D
+
+Date : 2026-08-24
+
+Candidat exact : `57014500241b512eda1c202475f6793a9be213eb`
+
+Reviewer : agent indépendant `g7d_security_performance`
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 1 P1, 2 P2 ouverts.**
+
+Le P1 `SEC-S7D-01` est fermé : une commande de seuil global sans `siteId` exige maintenant `organizationScope` avant la recherche d'un marqueur idempotent. La création, la mise à jour et le rejeu global sont donc refusés après réduction au scope Site, avant seuil, marqueur, audit et SSE. Le test HTTP confirme `403 ORGANIZATION_SCOPE_REQUIRED` et l'absence de modification des seuils, marqueurs et audits.
+
+Un nouveau P1 d'isolation demeure dans l'agrégat d'occupation : la sélection canonique des doubles options est calculée sur toutes les Réservations de la Société avant le filtrage des scopes.
+
+## P1 bloquant
+
+### SEC-S7D-03 — une option hors scope modifie silencieusement le total d'occupation du Site autorisé
+
+`financeOccupancy()` construit `optionByGroup` avec la seule condition `companyId + status=option + optionGroupId`. `reservationSnapshotAllowed()` n'est appliqué qu'ensuite, lors de l'agrégation. Une option prioritaire d'un autre Site peut donc devenir canonique et faire exclure l'option visible appartenant au Site autorisé.
+
+Reproduction indépendante directe : acteur borné à `site s1`, option visible priorité 2 sur `s1`, option cachée priorité 1 sur `s2`, même groupe. Le total planifié de `s1` vaut `0` avec la source cachée, puis `28 800 000 ms-capacité` après retrait de cette seule source. L'utilisateur peut donc observer l'existence/priorité d'une donnée hors périmètre et reçoit un indicateur erroné. Cela contredit la règle S7 « scopes avant agrégation ».
+
+Correction requise : construire la canonicalisation uniquement depuis les Réservations qui passent d'abord `reservationSnapshotAllowed()` et les filtres de la requête, ou définir un résolveur canonique qui restitue une alternative visible sans exposer les alternatives cachées. Ajouter un négatif inter-Site/inter-Projet/inter-Ressource.
+
+## P2 importants
+
+1. **Anti-tamper des marqueurs d'idempotence toujours partiel.** `sprint7OccupancyStateValid()` ne lie toujours pas formellement `scope`, Société, Site, acteur et `resultId`, et ne refuse pas les scopes dupliqués.
+2. **Rejeu global après révocation non exercé en HTTP.** Le chemin est fail-closed par inspection car la garde `organizationScope` précède la recherche du marqueur, mais le test ajouté couvre une nouvelle clé refusée, pas la séquence création globale → révocation → rejeu ni l'absence d'invalidation SSE.
+
+## Contrôles conformes
+
+- Toutes les nouvelles routes analytiques exigent `finance.read` avant `readDb()` ; la mutation exige `finance.cost.manage`, Origin/CSRF et clé idempotente.
+- Seuil global : garde Société avant marqueur/rejeu ; seuil Site : existence, Société et `siteAllowed()` ; version optimiste en mise à jour.
+- Audit dans la transaction et SSE uniquement après commit ; l'interface recharge Finance sur `occupancyThreshold.updated.v1`.
+- Rentabilité, non-facturé et remises filtrent Projet, Client, Devis, ligne, Ressource/Prestation et Réalisé avant total. L'exposition de `costTotalMinor` reste derrière `finance.read`.
+- Le non-facturé reste explicitement hors CA signé/facturé et aucune lecture ne crée un Devis ou une Réservation.
+- Migration/rollback, sauvegarde privée, digests et échappement DOM restent inchangés et conformes sur les chemins contrôlés.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `57014500241b512eda1c202475f6793a9be213eb` |
+| ciblés S7 Actual/Finance/Forecast/Occupation/Migration | **PASS, 40/40** |
+| `node --test tests/api.test.js` | **PASS, 42/42**, dont refus seuil global sans effet |
+| `node --check server.js && node --check app.js` | **PASS** |
+| reproduction inter-Site double option | `0` avec source cachée, `28 800 000` sans elle : P1 confirmé |
+| `git diff --check` | **PASS** avant rapports |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           de8a479429e02a664ddcd24eaf06219c9c53cfb78e27fee8f4b84f433500da51
+app.js                              bd6bfb8fdc7e468e09c37a2eef5fe92c82e4988355976ab35fddaaf29b8b5641
+tests/sprint7-occupancy.test.js     4ad258132ac40e7d450a257882651341f9517515e7477be9cd4658a74c390c85
+tests/api.test.js                   69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e
+docs/api/openapi-v1.yaml            9d2410c871f59d7f77aca5b902f1bd77e911c5ad333aad340629e3987283f565
+```
+
+## Handoff
+
+- `SEC-S7D-01` : **fermé**.
+- Gate SECURITY S7-D : **REJECTED** sur `5701450` à cause de `SEC-S7D-03` ; retour DEV requis.
+- Fichier modifié : `docs/security-review.md` uniquement ; statut projet à consolider par l'intégrateur.
+
+---
+
 # Revalidation SECURITY indépendante — S7-B
 
 Date : 2026-08-23

@@ -47,6 +47,25 @@ test('S7-D compte une seule double option canonique et conserve le signal planif
   assert.equal(row.plannedCapacityMs, 28800000);
   assert.equal(row.actualOccupancyBps, null);
   assert.equal(row.plannedOccupancyBps, 3333);
+
+  db.reservations = [
+    { ...template, id: 'option-winner', status: 'confirmed', optionGroupId: 'group-decided', optionPriority: 2, optionDecision: { state: 'won' } },
+    { ...template, id: 'option-loser', status: 'option', optionGroupId: 'group-decided', optionPriority: 1, optionDecision: { state: 'lost', winnerReservationId: 'option-winner' } },
+  ];
+  assert.equal(financeOccupancy(db, auth, { from: '2026-09-01', to: '2026-09-01' }).items[0].plannedCapacityMs, 28800000);
+});
+
+test('S7-D arbitre les doubles options après filtrage des scopes', () => {
+  const { db, auth } = fixture(), visible = db.reservations[0], hiddenSiteId = 'site_hidden', hiddenResourceId = 'resource_hidden';
+  db.sites.push({ id: hiddenSiteId, companyId: 'company_occ' });
+  db.resources.push({ id: hiddenResourceId, companyId: 'company_occ', siteId: hiddenSiteId, resourceCategoryId: 'category_hidden', capacity: 1, active: true });
+  db.reservations = [
+    { ...visible, id: 'visible-option', status: 'option', optionGroupId: 'group-scoped', optionPriority: 2 },
+    { ...visible, id: 'hidden-option', siteId: hiddenSiteId, status: 'option', optionGroupId: 'group-scoped', optionPriority: 1, resources: [{ resourceId: hiddenResourceId, quantity: 1 }] },
+  ];
+  const result = financeOccupancy(db, auth, { from: '2026-09-01', to: '2026-09-01' });
+  assert.equal(result.items[0].plannedCapacityMs, 28800000);
+  assert.equal(result.sources.reservationCount, 1);
 });
 
 test('S7-D expose rentabilité, non-facturé et remise sans gonfler le CA signé', () => {
@@ -60,11 +79,13 @@ test('S7-D expose rentabilité, non-facturé et remise sans gonfler le CA signé
 
 test('S7-D respecte asOf et ventile les dépenses Projet dans la rentabilité', () => {
   const { db, auth } = fixture();
-  db.projectCosts.push({ id: 'project-cost', companyId: 'company_occ', projectId: 'project_occ', siteId: 'site_occ', category: 'supplier', description: 'Prestataire', amountMinor: '1200', occurredOn: '2026-09-10', status: 'confirmed' });
+  db.serviceOfferings.push({ id: 'offering_occ', companyId: 'company_occ', organizationUnitId: null });
+  db.projectCosts.push({ id: 'project-cost', companyId: 'company_occ', projectId: 'project_occ', siteId: 'site_occ', serviceOfferingId: 'offering_occ', category: 'supplier', description: 'Prestataire', amountMinor: '1200', occurredOn: '2026-09-10', status: 'confirmed' });
   const before = financeProfitability(db, auth, { dimension: 'projectId', asOf: '2026-08-31' }).items[0], after = financeProfitability(db, auth, { dimension: 'projectId', asOf: '2026-09-30' }).items[0];
   assert.equal(before.actualCostMinor, '0'); assert.equal(before.plannedCostMinor, '4200');
   assert.equal(after.actualCostMinor, '5200'); assert.equal(after.plannedCostMinor, '4200');
   const site = financeProfitability(db, auth, { dimension: 'siteId', asOf: '2026-09-30' }).items[0]; assert.equal(site.dimensionId, 'site_occ'); assert.equal(site.actualCostMinor, '5200');
+  const offering = financeProfitability(db, auth, { dimension: 'serviceOfferingId', asOf: '2026-09-30' }).items.find(value => value.dimensionId === 'offering_occ'); assert.equal(offering.actualCostMinor, '1200');
 });
 
 test('S7-D distingue explicitement une référence catalogue indisponible', () => {

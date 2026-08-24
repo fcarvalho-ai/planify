@@ -433,6 +433,82 @@ scripts/benchmark-finance.js        1d0b4726837026923736bdb27210ea9a5262b429afa9
 
 ---
 
+# Revalidation PERFORMANCE indépendante — S7-D
+
+Date : 2026-08-24
+
+Candidat exact : `57014500241b512eda1c202475f6793a9be213eb`
+
+Reviewer : agent indépendant `g7d_security_performance`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts.**
+
+`PERF-S7D-01` est fermé. Les boucles Réservation/Réalisé sont désormais bornées aux jours effectivement recouverts, tandis que la capacité brute conserve son parcours Ressources × jours. Sur le dataset contractuel, l'occupation annuelle p95 passe de `3 235,26 ms` à au plus `36,26 ms` lors de deux passages frais.
+
+## Benchmark représentatif frais
+
+Commande exécutée deux fois : `npm run benchmark:finance`.
+
+Dataset de chaque passage : **250 ressources, 10 000 Réservations, 2 000 Devis, 2 000 ActualRecords et 2 000 ProjectCosts**.
+
+| Chemin direct | p95 passage 1 | p95 passage 2 | pire p95 | Seuil |
+|---|---:|---:|---:|---:|
+| Marges | `27,09 ms` | `26,94 ms` | `27,09 ms` | `<300 ms` |
+| Backlog | `71,11 ms` | `82,83 ms` | `82,83 ms` | `<300 ms` |
+| Forecast | `55,21 ms` | `69,82 ms` | `69,82 ms` | `<300 ms` |
+| Occupation 1 jour | `29,44 ms` | `28,37 ms` | `29,44 ms` | `<300 ms` |
+| Occupation annuelle | `36,01 ms` | `36,26 ms` | `36,26 ms` | `<300 ms` |
+| Rentabilité | `26,46 ms` | `26,31 ms` | `26,46 ms` | `<300 ms` |
+| Non-facturé | `47,68 ms` | `52,89 ms` | `52,89 ms` | `<300 ms` |
+| Remises | `7,07 ms` | `7,26 ms` | `7,26 ms` | `<300 ms` |
+
+Les deux processus terminent avec code `0`. La rentabilité contient maintenant 4 000 sources de détail, car les 2 000 dépenses Projet sont ventilées en plus des 2 000 lignes commerciales ; les totaux restent CA signé `20 000 000`, coût planifié `25 200 000`, coût réel `5 200 000` en unités mineures.
+
+## Analyse du correctif
+
+- Chaque Réservation calcule une fois `reservationStart`, `reservationEnd`, `firstDay` et `lastDay`, puis parcourt seulement les jours recouverts.
+- Chaque Réalisé applique le même bornage ; les Réservations du benchmark ne recouvrent qu'une heure, supprimant le facteur artificiel ×365.
+- La pagination serveur borne désormais occupation à 500 lignes par page et les autres read-models à 200, tout en conservant `itemCount` et `pageCount`.
+- Les calculs globaux de rentabilité/remise restent effectués avant pagination, évitant des totaux partiels.
+- Le benchmark intègre désormais le pire intervalle accepté par l'API, ce qui empêche une régression silencieuse du P1.
+
+## P2 importants
+
+1. **Benchmark moteur, pas HTTP.** Les mesures excluent lecture/validation du JSON, authentification, sérialisation HTTP et concurrence avec les autres requêtes Finance. La marge est toutefois très large : pire p95 annuel `36,26 ms` pour une cible `300 ms`.
+2. **UI non profilée.** Aucun profil navigateur frais ne mesure scripting/paint/heap ni l'objectif exploitable `<2 s`. `loadFinance()` lance dix lectures en parallèle ; la pagination limite le DOM, mais un smoke/perf navigateur reste souhaitable au gate E2E.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande | Résultat |
+|---|---|
+| `npm run benchmark:finance` — passage 1 | **PASS**, annuel p95 `36,01 ms` |
+| `npm run benchmark:finance` — passage 2 | **PASS**, annuel p95 `36,26 ms` |
+| ciblés S7 Actual/Finance/Forecast/Occupation/Migration | **PASS, 40/40** |
+| `node --test tests/api.test.js` | **PASS, 42/42** |
+| `node --check server.js && node --check app.js` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           de8a479429e02a664ddcd24eaf06219c9c53cfb78e27fee8f4b84f433500da51
+app.js                              bd6bfb8fdc7e468e09c37a2eef5fe92c82e4988355976ab35fddaaf29b8b5641
+tests/sprint7-occupancy.test.js     4ad258132ac40e7d450a257882651341f9517515e7477be9cd4658a74c390c85
+scripts/benchmark-finance.js        f8b72c6c3b69feb01387cb69a3478a34449a313d9c4722de4ea7622957ecc596
+```
+
+## Handoff
+
+- `PERF-S7D-01` : **fermé**.
+- Gate PERFORMANCE S7-D : **APPROVED** sur `5701450`, avec 0 P0/0 P1.
+- Fichier modifié : `docs/performance-report.md` uniquement ; statut projet à consolider par l'intégrateur.
+
+---
+
 # Revalidation PERFORMANCE indépendante — S7-B
 
 Date : 2026-08-23

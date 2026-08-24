@@ -3139,3 +3139,83 @@ Le corpus S7-D actuel vérifie principalement les fonctions de domaine et des je
 ## Verdict terminal
 
 Le gate QA indépendant G7-D est **REJECTED**. Les suites automatisées sont vertes, mais deux règles centrales d'occupation échouent sur des scénarios déterministes : les doubles options sont comptées deux fois et l'absence de réalisé transforme une saturation planifiée en sous-utilisation. Ces **2 P1** imposent un retour en DEV, l'ajout des régressions correspondantes, puis une nouvelle QA et le rejeu des gates aval impactés. G7 reste **BLOQUÉ**.
+
+---
+
+# Re-QA indépendante G7-D — correctif occupation et rentabilité
+
+Date : 2026-08-24 08:35 CEST
+
+Verdict : **REJECTED — 1 P1 QA ouvert**
+
+Périmètre : correctif exact `57014500241b512eda1c202475f6793a9be213eb`, fermeture des deux P1 QA précédents, négatifs ajoutés, pagination des quatre read-models, contrat OpenAPI et non-régression.
+
+Indépendance : aucun code, test, contrat, statut ou autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Empreintes du candidat testé
+
+```text
+server.js                         de8a479429e02a664ddcd24eaf06219c9c53cfb78e27fee8f4b84f433500da51
+app.js                            bd6bfb8fdc7e468e09c37a2eef5fe92c82e4988355976ab35fddaaf29b8b5641
+tests/api.test.js                 69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e
+tests/sprint7-occupancy.test.js   4ad258132ac40e7d450a257882651341f9517515e7477be9cd4658a74c390c85
+docs/api/openapi-v1.yaml          9d2410c871f59d7f77aca5b902f1bd77e911c5ad333aad340629e3987283f565
+```
+
+Environnement : Node `v26.6.0`, Darwin `25.5.0` arm64.
+
+## Preuves fraîches
+
+| Commande exacte | Résultat observé |
+|---|---|
+| `node --test tests/sprint7-occupancy.test.js` | PASS, **7/7**, 0 échec/annulé/ignoré/TODO, 93,15 ms |
+| `node --test tests/api.test.js` | PASS, **42/42**, 0 échec ; le nouveau négatif HTTP est exécuté |
+| `npm test` | PASS, **311/311**, 0 échec/annulé/ignoré/TODO, 8 742,56 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` | PASS, code 0 |
+| validation Ruby/Psych du contrat | PASS, OpenAPI `3.1.0`, **64 chemins / 78 opérations**, aucun `operationId` absent ou dupliqué |
+| scénario Node isolé « groupe déjà décidé » | **ÉCHEC métier** : `14 400 000 ms` planifiés, attendu `7 200 000 ms` |
+
+## Fermeture des deux P1 précédents
+
+### Double option encore ouverte
+
+Deux options ouvertes du même groupe, de priorités 1 et 2, ne produisent plus qu'une occupation canonique. Le test vérifie `28 800 000 ms` pour une seule réservation de huit heures et non le double.
+
+Statut : **fermé pour le groupe non décidé**.
+
+### Planifié sans source réalisée
+
+Le moteur suit maintenant `actualSourceCount`. Sans révision réalisée visible, `actualOccupancyBps` vaut `null` et le signal retombe sur `plannedOccupancyBps`; un zéro réalisé n'est plus fabriqué par défaut.
+
+Statut : **fermé**.
+
+## Négatifs et contrats ajoutés
+
+- un acteur limité à un site reçoit `403 ORGANIZATION_SCOPE_REQUIRED` lorsqu'il tente d'écrire un seuil Société ; le test compare avant/après et confirme l'absence de seuil, marqueur d'idempotence ou audit résiduel ;
+- `asOf` exclut le coût réel futur et les dépenses Projet sont ventilées dans les axes Projet et Site ;
+- l'absence de catalogue est explicite (`catalogueReferenceStatus=unavailable`, prix et remise `null`) au lieu d'utiliser silencieusement le prix du devis comme référence ;
+- le réalisé non couvert expose la réservation source, l'action `createComplementaryQuote` et reste hors CA signé/facturé ;
+- la rentabilité conserve l'agrégat complet au-delà de 200 sources ; la pagination des remises vérifie **250** éléments, page 2 de 50 ;
+- OpenAPI déclare les paramètres de pagination et impose `items`, `itemCount`, `page`, `pageSize`, `pageCount` dans la réponse analytique ; le document est syntaxiquement chargeable et les opérations sont uniques.
+
+## P1 résiduel — le perdant d'une double option décidée reste compté
+
+Le workflow Sprint 5 conserve volontairement le perdant au statut `option` avec `optionDecision.state="lost"`, tandis que le gagnant devient `confirmed` et perd ses métadonnées de groupe. La nouvelle sélection canonique ne considère que les réservations encore au statut `option` : le perdant `lost`, seul membre encore porteur de `optionGroupId`, redevient donc canonique et est additionné au gagnant confirmé.
+
+Reproduction déterministe : gagnant confirmé de deux heures avec décision `won`, perdant de deux heures encore `option` avec le même groupe et décision `lost`, même ressource et même période. Résultat observé : `plannedCapacityMs=14 400 000`; résultat attendu : `7 200 000`.
+
+Impact : après confirmation réelle d'une double option, l'occupation planifiée reste doublée et peut déclencher une saturation fictive. L'invariant de la section 7.3 et le critère G7 restent non satisfaits.
+
+Correction attendue : exclure explicitement toute option dont `optionDecision.state` vaut `lost` avant canonisation/agrégation, tout en conservant le gagnant confirmé. Ajouter une régression reproduisant le cycle API complet ou, au minimum, l'état persistant exact gagnant/perdant après décision.
+
+## Limites
+
+- la campagne ne revendique pas de recette navigateur E2E ; elle reste requise après fermeture des gates ;
+- le négatif HTTP du seuil global couvre l'absence d'effets sur refus. Les scénarios génériques CSRF/RBAC/idempotence/version restent couverts par les suites antérieures, mais un parcours HTTP complet create/replay/divergence/update des seuils renforcerait encore la preuve dédiée ;
+- une seconde tentative compacte de la suite API a rencontré l'interdiction sandbox `listen EPERM`; le résultat retenu est la première exécution fraîche réussie et la suite complète 311/311, toutes deux sur le même hash.
+
+## Verdict terminal
+
+La re-QA G7-D du candidat `57014500241b512eda1c202475f6793a9be213eb` est **REJECTED**. Les deux P1 initiaux sont corrigés et les preuves automatisées sont vertes, mais le cycle métier réel d'une double option déjà décidée conserve un double comptage. Ce **P1 résiduel** exige un nouveau retour DEV et une revalidation QA sur un nouveau candidat. G7 reste **BLOQUÉ**.
