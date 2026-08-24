@@ -55,6 +55,7 @@ test('le shell authentifié reste entièrement masqué hors session', () => {
   assert.match(source, /if\(!authenticated\)overlay\.hidden=true/);
   assert.match(source, /if\(!authenticated\)app\.replaceChildren\(\)/);
   assert.match(source, /loginForm\.elements\.email\.focus\(\{preventScroll:true\}\)/);
+  assert.match(source, /render=function\(\)\{syncAuthenticatedSurfaces\(Boolean\(state\.user\)\);renderSprint8ExportsBase\(\)/);
   assert.match(css, /\.app-shell\[hidden\]\{display:none!important\}/);
 });
 
