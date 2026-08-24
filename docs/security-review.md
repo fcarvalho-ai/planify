@@ -1,3 +1,115 @@
+# Revalidation SECURITY d'impact — validation couleur et ResizeObserver
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts, 1 P3.**
+
+`SEC-POST-RC5-01` est fermé : la chaîne complète, seulement trimée et normalisée en majuscules, est contrôlée par `^#[0-9A-F]{6}$`; aucune troncature ne précède plus la regex. Les charges `red; background:url(x)` et `#123456;background:red` reçoivent toutes deux `422`, n'altèrent pas la couleur persistée et ne déclenchent ni audit ni SSE. Le contrat OpenAPI documente désormais la création, la lecture et la modification du Client, avec le même motif hexadécimal pour création et patch.
+
+## Validation, autorité et contrat
+
+- Un type non chaîne devient `''` et est refusé. Les espaces extérieurs sont retirés, les minuscules deviennent majuscules, puis seule une valeur de sept caractères `#RRGGBB` est persistée. Le frontend conserve sa liste blanche et son fallback ; aucun séparateur CSS, URL ou balise ne peut atteindre `--client-color`.
+- La modification reste sous `client.manage`, société de session, scope d'entité, contrôle de version et idempotence. L'échec `422` survient dans `mutate()` avant écriture atomique ; les tests confirment la couleur précédente inchangée.
+- `ClientUpdateCommand` est fermé par `additionalProperties:false`, exige `version`, borne les champs et reprend le motif couleur. Les réponses `403/404/409/422` du patch concordent avec la route. Le GET documenté renvoie bien le Client scopé, ses contacts actifs et ses grilles actives.
+- Persistance, audit `client.updated`, SSE `client.updated.v1`, CSRF, sessions et fichiers statiques sont inchangés par ce correctif.
+
+## ResizeObserver — cycle, abus et données
+
+- Une seule instance globale existe. Chaque passage par `bind()` commence par `disconnect()` puis met la référence à `null`; les re-rendus Planning ne cumulent donc ni observers ni callbacks.
+- Le callback lit deux dimensions du même `timeline` et écrit une valeur numérique non négative dans une propriété CSS. Le shell possède une hauteur explicite et la propriété ne modifie que la hauteur du sibling fixe : elle ne redimensionne pas la boîte observée. Les deux cibles sont livrées dans un même lot ResizeObserver ; aucun appel réseau, mutation métier, audit, SSE ou allocation croissante n'est effectué.
+- Le callback ne reçoit aucune entrée utilisateur et ne rend aucun contenu. Une rafale de redimensionnements reste coalescée par le navigateur et chaque exécution est O(1); elle ne constitue pas un vecteur de DoS applicatif autonome.
+
+## P2/P3 ouverts
+
+1. **SEC-POST-RC5-02 — rémanence du Planning après logout.** Le logout passe par le retour anticipé de `render()` avant `bind()`. L'observer global n'est donc pas explicitement déconnecté lorsque `app.replaceChildren()` détache la grille. Son callback ferme sur `timeline` et `matrixShell`, susceptibles de retenir en mémoire le sous-arbre contenant noms de Clients/Projets/réservations jusqu'au prochain rendu authentifié. Les nœuds ne restent pas dans le document et aucune fuite inter-tenant/API n'est démontrée : P2 défense en profondeur, non P1.
+2. **SEC-G8-05 résiduel :** des valeurs de certains overlays statiques masqués/inertes restent également conservées après fin de session. Le nouvel observer n'ouvre pas ces overlays mais élargit le thème de rémanence locale.
+3. **P3 contrat :** le runtime accepte une couleur entourée d'espaces après `trim()`, tandis que le motif OpenAPI ancré décrit la forme canonique sans espaces. La sortie persistée est conforme et sûre ; documenter explicitement la normalisation éviterait cette légère ambiguïté client.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f` |
+| Clients + Planning post-production | **PASS, 57/57**, 0 échec/skip/todo, durée `554,06 ms` |
+| `npm test` | **PASS, 345/345**, 0 échec/skip/todo, durée `8 377,75 ms` |
+| `npm run lint` / `npm run build` | **PASS** |
+| `git diff --check HEAD^ HEAD` | **PASS** |
+| couleurs malformées | deux réponses `422`; couleur persistée `#2A7F62` inchangée |
+
+Les tests ResizeObserver sont structurels ; aucun navigateur contrôlable n'était disponible pour provoquer une boucle native, inspecter le heap après logout ou profiler les callbacks réels. Hashes : `app.js` `335de7ef6c0d039a8d692206b0d9e8f8c60e53681d9e529385ca90b8a91a72a3`; `server.js` `5961d3d6cd53f382b7977d284c6523d146134b7cc47bbf117031fe6f5ee1f367`; OpenAPI `1f51be70a4411c88d5b8bb61fb3f903e8189f20de0cf5812b823e43f6b2428f4`.
+
+## Handoff
+
+- Gate SECURITY d'impact : **APPROVED** sur `e39b9b0`, 0 P0/0 P1/2 P2/1 P3.
+- `SEC-POST-RC5-01` fermé ; `SEC-POST-RC5-02` transmis au DEV sans blocage release SECURITY.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
+# Gate SECURITY indépendant post-RC5 — couleur Client et alignement du scroll Planning
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `ea7863c20b5f148ddbd63f13afcdf211b0f008b1`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts, 0 P3.**
+
+Le lot ajoute une couleur de repérage au compte Client et l'utilise comme liseré des réservations, puis synchronise la hauteur utile de la colonne Ressources avec la barre horizontale native. La couleur effectivement persistée et rendue reste un hexadécimal `#RRGGBB`; les mutations Client conservent RBAC, scopes société/entité, version, écriture atomique, audit et invalidation SSE après succès. Aucun secret, endpoint, droit ou accès statique n'est ajouté.
+
+## Threat-check couleur, DOM et accessibilité
+
+- **Validation et sink CSS :** le serveur normalise en majuscules et n'enregistre qu'une valeur conforme à `^#[0-9A-F]{6}$`. Le frontend répète une liste blanche stricte `^#[0-9A-Fa-f]{6}$`, sinon utilise `#6C5CE7`, puis échappe la valeur avant l'attribut `style="--client-color:…"`. La charge testée `red; background:url(x)` reçoit `422`; elle ne peut atteindre ni CSS, ni URL, ni HTML.
+- **Nom du Client :** le nom ajouté à `aria-label` passe par `esc()`. Les cartes continuent d'échapper titres, projets, ressources et statuts ; aucun `innerHTML` nouveau ne reçoit de texte libre non échappé.
+- **Signal non exclusivement coloré :** le liseré ne remplace ni le titre, ni le nom du Client dans le libellé accessible, ni le statut textuel. L'input natif `type=color` est libellé dans le drawer Client.
+- **Scroll :** `offsetHeight - clientHeight` fournit uniquement une mesure de géométrie DOM, bornée par `Math.max(0, …)`, puis sérialisée comme pixels. Aucune donnée utilisateur n'alimente cette propriété CSS.
+
+## RBAC, scopes, persistance, audit et SSE
+
+- `POST /api/v1/clients` et `PATCH /api/v1/clients/:id` exigent toujours `client.manage`. La création injecte `companyId` depuis la session active ; la modification retrouve uniquement un Client de la société et du scope d'entité autorisés. Le lecteur est refusé `403` et un identifiant étranger reste indistinguable (`404`) dans les tests frais.
+- La modification passe par `mutate()`, `requireVersion()` et le marqueur idempotent. La couleur figure dans l'état persistant et, lors d'un patch réussi, dans les instantanés `before`/`after` de l'audit `client.updated`; une validation `422` intervient avant tout commit.
+- `client.updated.v1` n'est émis qu'après succès et jamais lors d'un replay. Le flux SSE demeure authentifié, limité à une connexion par session, scopé par société lors de l'émission et révalidé périodiquement. La couleur n'élargit pas le DTO à une nouvelle famille de données sensible.
+- Le formulaire Client ne constitue pas une autorité : l'API reste fail-closed si un appel est forgé. CSRF, contrôle d'origine, cookie de session et règles de fichiers statiques sont inchangés.
+
+## P2 ouverts
+
+1. **SEC-POST-RC5-01 — validation syntaxique tronquée avant contrôle.** `cleanString(requestedColor, 7)` précède la regex. Ainsi `#123456;background:red` devient `#123456` puis est accepté, contrairement au contrat OpenAPI et à la mention « validation stricte ». Le résultat stocké/rendu reste sûr et ne permet aucune injection, donc ce constat ne bloque pas SECURITY ; la correction recommandée est de valider la chaîne trimée complète avant toute normalisation.
+2. **SEC-G8-05 résiduel hors impact :** certaines valeurs internes d'overlays statiques masqués/inertes ne sont pas intégralement purgées après fin de session. Ce lot n'ajoute aucun overlay et n'aggrave pas le point.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `ea7863c20b5f148ddbd63f13afcdf211b0f008b1` |
+| Clients + Planning post-production | **PASS, 57/57**, 0 échec/skip/todo, durée `538,11 ms` |
+| `npm test` | **PASS, 345/345**, 0 échec/skip/todo, durée `8 452,48 ms` |
+| `npm run lint` | **PASS** |
+| `node --check server.js` / `node --check app.js` | **PASS** |
+| `git diff --check HEAD^ HEAD` | **PASS** |
+| reproducer de troncature | entrée `#123456;background:red` → `#123456`, regex acceptée |
+
+Le contrôle visuel navigateur n'a pas été rejoué par ce gate ; aucune affirmation de contraste perceptuel ou de focus réel n'est faite. Hashes : `app.js` `1beae9dda81bab93b6079112727da792cbe6d39cffe580444309f8fb7ec71de8`; `server.js` `71be96cacba53ac5eff416fb5156ce166cacd28d1454faa561fb7197d2fbea60`; `planning.css` `b9cd0dda4f2b75b815b502aa5d07b6eb4cf73c331123a204d7daf8bd2b8de284`.
+
+## Handoff
+
+- Gate SECURITY post-RC5 : **APPROVED** sur `ea7863c`, 0 P0/0 P1/2 P2/0 P3.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation finale SECURITY RC5 — moyenne directe occupancyGap
 
 Date : 2026-08-24

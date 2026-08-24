@@ -4871,3 +4871,94 @@ La reproduction précédemment bloquante retourne désormais exactement `−416 
 ## Verdict terminal
 
 La re-QA finale RC5 sur `4e094d589ae215f31152110d30f1163929ca1338` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. La carte `occupancyGap`, son `sourceCount` et son détail se réconcilient dans le cas à une seule période réalisée (`0 bps`) comme dans le cas multi-réalisés `[0, −833]` (`−416 bps`). Preuves terminales : ciblés **135/135**, suite complète **345/345**, lint, build et diff-check verts.
+
+---
+
+# Gate QA indépendant post-RC5 — scroll vertical et couleur Client
+
+Date : 2026-08-24
+
+Verdict : **NON APPROUVÉ — gate interrompu, preuves automatisées incomplètes**
+
+Périmètre : candidat exact `ea7863c20b5f148ddbd63f13afcdf211b0f008b1`, alignement vertical Planning avec barre horizontale, couleur Client de la création à la persistance/recharge, rendu accessible, invalides, permissions et non-régression.
+
+Indépendance : aucun code, test, statut ni autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Preuves acquises avant l'arrêt
+
+| Contrôle | Résultat observé |
+|---|---|
+| hash candidat | confirmé : `ea7863c20b5f148ddbd63f13afcdf211b0f008b1` |
+| correction d'alignement | inspection conforme : le client mesure `timeline.offsetHeight - timeline.clientHeight`, publie `--planning-scrollbar-size` et réduit la hauteur utile de `.planning-fixed-column` du même montant |
+| axes existants | les mécanismes de synchronisation timeline/barre horizontale et timeline/colonne Ressources restent présents ; le diff ne les remplace pas |
+| saisie couleur Client | champ natif `input[type=color]`, valeur existante ou repli `#6C5CE7`, inclus automatiquement dans `FormData` à la création comme à l'édition |
+| validation serveur | format strict `^#[0-9A-F]{6}$`, normalisation majuscule, défaut `#6C5CE7`, erreur 422 ciblée sur `color` pour une valeur invalide |
+| persistance contractuelle | la couleur validée est intégrée au candidat Client puis au DTO de création/édition ; le contrat OpenAPI expose le même format |
+| rendu Planning | le Client est résolu par réservation → projet → client ; liseré via `--client-color`, repli violet déterministe |
+| accessibilité | l'`aria-label` de la réservation préfixe le nom du Client ; le statut reste présent dans le libellé et dans `.event-status-label`, donc l'information ne dépend pas uniquement de la couleur |
+| test source ajouté | couvre la mesure de scrollbar et la hauteur corrigée ; le test Clients couvre création colorée, replay et rejet d'une injection CSS |
+
+## Preuves non acquises
+
+- aucun navigateur contrôlable n'était disponible ; aucun scroll réel bas→haut, contrôle pixel d'alignement, création/édition UI, rechargement ou inspection console n'est revendiqué ;
+- le serveur local a été lancé, mais le probe API complet création→édition→lecture→persistance→invalide→viewer est resté suspendu sur une autorisation locale puis a été interrompu ; aucun résultat de ce probe n'est revendiqué ;
+- sur instruction d'arrêt immédiat, les tests ciblés, `npm test`, `npm run lint`, `npm run build` et le diff-check n'ont pas été exécutés sur ce candidat par cette passe QA ;
+- les anciens résultats verts portent sur des hashes antérieurs et ne peuvent pas approuver `ea7863c`.
+
+## Verdict terminal
+
+Le gate QA indépendant post-RC5 sur `ea7863c20b5f148ddbd63f13afcdf211b0f008b1` est **NON APPROUVÉ**, sans anomalie produit P0/P1 démontrée par les preuves déjà acquises, mais avec un gate objectivement incomplet. Les contrats examinés sont cohérents pour l'alignement et la couleur Client ; l'approbation reste impossible tant qu'une passe fraîche n'a pas exécuté les ciblés, la suite complète, lint/build/diff et, idéalement, le parcours visuel/API de persistance.
+
+---
+
+# Re-QA terminale post-RC5 — scrollbar responsive et couleur Client
+
+Date : 2026-08-24 22:54 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat exact `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f`, recalcul responsive de l'alignement Planning/Ressources, couleur Client à la création et à l'édition, persistance/relecture, rejet des couleurs invalides, accessibilité, permissions, OpenAPI et non-régression.
+
+Indépendance : aucun code, test, statut ni autre rapport modifié ; seul `docs/qa-report.md` est actualisé. Les modifications documentaires concurrentes préexistantes ont été préservées.
+
+## Environnement
+
+```text
+Node       v26.6.0
+Système    Darwin arm64
+Commit     e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f
+Version    0.5.0-rc5
+```
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| `node --test tests/clients.test.js` | PASS, **11/11**, 0 échec |
+| `node --test tests/planning-postproduction.test.js` | PASS, **46/46**, 0 échec |
+| `node --test tests/foundations.test.js` | PASS, **17/17**, 0 échec ; contrat OpenAPI V1 couvert |
+| `npm test` | PASS, **345/345**, 0 échec/annulé/ignoré/TODO, 9 623,32 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` | PASS, code 0 |
+| hash candidat | confirmé exactement avant les tests : `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f` |
+
+## Résultats fonctionnels
+
+- **Scrollbar responsive** : le correctif calcule la taille réelle de la barre horizontale avec `offsetHeight - clientHeight`, ajuste la hauteur utile de la colonne Ressources et réexécute ce calcul par `ResizeObserver` sur la timeline et le conteneur. L'observer précédent est déconnecté avant chaque nouveau rendu. Les tests ciblés protègent le calcul initial, l'observation responsive et la déconnexion ; les synchronisations horizontale et verticale et la virtualisation restent présentes et les 46 tests Planning passent.
+- **Création couleur Client** : la création colorée retourne et persiste `#2A7F62`; le replay idempotent conserve le même Client. Le champ UI natif `input[type=color]` est présent avec valeur existante ou repli `#6C5CE7` et est inclus dans le `FormData` de création/édition.
+- **PATCH, invalides et absence de mutation** : la voie PATCH réutilise le validateur Client, normalise en majuscules et persiste le candidat par la mutation atomique existante. Deux charges injectées (`red; background:url(x)` et `#123456;background:red`) retournent **422**, ciblent `details.fields=['color']` et la lecture persistée reste `#2A7F62`. Un lecteur reçoit **403** sur la création ; le conflit de version reste **409**.
+- **Persistance/relecture** : la couleur appartient au DTO Client canonique stocké et relu par les routes Client. La preuve automatisée vérifie directement la valeur dans la base après création puis après les PATCH invalides sans mutation. Le probe additionnel avec redémarrage serveur et PATCH valide n'a pas obtenu d'autorisation d'exécution et n'est pas revendiqué comme preuve.
+- **OpenAPI** : `ClientCreateCommand` et `ClientUpdateCommand` exposent tous deux `color` avec le motif `^#[0-9A-Fa-f]{6}$`; la création documente le défaut `#6C5CE7`. Le ciblé fondations/OpenAPI et la suite complète sont verts.
+- **UI et accessibilité** : chaque réservation résout son Client via le projet, applique un liseré `data-client-color` avec repli déterministe, préfixe l'`aria-label` par le nom du Client et conserve le statut sous forme textuelle. L'information ne dépend donc pas uniquement de la couleur.
+
+## Limites
+
+- aucun navigateur contrôlable n'a été exposé à cette passe ; aucun contrôle pixel, scroll souris réel, focus réel ou inspection console n'est revendiqué ;
+- le probe API additionnel création → PATCH valide → redémarrage → relecture a été interrompu pendant la demande d'autorisation locale et n'a produit aucun résultat revendiqué ; la conclusion sur ce chemin repose sur le contrat serveur inspecté, le test de création/persistance, les négatifs sans mutation et la suite complète ;
+- aucune mesure subjective de fluidité n'est incluse dans ce gate QA ;
+- le verdict porte uniquement sur le hash exact ci-dessus et devient caduc si `app.js`, `planning.css`, `server.js`, l'OpenAPI ou les tests couverts changent.
+
+## Verdict terminal
+
+La re-QA terminale post-RC5 sur `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Le recalcul responsive de la scrollbar est protégé, la couleur Client est validée, persistée et rendue sans dépendance exclusive à la couleur, les invalides sont refusés sans mutation et les permissions restent fermées. Preuves terminales : ciblés **74/74**, suite complète **345/345**, lint, build et diff-check verts. Limite explicite : aucune recette navigateur contrôlée ni probe additionnel avec redémarrage n'a pu être finalisé.

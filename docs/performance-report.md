@@ -1,3 +1,122 @@
+# Revalidation PERFORMANCE d'impact — validation couleur et ResizeObserver
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts, 2 P3.**
+
+La validation couleur remplace une troncature constante par `trim().toUpperCase()` puis une regex sur une entrée déjà bornée par la taille maximale du body HTTP : coût O(longueur de la chaîne), négligeable face à l'écriture Client. Le `ResizeObserver` apporte un recalcul responsive O(1), sans modifier l'index Planning, les fenêtres virtuelles, le nombre de cartes ou les chemins backend mesurés.
+
+## Analyse ResizeObserver et scroll responsive
+
+- L'instance précédente est déconnectée avant chaque nouveau binding. Le nombre d'observers actifs est donc borné à un et le nombre de cibles à deux (`timeline`, `matrixShell`).
+- Un lot de notification exécute deux lectures géométriques et un `style.setProperty`. La propriété ne change que la hauteur de `.planning-fixed-column`; le shell et la timeline observés ont une hauteur explicite. Aucun aller-retour géométrique attendu ne peut entretenir une boucle de resize.
+- Le callback n'est pas installé dans `onscroll`; le scroll normal n'ajoute aucun calcul. Il s'active sur changement de dimensions (plein écran, viewport, disposition responsive) et laisse inchangés `scrollTop`, `scrollLeft`, les spacers et les seuils de virtualisation.
+- Le style est réécrit même si la taille calculée est identique. Cela peut provoquer une invalidation de style superflue lors d'une rafale de resize, mais pas une croissance mémoire ni un coût dépendant des 10 000 réservations.
+- Le Client drawer et le contrat OpenAPI sont sans impact runtime mesurable ; aucune dépendance ou requête réseau supplémentaire n'est ajoutée.
+
+## Mesures et bornes réutilisées différentiellement
+
+Le rendu couleur, l'index et le CSS sont byte-identiques au candidat `ea7863c` déjà mesuré : wrapper couleur p95 `1,47 ms` pour 390 cartes, `65,72 ms` pour 10 000 et `119,74 ms` pour 17 961. L'index long RC5 restait à `861,65 ms` p95 ; le chemin pré-DOM indicatif reste proche de `981,39 ms`, sous le budget UI `< 2 s`.
+
+Ce diff ajoute seulement un callback O(1) aux redimensionnements. Aucun benchmark backend long n'a été répété : API Planning, Finance, Forecast, drill-down, persistance et SSE sont byte-identiques, à l'exception du validateur couleur hors chemins de lecture.
+
+## P2/P3
+
+1. **P2 hérité — DOM Planning long :** le plafond de 50 cartes reste local à chaque cellule et le stress long peut encore produire 17 961 cartes.
+2. **P2 hérité — drill-down facturable :** dernière mesure RC5 `277,38 ms` p95, avec `22,62 ms` de marge au seuil `< 300 ms`; chemin non impacté.
+3. **P3 — recherches couleur :** deux `find()` linéaires restent exécutés par carte ; les mesures passent mais des index par identifiant seraient préférables avant hausse de volumétrie.
+4. **P3 — preuve navigateur/heap :** aucune trace native ResizeObserver, FPS, layout/paint, heap ou resize continu n'a été capturée. La déconnexion n'a pas été déplacée dans le chemin de logout, ce qui peut retenir un sous-arbre Planning unique jusqu'au prochain binding, sans accumulation à chaque rendu.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f` |
+| Clients + Planning post-production | **PASS, 57/57**, durée `554,06 ms` |
+| `npm test` | **PASS, 345/345**, durée `8 377,75 ms` |
+| `npm run lint` / `npm run build` | **PASS** |
+| `git diff --check HEAD^ HEAD` | **PASS** |
+| benchmark couleur réutilisé, code inchangé | p95 `1,47 / 65,72 / 119,74 ms` pour `390 / 10 000 / 17 961` cartes |
+
+Les preuves automatisées confirment installation/déconnexion structurelles, mais ne simulent pas l'algorithme de livraison d'un navigateur. Hashes : `app.js` `335de7ef6c0d039a8d692206b0d9e8f8c60e53681d9e529385ca90b8a91a72a3`; test Planning `ba73ce42df8468de4d6742448bd33f23fbebe527686c158870304a34766be363`; `planning.css` reste `b9cd0dda4f2b75b815b502aa5d07b6eb4cf73c331123a204d7daf8bd2b8de284`.
+
+## Handoff
+
+- Gate PERFORMANCE d'impact : **APPROVED** sur `e39b9b0`, 0 P0/0 P1/2 P2/2 P3.
+- Aucun seuil contractuel n'est dépassé ; profilage navigateur responsive à reprendre en E2E.
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
+# Gate PERFORMANCE indépendant post-RC5 — couleur Client et alignement du scroll Planning
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `ea7863c20b5f148ddbd63f13afcdf211b0f008b1`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts, 2 P3.**
+
+Le calcul d'alignement de la colonne fixe est O(1), exécuté une fois à chaque `bind()` du Planning et absent du handler de scroll. L'ajout couleur effectue deux recherches linéaires (`projects.find`, `clients.find`) par carte rendue ; sa mesure isolée reste négligeable sur la fenêtre contractuelle et sous 120 ms p95 même sur 17 961 cartes pré-DOM. Le formulaire Client ajoute un seul contrôle natif et aucune requête supplémentaire.
+
+## Scroll, CSS et virtualisation
+
+- `timeline.offsetHeight - timeline.clientHeight` lit deux métriques de layout puis écrit une custom property unique. Il peut provoquer une lecture synchronisée de layout par rendu, mais pas par événement `scroll`; aucune boucle, observer ou allocation cumulative n'est introduit.
+- `.planning-fixed-column { height: calc(100% - var(--planning-scrollbar-size)) }` n'affecte que la composition de la colonne fixe. La piste, ses spacers, `scrollTop`, `scrollLeft`, `data-row-height` et les seuils de re-rendu virtualisé restent inchangés.
+- Le liseré Client est un `box-shadow: inset` par carte. Il ne modifie ni taille intrinsèque, ni grille, ni nombre de nœuds ; son coût est limité au paint des cartes visibles.
+- Les bornes antérieures restent : fenêtre verticale virtualisée, 92 colonnes maximum dans les vues longues, 50 cartes maximum par cellule, ligne globale `92 px` et ligne Projet plafonnée à `194 px`.
+
+## Mesure fraîche du surcoût couleur
+
+Microbenchmark Node reproduisant le wrapper exact (`find` Projet + Client, regex, deux `replace`) avec **2 000 Projets et 2 000 Clients**, trois warm-ups puis 30 itérations. Il mesure le scripting de génération de chaîne, pas l'insertion DOM/layout/paint.
+
+| Cartes rendues | socle p95 | avec couleur p95 | coût total mesuré |
+|---:|---:|---:|---:|
+| fenêtre représentative `390` | `0,28 ms` | `1,47 ms` | `+1,19 ms` |
+| stress `10 000` | `0,32 ms` | `65,72 ms` | `+65,40 ms` |
+
+Campagne additionnelle du wrapper complet : `17 961` cartes, 10 itérations, médiane `118,37 ms`, p95/max `119,74 ms`. Ajouté au dernier index long frais RC5 (`861,65 ms` p95), le chemin pré-DOM reste proche de `981,39 ms`, sous le budget UI `< 2 s`; cette somme est indicative car les campagnes ne sont pas simultanées.
+
+## P2/P3
+
+1. **P2 hérité — DOM Planning long :** le plafond de 50 cartes est local à chaque cellule. Un stress de périodes longues peut toujours produire 17 961 cartes ; le liseré ne change pas la cardinalité mais ajoute un paint par carte.
+2. **P2 hérité — drill-down facturable :** la dernière mesure RC5 `277,38 ms` p95 conserve seulement `22,62 ms` de marge au seuil `< 300 ms`; ce lot ne touche pas ce chemin.
+3. **P3 — recherches répétées :** le wrapper couleur refait la recherche Projet déjà réalisée dans `event()` puis cherche le Client, soit O(R×(P+C)). Les mesures passent largement, mais des `Map` par identifiant éviteraient cette croissance avant une hausse des volumes.
+4. **P3 — preuve navigateur :** aucune mesure fraîche DevTools de FPS, layout, paint, heap ou coût du Client drawer n'est disponible dans ce gate. La preuve E2E déjà indiquée dans le statut projet n'est pas revendiquée comme preuve indépendante ici.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `ea7863c20b5f148ddbd63f13afcdf211b0f008b1` |
+| Clients + Planning post-production | **PASS, 57/57**, durée `538,11 ms` |
+| `npm test` | **PASS, 345/345**, durée `8 452,48 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check HEAD^ HEAD` | **PASS** |
+| benchmark couleur, 390 / 10 000 / 17 961 cartes | p95 `1,47 / 65,72 / 119,74 ms` |
+
+Le coût CSS réel dépend du navigateur, du GPU, du facteur d'échelle et du nombre de cartes peintes. Hashes : `app.js` `1beae9dda81bab93b6079112727da792cbe6d39cffe580444309f8fb7ec71de8`; `planning.css` `b9cd0dda4f2b75b815b502aa5d07b6eb4cf73c331123a204d7daf8bd2b8de284`; test Planning `2f12e857bcce45c2ac7fab61010f47c9a6b9d1abf35921008ad9e012c5f26738`.
+
+## Handoff
+
+- Gate PERFORMANCE post-RC5 : **APPROVED** sur `ea7863c`, 0 P0/0 P1/2 P2/2 P3.
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation finale PERFORMANCE RC5 — moyenne directe occupancyGap
 
 Date : 2026-08-24

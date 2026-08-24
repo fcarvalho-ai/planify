@@ -1,3 +1,140 @@
+# Re-REVIEW terminale post-RC5 — recalcul responsive et contrat Client
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat exact : `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f` (`fix: recalculer le planning et documenter la couleur client`)
+
+Correctif contrôlé : `ea7863c20b5f148ddbd63f13afcdf211b0f008b1..e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert.**
+
+Les deux constats bloquants `REV-POST-RC5-01` et `REV-POST-RC5-02` sont fermés. La compensation de scrollbar suit désormais les changements de géométrie responsive avec un observateur unique et nettoyé, et l'API documente les lectures/mutations Client ainsi que la commande de mise à jour incluant `version` et `color`. La validation serveur rejette également les suffixes ajoutés à une couleur pourtant préfixée par un hexadécimal valide.
+
+## Fermeture de REV-POST-RC5-01 — géométrie responsive
+
+- `planningScrollbarResizeObserver` possède une seule référence globale. Chaque passage dans `bind()` déconnecte explicitement l'instance précédente avant toute nouvelle observation, y compris lorsque la route suivante ne contient plus de planning.
+- `syncPlanningScrollbarSize()` mesure la géométrie native `offsetHeight - clientHeight` et met à jour la variable du shell après le rendu initial.
+- Le `ResizeObserver` observe la timeline, dont la boîte de contenu varie quand une scrollbar horizontale apparaît ou disparaît, ainsi que le shell qui porte la géométrie responsive. Le même callback recalcule donc la compensation sans recréer la grille.
+- L'écriture de la variable ne modifie que la hauteur de la colonne fixe ; elle ne redimensionne ni la timeline ni le shell observés et ne crée pas de boucle de notifications.
+- La synchronisation `scrollTop`, la restauration des deux axes et la fenêtre virtuelle continuent de lire la timeline comme autorité. Aucun nouveau handler de scroll ni rerendu coûteux n'est ajouté.
+- En environnement sans `ResizeObserver`, le calcul initial reste appliqué et le garde empêche toute erreur d'exécution ; les navigateurs cibles modernes bénéficient du recalcul responsive.
+
+## Fermeture de REV-POST-RC5-02 — contrat Client et validation couleur
+
+- OpenAPI expose maintenant `GET /clients/{clientId}` et `PATCH /clients/{clientId}` avec paramètre de chemin, clé d'idempotence pour la mutation, réponses stables `200/403/404/409/422` et `ClientUpdateCommand`.
+- `ClientUpdateCommand` exige `version`, refuse les propriétés inconnues et documente `color` avec le motif ancré `^#[0-9A-Fa-f]{6}$`; les autres propriétés modifiables correspondent aux champs acceptés par `clientInput`.
+- Le serveur retire `color` avant la validation commune, puis valide séparément la valeur complète après normalisation de casse. L'expression régulière ancrée refuse aussi bien une déclaration CSS qu'un suffixe après six chiffres hexadécimaux.
+- Les valeurs invalides n'altèrent pas la couleur persistée. Les mutations valides restent couvertes par le contrôle optimiste, l'isolation tenant, l'audit, l'idempotence et le SSE existants.
+- Le consommateur UI continue d'utiliser la réponse Client, de résoudre réservation → projet → client et de conserver le nom du client dans le libellé accessible ; la couleur n'est pas l'unique porteur d'un statut.
+
+## Observations non bloquantes
+
+- **P2 — couverture de géométrie principalement structurelle :** le test Planning vérifie la création, l'observation et la déconnexion du `ResizeObserver`, mais pas une transition DOM réelle avec apparition/disparition de scrollbar. La logique inspectée ferme le défaut ; une future infrastructure navigateur pourrait pérenniser le scénario visuel complet.
+- **P2 — schémas de réponse Client génériques :** les réponses des nouveaux chemins utilisent encore `type: object`, comme la création Client existante, au lieu d'un DTO Client réutilisable explicitant notamment `color`, `contacts` et `rateCards`. La commande de mutation et les statuts HTTP sont désormais contractés, mais un schéma de sortie typé améliorerait les consommateurs générés.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` → `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f`.
+- Inspection ciblée du diff, du cycle `bind()`/`render()`, des handlers de scroll/virtualisation, des routes Client, de `clientInput` et du contrat OpenAPI → **conforme**.
+- `node --test tests/clients.test.js` → **PASS, 11/11**, 0 échec/cancelled/skip/todo, 558,615 ms.
+- `node --test tests/planning-postproduction.test.js` → **PASS, 46/46**, 0 échec/cancelled/skip/todo, 132,685 ms.
+- `npm test` → **PASS, 345/345**, 0 échec/cancelled/skip/todo, 10,194 s.
+- `npm run lint` → **PASS**.
+- `npm run build` → **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check ea7863c20b5f148ddbd63f13afcdf211b0f008b1..e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f` → **PASS**.
+- Test négatif frais : `red; background:url(x)` et `#123456;background:red` retournent tous deux `422`; la valeur persistée demeure `#2A7F62`.
+
+Empreintes SHA-256 contrôlées :
+
+- `app.js` : `335de7ef6c0d039a8d692206b0d9e8f8c60e53681d9e529385ca90b8a91a72a3`
+- `server.js` : `5961d3d6cd53f382b7977d284c6523d146134b7cc47bbf117031fe6f5ee1f367`
+- `planning.css` : `b9cd0dda4f2b75b815b502aa5d07b6eb4cf73c331123a204d7daf8bd2b8de284`
+- `docs/api/openapi-v1.yaml` : `1f51be70a4411c88d5b8bb61fb3f903e8189f20de0cf5812b823e43f6b2428f4`
+- `tests/clients.test.js` : `f73c4681226f1aa1b096ff0ad066d2abe3093e1a5baf82cf80cf44d65c7c2814`
+- `tests/planning-postproduction.test.js` : `ba73ce42df8468de4d6742448bd33f23fbebe527686c158870304a34766be363`
+
+## Sortie de gate
+
+- Le gate REVIEW est **APPROVED** pour le candidat exact ci-dessus.
+- Aucun code, test, rapport QA/Sécurité/Performance ni `docs/project-status.md` n'a été modifié par cette relecture.
+- L'intégrateur reste responsable de figer tous les gates sur le même hash candidat.
+
+---
+
+# Gate REVIEW indépendant post-RC5 — scroll vertical et couleur Client
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat exact : `ea7863c20b5f148ddbd63f13afcdf211b0f008b1` (`fix: stabiliser le scroll vertical et colorer les clients`)
+
+Base comparée : `d9f32cc` / tag `v0.5.0-rc5`
+
+## Verdict
+
+**REJECTED — 0 P0, 2 P1 ouverts.**
+
+Les validations serveur, la persistance et l'usage visuel de la couleur Client sont cohérents, et la géométrie du planning est correcte au moment du rendu. Le candidat ne peut toutefois pas être approuvé : la compensation de scrollbar n'est pas recalculée lors d'un redimensionnement responsive sans nouveau rendu, et le contrat OpenAPI ne documente pas la mutation de couleur réellement consommée par l'interface.
+
+## Constats bloquants
+
+### REV-POST-RC5-01 — P1 — La géométrie de la colonne fixe redevient désynchronisée après un changement responsive
+
+- `app.js` mesure `timeline.offsetHeight - timeline.clientHeight` une seule fois dans `bind()` et écrit `--planning-scrollbar-size`.
+- Aucun `ResizeObserver`, gestionnaire `window.resize` ou mécanisme équivalent ne recalcule cette valeur lorsque la géométrie native du conteneur change sans nouveau rendu applicatif.
+- Cas limite concret : la vue Jour peut ne pas avoir de scrollbar horizontale sur une largeur bureau, puis en acquérir une après réduction de la fenêtre. La hauteur cliente de la timeline diminue alors de l'épaisseur de la scrollbar, tandis que `.planning-fixed-column` conserve la valeur CSS calculée avant le redimensionnement. Les dernières lignes des deux axes ne sont plus alignées.
+- La synchronisation bidirectionnelle de `scrollTop` et la virtualisation utilisent correctement la timeline, mais ne mettent pas à jour cette variable géométrique ; elles ne ferment donc pas ce cas responsive.
+- Le test ajouté ne vérifie que la présence lexicale du setter et de la formule CSS. Il ne simule ni changement de `offsetHeight/clientHeight`, ni apparition/disparition de scrollbar.
+
+Correction attendue : observer la taille effective de la timeline/matrice (avec nettoyage à chaque rerendu), ou utiliser une composition CSS qui réserve intrinsèquement la gouttière ; ajouter une preuve reproduisant l'apparition puis la disparition de la scrollbar horizontale et vérifiant l'alignement final.
+
+### REV-POST-RC5-02 — P1 — Le contrat OpenAPI ne décrit pas l'édition de la couleur Client utilisée par l'UI
+
+- Le serveur accepte et persiste `color` à la création **et** lors du `PATCH` Client ; l'éditeur UI expose le champ et envoie la mutation par ce chemin.
+- `docs/api/openapi-v1.yaml` ajoute uniquement `color` à `ClientCreateCommand`. Aucun chemin `/clients/{clientId}` ni schéma de mise à jour Client ne décrit la mutation, son contrôle de version ou sa réponse.
+- Le consommateur navigateur dépend donc d'un comportement mutable absent du contrat public. Une implémentation ou validation générée depuis l'OpenAPI ne peut pas reproduire l'édition affichée par Planify.
+- Les tests API couvrent la création, la persistance et le rejet d'une couleur invalide, mais pas la conformité documentée du `PATCH` couleur et de sa réponse.
+
+Correction attendue : documenter le chemin de mise à jour Client, sa commande incluant `version` et `color`, ses réponses/erreurs stables et la couleur dans le DTO retourné ; ajouter une preuve de contrat couvrant la modification valide et le rejet invalide.
+
+## Points conformes vérifiés
+
+- La validation serveur impose strictement `#RRGGBB`, normalise en majuscules et fournit `#6C5CE7` aux anciennes données sans couleur ; une valeur CSS injectée est rejetée.
+- La couleur traverse les mutations atomiques existantes avec contrôle de version, isolation, audit et émission SSE après succès. La liste Client retournée à l'UI conserve la propriété.
+- L'interface met à jour son état Client après sauvegarde, puis résout réservation → projet → client pour appliquer le liseré. Le nom du client est aussi ajouté au libellé accessible : la couleur reste une information complémentaire, et les statuts ne reposent pas sur elle seule.
+- À géométrie inchangée après rendu, la variable mesurée aligne la hauteur de la colonne fixe sur `clientHeight`; la synchronisation verticale bidirectionnelle, la fenêtre virtualisée et le défilement horizontal existants restent intacts dans les suites automatisées.
+- Aucun secret, actif distant, dépendance ou migration de données n'est introduit par le diff examiné.
+
+## Preuves fraîches
+
+Environnement : macOS, Node.js conforme au projet, état `HEAD` exact et worktree propre avant rédaction du présent rapport.
+
+- `git rev-parse HEAD` → `ea7863c20b5f148ddbd63f13afcdf211b0f008b1`.
+- `node --test tests/clients.test.js` → **PASS, 11/11**, 0 échec/skip/todo, 887,790 ms.
+- `node --test tests/planning-postproduction.test.js` → **PASS, 46/46**, 0 échec/skip/todo, 145,500 ms.
+- `npm test` → **PASS, 345/345**, 0 échec/cancelled/skip/todo, 8,402 s.
+- `npm run lint` → **PASS**.
+- `npm run build` → **PASS**, 5 actifs runtime validés.
+- `git diff --check d9f32cc..ea7863c20b5f148ddbd63f13afcdf211b0f008b1` → **PASS**.
+- Recherche ciblée dans `app.js` → aucun `ResizeObserver`, `window.resize` ou `onresize` assurant la réévaluation responsive.
+- Recherche ciblée dans `docs/api/openapi-v1.yaml` → `color` présent dans `ClientCreateCommand`, aucun chemin `/clients/{clientId}` ni schéma `ClientPatch`/`ClientUpdate`.
+- Empreintes SHA-256 examinées : `app.js` `1beae9dda81bab93b6079112727da792cbe6d39cffe580444309f8fb7ec71de8`; `server.js` `71be96cacba53ac5eff416fb5156ce166cacd28d1454faa561fb7197d2fbea60`; `planning.css` `b9cd0dda4f2b75b815b502aa5d07b6eb4cf73c331123a204d7daf8bd2b8de284`; OpenAPI `195c7afd049eb1cfe7373202b1b77494a6eaed0edf2da8d1aafdf34795b6d152`.
+
+## Limites et sortie de gate
+
+- Les tests ciblés et complets sont verts, mais ils ne reproduisent pas la transition responsive de géométrie ni la conformité contractuelle du `PATCH` Client.
+- Conformément à l'ownership demandé, aucun code, test ni `docs/project-status.md` n'a été modifié.
+- Le gate REVIEW devra être rejoué sur le commit correctif exact ; les gates aval déjà rendus ne couvrent pas ce futur état.
+
+---
+
 # Re-REVIEW finale RC5 — arrondi unique `occupancyGap`
 
 Date : 2026-08-24
