@@ -27,6 +27,7 @@ const {
   planningVirtualSlice,
   planningVirtualWindowNeedsRender,
   planningMaxCellStack,
+  planningCellEntriesBySlot,
   planningRowHeight,
 } = require('../app.js');
 const { eliotePostProductionResources, migrateEliotePostProductionResources } = require('../server.js');
@@ -388,8 +389,10 @@ test('une vue Projet agrandit uniformément les lignes qui empilent plusieurs r�
   const second = { ...period, id: 'booking_period_2', title: 'Deuxième session' };
   const third = { ...period, id: 'booking_period_3', title: 'Troisième session' };
   const fourth = { ...period, id: 'booking_period_4', title: 'Quatrième session' };
-  const slots = [{ date: '2026-08-17' }];
+  const slots = [{ date: '2026-08-17', key: '2026-08-17' }];
   assert.equal(planningMaxCellStack([period, second], [room], slots), 2);
+  const indexed = planningCellEntriesBySlot([period, second], [room], slots);
+  assert.deepEqual(indexed.get(`${room.id}|2026-08-17`).map(({ booking }) => booking.id), [period.id, second.id]);
   assert.equal(planningMaxCellStack([period, second, third, fourth], [room], slots), 3);
   assert.equal(planningRowHeight(92, 1), 92);
   assert.equal(planningRowHeight(92, 2), 132);
@@ -402,6 +405,8 @@ test('une vue Projet agrandit uniformément les lignes qui empilent plusieurs r�
   assert.match(source, /event\(booking,cell,stacked\)/);
   assert.match(source, /const PLANNING_CELL_RENDER_LIMIT=50/);
   assert.match(source, /visibleCells=cells\.slice\(0,PLANNING_CELL_RENDER_LIMIT\)/);
+  assert.match(source, /cellsBySlot\.get\(`\$\{room\.id\}\|\$\{slot\.key\}`\)\|\|\[\]/);
+  assert.doesNotMatch(source, /visibleSlots\.map\(\(slot,visibleSlotIndex\)=>\{[^\n]*bookings\.flatMap/);
   assert.match(source, /planning-stack-summary/);
   assert.equal((source.match(/planningEventOperationsBase\(booking,cell,compact\)|commercialPlanningEventBase\(booking,cell,compact\)/g)||[]).length, 2);
   assert.match(css, /\.planning-cell\.is-stacked \.planning-event\.is-compact-stack\{[^}]*height:58px/);
