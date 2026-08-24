@@ -3946,3 +3946,179 @@ La suite ciblée rejoue les sept rôles, les six Dashboards et trois formats, le
 ## Verdict terminal
 
 La re-QA terminale G8 sur `68489b1fc0575706ecbf13c191ab033dc1981d63` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Les **24/24 routes** spécialisées synchronisent désormais le shell et les overlays avant rendu ; logout, `401`, focus et reconnexion sont cohérents. Les preuves sont vertes : ciblés **106/106**, suite complète **339/339**, lint, build et diff-check.
+
+---
+
+# Re-QA indépendante — correctif visuel post-release avant rc2
+
+Date : 2026-08-24 15:40 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat exact `fce292974c933358bbfd980c8344cc38e5a923ed`, définition des tokens sémantiques consommés par les modules métier, lisibilité de l'onglet Pilotage actif, rétablissement des bordures Réalisations/Finance, cohérence des écrans principaux et non-régression G8 avant rc2.
+
+Indépendance : aucun code, test, contrat, statut ou autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Empreintes du candidat testé
+
+```text
+styles.css                        8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+planning.css                      51b38d7ed0eef30e085725777bc293c6e2c435dc87e07056913dbc116608197d
+app.js                            4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+index.html                        419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+tests/foundations.test.js         3708ad8c6e611e871d83fe16d5cf7acd08730d46fc277269a32ff3cd79e7fea4
+tests/sprint8-dashboards.test.js  098b4f463bafb9c7ba5722c549415954a5aa92502f0b9abdd3918c7b013ee747
+tests/sprint8-exports.test.js     7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-security.test.js    9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+server.js                         b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64, candidat `0.5.0-rc1` avant préparation rc2.
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| probe indépendant de résolution CSS et contraste | PASS : cinq tokens sémantiques résolus, onglet Pilotage actif à **4,86:1**, sélecteurs de bordure Réalisations/Finance actifs |
+| `node --test tests/foundations.test.js tests/domain.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **107/107**, 0 échec/annulé/ignoré/TODO, 3 582,37 ms |
+| `npm test` | PASS, **340/340**, 0 échec/annulé/ignoré/TODO, 9 446,98 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check fce2929^ fce2929` | PASS, code 0 |
+
+## Tokens sémantiques
+
+La résolution indépendante de la cascade produit exactement :
+
+```text
+--primary       → #6c5ce7
+--surface       → #ffffff
+--surface-soft  → #eeebff
+--text          → #151823
+--border        → #e6e8ed
+```
+
+Le test de fondation exige les cinq alias et confirme qu'ils pointent tous vers un token racine existant. Les modules métier ne retombent donc plus sur des déclarations CSS invalides lorsque `var(--primary)`, `var(--surface)`, `var(--surface-soft)`, `var(--text)` ou `var(--border)` est employé.
+
+## Pilotage
+
+L'onglet sélectionné applique désormais réellement :
+
+```css
+background: var(--primary);
+border-color: var(--primary);
+color: #fff;
+```
+
+La combinaison calculée blanc sur `#6c5ce7` atteint **4,86:1**, au-dessus du seuil WCAG AA de `4,5:1` pour le texte courant. L'onglet actif est donc distinct et lisible, sans dépendre uniquement de la couleur puisqu'il conserve aussi `aria-selected="true"`.
+
+Statut : **conforme**.
+
+## Réalisations et Finance
+
+Le token `--border` se résout à `#e6e8ed` sur les séparateurs auparavant perdus. Les sélecteurs effectivement couverts sont :
+
+- Réalisations : en-tête de section, lignes de réalisations, en-tête et pied du dialogue ;
+- Finance : en-tête de section et cellules/en-têtes des tableaux.
+
+Les déclarations `border-bottom`/`border-top: 1px solid var(--border)` sont désormais valides et restituent la hiérarchie des listes, formulaires et tableaux.
+
+Statut : **conforme**.
+
+## Écrans principaux et non-régression G8
+
+Les alias réemploient uniquement les couleurs déjà établies du design system ; ils n'introduisent ni nouvelle police, ni dépendance, ni variation de layout. Planning, Clients, Projets, Budgets/devis, Organisations, Stock, Réalisations, Finance et Pilotage conservent leurs routes et composants. La suite ciblée rejoue en outre les six Dashboards, les sept rôles, les exports, scopes, filtres, bornes, réconciliations et le replay SSE exact.
+
+Le parcours navigateur intégrateur ayant observé le défaut puis le correctif sur les écrans principaux est cohérent avec cette résolution indépendante des styles ; il n'est pas utilisé comme substitut aux probes et suites QA ci-dessus.
+
+## Limites
+
+- aucun navigateur contrôlable n'était exposé directement à cette session QA : aucune nouvelle capture pixel n'est revendiquée ; la preuve visuelle indépendante repose sur la cascade CSS exacte, le calcul de contraste, les sélecteurs rendus et le test contractuel, complétés par le parcours navigateur intégrateur déjà fourni ;
+- `--border` reste volontairement un séparateur discret ; aucun changement de direction artistique hors correction des variables manquantes n'a été évalué ;
+- l'approbation porte exclusivement sur le hash exact ci-dessus et devient caduque si les styles ou tests couverts changent.
+
+## Verdict terminal
+
+La re-QA indépendante du correctif visuel post-release sur `fce292974c933358bbfd980c8344cc38e5a923ed` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Les tokens sont tous résolus, l'onglet Pilotage actif est lisible à **4,86:1**, les bordures Réalisations/Finance sont restaurées et aucune régression G8 n'est détectée. Preuves terminales : ciblés **107/107**, suite complète **340/340**, lint, build et diff-check verts.
+
+---
+
+# Re-QA ultime RC2 — focus clavier Pilotage
+
+Date : 2026-08-24 15:44 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat exact `34a9d7883dcf22cad517bf45393848eaa60d48d8`, tokens sémantiques, onglets Pilotage actifs, focus clavier opaque des onglets et actions KPI, séparateurs Réalisations/Finance et non-régression complète avant RC2.
+
+Indépendance : aucun code, test, contrat, statut ou autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Empreintes du candidat testé
+
+```text
+styles.css                        8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+planning.css                      2c4bea06db6d29e0fa6ad8febdd78cb24e553e02ecfeb33f8cd4db666145897b
+app.js                            4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+index.html                        419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+tests/foundations.test.js         aaa49dde1f59c94bf7b4fc292e25852f52a638745f3adc932d7d43b71ce185e3
+tests/sprint8-dashboards.test.js  098b4f463bafb9c7ba5722c549415954a5aa92502f0b9abdd3918c7b013ee747
+tests/sprint8-exports.test.js     7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-security.test.js    9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+server.js                         b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64, baseline applicative `0.5.0-rc1` candidate à promouvoir en rc2.
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| probe CSS tokens/actif/focus/bordures | PASS : cinq tokens résolus ; actif à `4,86:1` ; dernier sélecteur focus opaque `3px solid var(--primary)` ; séparateurs Réalisations/Finance présents |
+| calcul de contraste du focus `#6c5ce7` | `4,86:1` sur blanc, `4,49:1` sur fond page, `4,16:1` sur surface douce — tous supérieurs à `3:1` |
+| `node --test tests/foundations.test.js tests/domain.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **107/107**, 0 échec/annulé/ignoré/TODO, 3 997,23 ms |
+| `npm test` | PASS, **340/340**, 0 échec/annulé/ignoré/TODO, 10 233,33 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check 34a9d78^ 34a9d78` | PASS, code 0 |
+
+## Tokens et onglets actifs
+
+Les alias restent stables et résolus : `primary=#6c5ce7`, `surface=#fff`, `surface-soft=#eeebff`, `text=#151823`, `border=#e6e8ed`. Tous les onglets Pilotage partagent le même bouton sémantique et l'état sélectionné conserve `aria-selected="true"`, fond/bordure primaire et texte blanc. Le contraste texte actif reste à **4,86:1**.
+
+Statut : **conforme**.
+
+## Focus clavier opaque
+
+La cascade contient encore l'ancienne déclaration translucide, mais le dernier sélecteur, placé après elle, la remplace explicitement :
+
+```css
+.pilotage-tabs button:focus-visible,
+.pilotage-kpi button:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+```
+
+Le probe vérifie que la déclaration finale ne contient ni `transparent` ni `color-mix`. Le contour opaque atteint au minimum **4,16:1** sur les trois surfaces réellement employées, au-dessus de la cible non textuelle `3:1`; son épaisseur `3px` et son décalage `2px` le distinguent également de la bordure du composant.
+
+Statut : **conforme**.
+
+## Réalisations et Finance
+
+Les séparateurs restaurés au passage précédent restent actifs : quatre groupes de sélecteurs Réalisations (en-tête, lignes, dialogue haut/bas) et deux groupes Finance (en-tête de section, cellules/en-têtes de tableau) résolvent tous `var(--border)` vers `#e6e8ed`.
+
+Statut : **conforme sans régression**.
+
+## Non-régression RC2
+
+La suite ciblée rejoue Design/Auth/Domaine, six Dashboards, sept rôles, trois formats, permissions/scopes, exports, filtres, bornes, réconciliations et replay SSE exact. La suite complète reste verte à **340/340**. Le correctif est strictement CSS/test/documentation et ne modifie ni API, ni données, ni layout.
+
+## Limites
+
+- aucun navigateur contrôlable n'était exposé directement à cette session QA : aucune capture ou séquence Tab native supplémentaire n'est revendiquée ; le contrôle indépendant s'appuie sur la cascade finale réellement livrée, les rapports de contraste et le test de fondation ;
+- la déclaration translucide antérieure reste dans la feuille mais est systématiquement surchargée par la règle finale de même spécificité ; cela n'altère pas le rendu, même si une consolidation CSS future pourrait la supprimer ;
+- l'approbation porte exclusivement sur le hash exact ci-dessus et devient caduque si les styles ou tests couverts changent.
+
+## Verdict terminal
+
+La re-QA ultime RC2 sur `34a9d7883dcf22cad517bf45393848eaa60d48d8` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Tokens, onglets actifs, focus clavier opaque et bordures Réalisations/Finance sont conformes ; aucune régression n'est détectée. Preuves terminales : ciblés **107/107**, suite complète **340/340**, lint, build et diff-check verts.

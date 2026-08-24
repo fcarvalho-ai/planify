@@ -1,3 +1,143 @@
+# Re-REVIEW ultime RC2 — indicateur de focus Pilotage
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `34a9d7883dcf22cad517bf45393848eaa60d48d8` (`fix(a11y): strengthen pilotage focus ring`)
+
+Correctif contrôlé : `fce292974c933358bbfd980c8344cc38e5a923ed..34a9d7883dcf22cad517bf45393848eaa60d48d8`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert ; 1 P2 non bloquant.**
+
+Le P1 `REV-RC2-UI-01` est fermé. L'override final remplace effectivement l'outline translucide par `3px solid var(--primary)` sur les onglets et boutons KPI Pilotage. La couleur résolue `#6c5ce7` atteint **4,8584:1** sur blanc, au-dessus du minimum `3:1` pour un indicateur de focus. L'épaisseur et l'offset restent inchangés.
+
+## Fermeture de REV-RC2-UI-01
+
+- La nouvelle règle reprend exactement le même sélecteur que la règle historique : `.pilotage-tabs button:focus-visible,.pilotage-kpi button:focus-visible`.
+- Les deux règles ont donc la même spécificité. La règle opaque est déclarée après la règle translucide, après le bloc responsive et en dernière position de `planning.css` : l'ordre source la fait gagner sans `!important`.
+- Aucun sélecteur ultérieur ne réécrit `outline` ou `outline-color` pour ces contrôles.
+- `--primary` se résout dans `styles.css` en `var(--purple)`, puis `#6c5ce7`. La règle effective ne dépend plus de `color-mix()` et conserve un rendu explicite dans les navigateurs supportant les variables CSS.
+- Le ratio calculé `#6c5ce7` / `#ffffff` est `4,8584211597:1`. L'`outline-offset:2px` préserve une séparation visible avec le bouton, y compris lorsque l'onglet sélectionné possède lui-même un fond primaire.
+- Le changement est strictement CSS hors test/statut : aucune incidence sur la mise en page, les contrats API, les données, les permissions ou les moteurs G8.
+
+## P2 — couverture statique de la cascade
+
+Le nouveau test Foundations vérifie la présence textuelle de la règle opaque, mais pas qu'elle reste la dernière déclaration gagnante ni que la valeur résolue respecte automatiquement le seuil de contraste. Une future règle plus tardive ou une modification de `--purple` pourrait donc échapper à ce test. Ce point n'est pas bloquant sur le candidat présent, dont la cascade et la valeur résolue ont été contrôlées directement.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` : `34a9d7883dcf22cad517bf45393848eaa60d48d8`.
+- Inspection du diff et de la fin de `planning.css` : override opaque en dernière position, même sélecteur et même spécificité ; **conforme**.
+- Sonde WCAG locale sur les valeurs exactes : `#6c5ce7` / `#ffffff` = **4,8584211597:1**.
+- `node --check app.js` : **PASS**.
+- `node --test tests/foundations.test.js` : **PASS, 17/17**, 0 échec/skip/todo, durée `327,788 ms`.
+- `npm test` : **PASS, 340/340**, 0 échec/cancelled/skip/todo, durée `9,474 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check fce292974c933358bbfd980c8344cc38e5a923ed..34a9d7883dcf22cad517bf45393848eaa60d48d8` : **PASS**.
+- Limite : aucun smoke visuel navigateur ou lecteur d'écran frais n'est revendiqué ; le verdict repose sur la cascade exacte, la mesure de contraste et les tests automatisés.
+
+Empreintes contrôlées :
+
+```text
+planning.css                        2c4bea06db6d29e0fa6ad8febdd78cb24e553e02ecfeb33f8cd4db666145897b
+styles.css                          8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+tests/foundations.test.js           aaa49dde1f59c94bf7b4fc292e25852f52a638745f3adc932d7d43b71ce185e3
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW ultime RC2 est **APPROVED** sur le candidat exact `34a9d7883dcf22cad517bf45393848eaa60d48d8` : 0 P0, 0 P1, 1 P2 non bloquant. L'intégrateur doit reporter ce verdict et faire porter les gates aval sur ce même état applicatif.
+
+---
+
+# Re-REVIEW indépendante — correctif visuel post-release G8
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `fce292974c933358bbfd980c8344cc38e5a923ed` (`fix(ui): define semantic design tokens`)
+
+Correctif contrôlé : `9c3f958..fce292974c933358bbfd980c8344cc38e5a923ed`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 1 P1 ouvert, 2 P2.**
+
+Les cinq tokens sémantiques sont bien définis et résolvent les déclarations auparavant invalides dans Pilotage, Réalisations et Finance. Les contrastes du texte principal et de l'onglet Pilotage sélectionné sont conformes. En revanche, l'activation de `--primary` rend aussi effectif un indicateur de focus Pilotage mélangé à seulement 35 % de violet : son contraste calculé sur la surface blanche est `1,62:1`, très inférieur au minimum `3:1`. Le candidat ne peut donc pas précéder RC2 en l'état.
+
+## P1 — REV-RC2-UI-01 — focus Pilotage nouvellement actif mais insuffisamment contrasté
+
+`planning.css:168` applique aux onglets Pilotage et aux boutons de KPI :
+
+```css
+outline: 3px solid color-mix(in srgb, var(--primary) 35%, transparent)
+```
+
+Avec `--primary → --purple → #6c5ce7` et une surface blanche, le mélange transparent se compose visuellement en environ `#ccc6f7`. La formule de luminance relative WCAG donne un contraste de **1,6169:1** contre `#ffffff`, sous le seuil **3:1** exigé pour qu'un indicateur de focus soit perceptible par rapport aux couleurs adjacentes.
+
+Avant ce commit, `--primary` était indéfini et la déclaration auteur entière était invalide ; le navigateur pouvait conserver son focus par défaut. Le correctif active donc explicitement un outline peu visible et constitue une régression d'accessibilité sur les contrôles clavier centraux du module Pilotage.
+
+Correction attendue : utiliser une couleur d'outline opaque atteignant au moins `3:1` sur les surfaces possibles, par exemple `var(--primary)` lui-même (`4,8584:1` sur blanc), conserver les 3 px et l'offset, puis ajouter un test qui valide la valeur résolue ou son contraste. Rejouer au clavier les onglets et « Voir le détail ».
+
+## P2 — importants, non bloquants isolément
+
+1. Le test Foundations vérifie uniquement que les cinq alias contiennent `var(--...)`. Il ne vérifie ni leurs cibles exactes, ni leur résolution, ni leurs usages, ni leurs contrastes. Une inversion, une référence circulaire ou une valeur trop claire resterait verte.
+2. `color-mix()` ne possède aucun fallback auteur dans la règle de focus Pilotage. Les navigateurs qui ne supportent pas cette fonction ignorent la déclaration ; un outline simple avant la variante moderne préserverait une compatibilité explicite. Ce point devient secondaire si la correction P1 remplace directement le mélange par une couleur opaque.
+
+## Éléments conformes
+
+- Les cinq alias demandés existent dans `:root` : `--primary`, `--surface`, `--surface-soft`, `--text`, `--border`.
+- Leur chaîne de résolution est déterministe : `primary=#6c5ce7`, `surface=#ffffff`, `surface-soft=#eeebff`, `text=#151823`, `border=#e6e8ed`.
+- L'ordre de chargement `styles.css` puis `planning.css` rend les alias disponibles à tous les consommateurs sans changer la cascade locale.
+- Pilotage utilise les cinq tokens : onglets, état sélectionné, cartes indisponibles, sources et focus.
+- Réalisations et Finance utilisent `--border` pour leurs sections, listes, dialogues et tableaux ; leurs focus dédiés `#8068f2` conservent environ `4,05:1` sur blanc et `3,79:1` sur `#f7f7fb`.
+- Le texte blanc sur `--primary` atteint `4,8584:1` ; `--text` sur `--surface` atteint `17,6945:1`. Les libellés sélectionnés et le texte principal passent AA.
+- Le changement est CSS-only hors test/statut : aucun impact API, données, RBAC, exports, calculs G8 ou SSE.
+
+`--border` sur blanc n'atteint que `1,2259:1`. Il est utilisé surtout comme séparateur décoratif de lignes, mais l'onglet Pilotage inactif repose aussi sur cette bordure très claire. Le libellé sombre, la forme et le groupement restent perceptibles ; ce point n'est pas classé P1 sur ce diff minimal, mais mérite une vérification visuelle avec les utilisateurs malvoyants.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` et `git rev-parse fce2929` : `fce292974c933358bbfd980c8344cc38e5a923ed` au début de la revue.
+- Inspection des définitions et de tous les usages `var(--primary|surface|surface-soft|text|border)` : **5 alias présents**, consommateurs Pilotage/Réalisations/Finance identifiés.
+- Sonde WCAG locale : blanc/primary `4,8584:1`, blanc/text `17,6945:1`, blanc/border `1,2259:1`, blanc/focus composite 35 % `1,6169:1`, blanc/focus Réalisations-Finance `4,0540:1`.
+- `node --check app.js` : **PASS**.
+- `node --test tests/foundations.test.js` : **PASS, 17/17**, 0 échec/skip/todo, durée `324,01 ms`.
+- `npm test` : **PASS, 340/340**, 0 échec/skip/todo, durée `9,197 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check 9c3f958..fce2929` : **PASS**.
+- Limite : aucun audit visuel navigateur automatisé ou lecteur d'écran n'a été exécuté ; les ratios sont calculés à partir des valeurs CSS exactes du candidat.
+
+Empreintes contrôlées :
+
+```text
+styles.css                          8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+planning.css                        51b38d7ed0eef30e085725777bc293c6e2c435dc87e07056913dbc116608197d
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+tests/foundations.test.js           3708ad8c6e611e871d83fe16d5cf7acd08730d46fc277269a32ff3cd79e7fea4
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW post-release G8 est **CHANGES REQUIRED** sur `fce292974c933358bbfd980c8344cc38e5a923ed` : 0 P0, 1 P1 (`REV-RC2-UI-01`), 2 P2. Retour DEV requis avant RC2, puis re-REVIEW indépendante et gates aval visuels/accessibilité impactés.
+
+---
+
 # Re-REVIEW terminale G8 — composition finale du rendu authentifié
 
 Date : 2026-08-24
