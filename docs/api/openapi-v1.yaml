@@ -763,6 +763,8 @@ paths:
         - { name: siteId, in: query, schema: { type: string } }
         - { name: resourceId, in: query, schema: { type: string } }
         - { name: resourceCategoryId, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
       responses:
         '200': { description: Occupation réconciliée à la capacité nette, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceAnalyticsResponse' } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -775,6 +777,8 @@ paths:
         - { name: asOf, in: query, schema: { type: string, format: date } }
         - { name: projectId, in: query, schema: { type: string } }
         - { name: dimension, in: query, schema: { type: string, enum: [resourceId, serviceOfferingId, clientId, projectId, siteId] } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
       responses:
         '200': { description: Rentabilité multidimensionnelle, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceAnalyticsResponse' } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -785,6 +789,8 @@ paths:
       parameters:
         - { name: asOf, in: query, schema: { type: string, format: date } }
         - { name: projectId, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
       responses:
         '200': { description: Réalisé non couvert à traiter commercialement, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceAnalyticsResponse' } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -792,6 +798,10 @@ paths:
     get:
       operationId: getFinanceRateDiscounts
       tags: [Analytics, Finance]
+      parameters:
+        - { name: projectId, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
       responses:
         '200': { description: Comparaison des prix figés et du catalogue applicable, content: { application/json: { schema: { $ref: '#/components/schemas/FinanceAnalyticsResponse' } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -2103,7 +2113,7 @@ components:
         itemCount: { type: integer, minimum: 0 }
     FinanceAnalyticsResponse:
       type: object
-      required: [definitionVersion, generatedAt, items]
+      required: [definitionVersion, generatedAt, items, itemCount, page, pageSize, pageCount]
       properties:
         definitionVersion: { type: string }
         generatedAt: { type: string, format: date-time }
@@ -2112,6 +2122,9 @@ components:
         totals: { type: object, additionalProperties: true }
         items: { type: array, maxItems: 1000, items: { type: object, additionalProperties: true } }
         itemCount: { type: integer, minimum: 0 }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 500 }
+        pageCount: { type: integer, minimum: 0 }
       additionalProperties: true
     OccupancyThresholdCommand:
       type: object

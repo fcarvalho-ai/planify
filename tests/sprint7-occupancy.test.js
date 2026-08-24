@@ -36,11 +36,42 @@ test('S7-D réconcilie capacité nette, planifié, réel et seuils', () => {
   assert.throws(() => financeOccupancy(db, auth, { from: '2025-01-01', to: '2026-09-01' }), error => error.code === 'ANALYTICS_PERIOD_TOO_LARGE');
 });
 
+test('S7-D compte une seule double option canonique et conserve le signal planifié sans réalisé', () => {
+  const { db, auth } = fixture(), template = db.reservations[0];
+  db.reservations = [
+    { ...template, id: 'option-priority-2', status: 'option', optionGroupId: 'group-a', optionPriority: 2 },
+    { ...template, id: 'option-priority-1', status: 'option', optionGroupId: 'group-a', optionPriority: 1 },
+  ];
+  db.actualRecords = []; db.actualRevisions = [];
+  const row = financeOccupancy(db, auth, { from: '2026-09-01', to: '2026-09-01' }).items[0];
+  assert.equal(row.plannedCapacityMs, 28800000);
+  assert.equal(row.actualOccupancyBps, null);
+  assert.equal(row.plannedOccupancyBps, 3333);
+});
+
 test('S7-D expose rentabilité, non-facturé et remise sans gonfler le CA signé', () => {
   const { db, auth } = fixture(), profitability = financeProfitability(db, auth, { dimension: 'projectId', asOf: '2026-09-30' }), overages = financeUnbilledOverages(db, auth, { asOf: '2026-09-30' }), discounts = financeRateDiscounts(db, auth);
   assert.equal(profitability.items[0].dimensionId, 'project_occ'); assert.equal(profitability.items[0].signedRevenueMinor, '8000');
   assert.equal(overages.items[0].billableQuantityMilli, '500'); assert.equal(overages.items[0].includedInSignedRevenue, false); assert.equal(overages.items[0].includedInInvoicedRevenue, false);
+  assert.deepEqual(overages.items[0].reservationIds, ['planned']); assert.equal(overages.items[0].suggestedAction, 'createComplementaryQuote');
   assert.equal(discounts.items[0].catalogueUnitPriceMinor, '10000'); assert.equal(discounts.items[0].frozenUnitPriceMinor, '8000'); assert.equal(discounts.items[0].discountBps, 2000);
+  assert.equal(discounts.weightedMarginBps, 6250);
+});
+
+test('S7-D respecte asOf et ventile les dépenses Projet dans la rentabilité', () => {
+  const { db, auth } = fixture();
+  db.projectCosts.push({ id: 'project-cost', companyId: 'company_occ', projectId: 'project_occ', siteId: 'site_occ', category: 'supplier', description: 'Prestataire', amountMinor: '1200', occurredOn: '2026-09-10', status: 'confirmed' });
+  const before = financeProfitability(db, auth, { dimension: 'projectId', asOf: '2026-08-31' }).items[0], after = financeProfitability(db, auth, { dimension: 'projectId', asOf: '2026-09-30' }).items[0];
+  assert.equal(before.actualCostMinor, '0'); assert.equal(before.plannedCostMinor, '4200');
+  assert.equal(after.actualCostMinor, '5200'); assert.equal(after.plannedCostMinor, '4200');
+  const site = financeProfitability(db, auth, { dimension: 'siteId', asOf: '2026-09-30' }).items[0]; assert.equal(site.dimensionId, 'site_occ'); assert.equal(site.actualCostMinor, '5200');
+});
+
+test('S7-D distingue explicitement une référence catalogue indisponible', () => {
+  const { db, auth } = fixture(); db.rates = [];
+  const result = financeRateDiscounts(db, auth);
+  assert.equal(result.weightedDiscountBps, null); assert.equal(result.catalogueComparableCount, 0);
+  assert.equal(result.items[0].catalogueReferenceStatus, 'unavailable'); assert.equal(result.items[0].catalogueUnitPriceMinor, null); assert.equal(result.items[0].discountBps, null);
 });
 
 test('S7-D agrège la rentabilité complète au-delà de la pagination du détail', () => {
@@ -49,6 +80,7 @@ test('S7-D agrège la rentabilité complète au-delà de la pagination du détai
   const result = financeProfitability(db, auth, { dimension: 'projectId', asOf: '2026-09-30' });
   assert.equal(result.items[0].signedRevenueMinor, '2000000');
   assert.equal(result.items[0].sourceIds.length, 200);
+  const discounts = financeRateDiscounts(db, auth, { page: '2', pageSize: '50' }); assert.equal(discounts.itemCount, 250); assert.equal(discounts.page, 2); assert.equal(discounts.items.length, 50);
 });
 
 test('S7-D valide les seuils persistés et ses contrats publics', () => {
@@ -57,5 +89,5 @@ test('S7-D valide les seuils persistés et ses contrats publics', () => {
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'), app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8'), openapi = fs.readFileSync(path.join(__dirname, '..', 'docs/api/openapi-v1.yaml'), 'utf8');
   for (const token of ['/api/v1/analytics/occupancy', '/api/v1/analytics/profitability', '/api/v1/analytics/unbilled-overages', '/api/v1/analytics/rate-discounts', '/api/v1/finance/occupancy-thresholds']) assert.ok(server.includes(token));
   for (const token of ['/analytics/occupancy:', '/analytics/profitability:', '/analytics/unbilled-overages:', '/analytics/rate-discounts:', '/finance/occupancy-thresholds:']) assert.ok(openapi.includes(token));
-  for (const token of ['Capacité nette et contrôle opérationnel', 'Réalisé non facturé', 'Remise pondérée', 'renderFinanceOperations']) assert.ok(app.includes(token));
+  for (const token of ['Capacité nette et contrôle opérationnel', 'Réalisé non facturé', 'Remise / marge pondérées', 'Créer un devis complémentaire', 'renderFinanceOperations']) assert.ok(app.includes(token));
 });

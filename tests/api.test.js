@@ -1052,3 +1052,14 @@ test('les déplacements et copies batch conservent les heures locales autour du 
   assert.equal(copied.data.items[0].startsAt, '2027-04-02T21:30:00.000Z');
   assert.equal(copied.data.items[0].endsAt, '2027-04-03T01:30:00.000Z');
 });
+
+test('S7-D interdit le seuil Société à un acteur limité à un Site avant tout effet', async () => {
+  const memberships = await request('/api/v1/memberships?pageSize=200', {}, admin), membership = memberships.data.items.find(value => value.userId === admin.user.id);
+  assert.ok(membership);
+  const scoped = await request(`/api/v1/memberships/${membership.id}/scopes`, { method: 'PUT', headers: { 'Idempotency-Key': 's7d-admin-site-scope' }, body: JSON.stringify({ version: membership.version, scope: 'sites', siteIds: ['site_paris'], organizationUnitIds: [], projectIds: [], entityScopes: {} }) }, admin);
+  assert.equal(scoped.response.status, 200);
+  const before = readDb(), beforeThresholds = before.occupancyThresholds.length, beforeMarkers = before.occupancyThresholdIdempotency.length, beforeAudits = before.auditEvents.length;
+  const rejected = await request('/api/v1/finance/occupancy-thresholds', { method: 'POST', headers: { 'Idempotency-Key': 's7d-global-threshold-denied' }, body: JSON.stringify({ underutilizedBps: 3500, saturatedBps: 8500 }) }, admin);
+  assert.equal(rejected.response.status, 403); assert.equal(rejected.data.error.code, 'ORGANIZATION_SCOPE_REQUIRED');
+  const unchanged = readDb(); assert.equal(unchanged.occupancyThresholds.length, beforeThresholds); assert.equal(unchanged.occupancyThresholdIdempotency.length, beforeMarkers); assert.equal(unchanged.auditEvents.length, beforeAudits);
+});
