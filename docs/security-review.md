@@ -987,6 +987,70 @@ scripts/benchmark-finance.js        087702c7b9bf7d19c4f2a1042bd5318a234332f4863f
 
 ---
 
+# Revalidation SECURITY indépendante — aliases CSS post-release G8
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `fce292974c933358bbfd980c8344cc38e5a923ed`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict avant RC2
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts, 0 P3.**
+
+Le correctif définit cinq aliases CSS constants (`primary`, `surface`, `surface-soft`, `text`, `border`) par référence aux tokens locaux existants. Il ne lit aucune entrée utilisateur, ne construit aucun HTML, n'introduit aucune URL ou ressource distante et ne modifie ni JavaScript ni backend. Authentification, RBAC, scopes, projections de données et protections XSS restent bit-identiques.
+
+## Analyse sécurité et accessibilité
+
+- Les aliases sont déclarés dans `:root`, avec des valeurs fermées exclusivement `var(--token-existant)` ; aucune chaîne contrôlée par l'utilisateur ne peut atteindre ces propriétés.
+- `--primary → #6c5ce7` avec texte blanc donne environ **4,86:1**, conforme au contraste AA du texte normal.
+- `--text → #151823` sur `--surface → #fff` donne environ **17,69:1**.
+- `--surface-soft → #eeebff` conserve environ **15,14:1** avec le texte principal.
+- Les boutons sélectionnés Pilotage restent différenciés par fond, bordure, texte et `aria-selected`, sans dépendre uniquement de la couleur côté sémantique.
+- Aucun impact sur `hidden`, `aria-hidden`, `inert`, transfert de focus de connexion ou fermeture des overlays précédemment validés.
+
+## P2 ouverts
+
+1. **SEC-G8-05 demeure :** les valeurs internes de certains overlays masqués/inertes ne sont pas explicitement purgées à la fin de session. Ce correctif CSS est sans impact sur ce durcissement local.
+2. **A11Y-G8-01 — contraste du focus Pilotage :** l'anneau `3px` utilise `color-mix(in srgb,var(--primary) 35%,transparent)`. Composé sur blanc, il est proche de `#ccc6f7`, soit environ **1,62:1** par rapport au fond, sous la cible non-textuelle **3:1**. L'alias rend maintenant cette règle valide et visible, mais une proportion plus forte ou une couleur opaque est recommandée avant stabilisation UX. `--border → #e6e8ed` ne donne qu'environ **1,23:1** sur blanc ; les composants restent identifiables par leur texte/fond, mais ce token ne doit pas servir seul d'indicateur d'état ou de focus.
+
+## Non-régression auth/RBAC/XSS/backend
+
+Le diff applicatif est strictement une déclaration CSS. `app.js`, `server.js`, `index.html`, `planning.css`, contrats API, RBAC et données sont inchangés. La suite complète conserve les refus d'accès, isolation, auth/CSRF, exports et SSE précédemment approuvés.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `fce292974c933358bbfd980c8344cc38e5a923ed` |
+| diff candidat | `styles.css` +1 déclaration ; test Foundations +7 ; aucun JS/backend |
+| Foundations + dashboards G8 | **PASS, 29/29**, 0 échec/skip/todo, durée `1 451,67 ms` |
+| `npm test` | **PASS, 340/340**, 0 échec/skip/todo, durée `9 925,21 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+| calculs WCAG sRGB | blanc/primary `4,86:1` ; texte/surface `17,69:1` ; focus 35 %/blanc `1,62:1` |
+
+Le navigateur intégré est indisponible (`No browser is available`) : aucun contrôle visuel multi-écran ni focus clavier réel n'est affirmé. Les ratios sont calculés sur les couleurs résolues et le fond blanc déclaré.
+
+```text
+styles.css                          8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+planning.css                        51b38d7ed0eef30e085725777bc293c6e2c435dc87e07056913dbc116608197d
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+```
+
+## Handoff
+
+- Gate SECURITY CSS post-release : **APPROVED** sur `fce2929`, 0 P0/0 P1/2 P2/0 P3.
+- `A11Y-G8-01` est recommandé avant stabilisation UX mais ne bloque pas techniquement RC2 selon la classification courante.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Re-gate SECURITY indépendant — correctif UI post-E2E G8
 
 Date : 2026-08-24

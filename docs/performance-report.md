@@ -1146,6 +1146,59 @@ docs/api/openapi-v1.yaml            7395603efc38905461287d6c517d61653729869a7623
 
 ---
 
+# Revalidation PERFORMANCE indépendante — aliases CSS post-release G8
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `fce292974c933358bbfd980c8344cc38e5a923ed`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict avant RC2
+
+**APPROVED — 0 P0, 0 P1, 0 nouveau P2, 1 P3.**
+
+La déclaration ajoute cinq variables globales résolues une fois dans la cascade et référencées par des règles déjà présentes. Elle ne crée aucun sélecteur structurel supplémentaire, animation, image, police, requête réseau, listener ou mutation DOM. Le coût de résolution est constant par élément utilisateur des tokens et ne dépend pas du volume des datasets ; les propriétés finales (couleur, fond, bordure, outline) n'ajoutent aucun layout structurel.
+
+## Analyse de rendu
+
+- `color`, `background`, `border-color` et `outline-color` peuvent déclencher style/paint lorsque les vues concernées sont affichées, mais pas de recalcul géométrique significatif.
+- Les aliases évitent des déclarations invalides et permettent au navigateur de partager les tokens racine ; aucune duplication de DOM ou de règle complexe.
+- `app.js`, virtualisation Planning, dashboards, drill-downs, XLSX/PDF, serveur et persistance sont bit-identiques : aucun benchmark backend n'est invalidé.
+- La suite complète ajoute un seul test statique et reste verte ; la variation de durée globale n'est pas attribuable à une règle CSS racine.
+
+## P3 — PERF-G8-07 maintenu
+
+Le navigateur intégré est indisponible ; aucune trace fraîche style recalculation/paint ni mesure visuelle `<2 s` n'a pu être collectée. Le diff est suffisamment borné pour conclure à l'absence de risque P0/P1, mais un profil rapide de la page Pilotage reste recommandé lors de la recette RC2.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `fce292974c933358bbfd980c8344cc38e5a923ed` |
+| diff candidat | une déclaration `:root` et un test statique ; aucun JS/backend |
+| Foundations + dashboards G8 | **PASS, 29/29**, durée `1 451,67 ms` |
+| `npm test` | **PASS, 340/340**, durée `9 925,21 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+```text
+styles.css                          8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+planning.css                        51b38d7ed0eef30e085725777bc293c6e2c435dc87e07056913dbc116608197d
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+```
+
+## Handoff
+
+- Gate PERFORMANCE CSS post-release : **APPROVED** sur `fce2929`, 0 P0/0 P1/0 nouveau P2/1 P3 (`PERF-G8-07`).
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Re-gate PERFORMANCE indépendant — correctif UI post-E2E G8
 
 Date : 2026-08-24
