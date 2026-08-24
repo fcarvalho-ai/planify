@@ -26,6 +26,7 @@ const {
   snapPlanningTime,
   planningVirtualSlice,
   planningVirtualWindowNeedsRender,
+  planningColumnSlice,
   planningColumnWidth,
   planningMaxCellStack,
   planningCellEntriesBySlot,
@@ -96,6 +97,16 @@ test('le plein écran partage les mêmes largeurs entre CSS et virtualisation ho
   const quarterWidth=planningColumnWidth('quarter','day',true),quarter=planningVirtualSlice(92,99999,2239,quarterWidth,5);
   assert.equal(quarter.end,92);
   assert.equal(quarter.before+quarter.count*quarterWidth+quarter.after,92*quarterWidth);
+});
+
+test('les vues longues gardent toutes leurs colonnes montées pendant le scroll horizontal', () => {
+  const complete=planningColumnSlice(92,1800,1200,38,true);
+  assert.deepEqual(complete,{start:0,end:92,before:0,after:0,count:92,total:92});
+  const virtual=planningColumnSlice(288,1800,1200,38,false);
+  assert.ok(virtual.start>0);
+  assert.ok(virtual.end<288);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  assert.match(source,/planningColumnSlice\(slots\.length,planningVirtualState\.scrollLeft,planningVirtualState\.viewportWidth,columnWidth,compactView\)/);
 });
 
 test('le ghost de création normalise une sélection souris dans les deux directions', () => {
