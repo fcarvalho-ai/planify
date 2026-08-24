@@ -467,6 +467,9 @@ test('le planning rend des fenêtres virtualisées et restaure les deux axes de 
   assert.match(css, /scrollbar-width:none/);
   assert.match(source, /style\.setProperty\('--planning-scrollbar-size'/);
   assert.match(source, /timeline\.offsetHeight-timeline\.clientHeight/);
+  assert.match(source, /planningScrollbarResizeObserver=new ResizeObserver\(syncPlanningScrollbarSize\)/);
+  assert.match(source, /planningScrollbarResizeObserver\.observe\(timeline\)/);
+  assert.match(source, /planningScrollbarResizeObserver\?\.disconnect\(\)/);
 });
 
 test('la fenêtre virtuelle conserve un tampon pour ne pas reconstruire la grille à chaque cran de molette', () => {

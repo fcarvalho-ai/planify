@@ -98,6 +98,27 @@ paths:
       responses:
         '201': { description: Client créé avec son contrat de facturation canonique, content: { application/json: { schema: { type: object } } } }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /clients/{clientId}:
+    get:
+      operationId: getClient
+      tags: [Clients]
+      parameters: [{ name: clientId, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Client visible avec ses contacts et grilles actives, content: { application/json: { schema: { type: object } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateClient
+      tags: [Clients]
+      parameters:
+        - { name: clientId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ClientUpdateCommand' } } } }
+      responses:
+        '200': { description: Client mis à jour et versionné, content: { application/json: { schema: { type: object } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /projects:
     get:
       operationId: listProjects
@@ -1444,6 +1465,31 @@ components:
         color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', default: '#6C5CE7', description: Couleur de repérage du client dans le Planning. }
         billingAddress: { $ref: '#/components/schemas/BillingAddress' }
         active: { type: boolean, default: true }
+    ClientUpdateCommand:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version: { type: integer, minimum: 1 }
+        name: { type: string, maxLength: 160 }
+        code: { type: string, maxLength: 32 }
+        status: { type: string, enum: [active, prospect, inactive] }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        paymentTermsDays: { type: integer, minimum: 0, maximum: 365 }
+        billingTerms: { type: string, maxLength: 1000 }
+        color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: Couleur de repérage du client dans le Planning. }
+        billingAddress: { $ref: '#/components/schemas/BillingAddress' }
+        email: { type: string, format: email, maxLength: 254 }
+        phone: { type: string, maxLength: 40 }
+        website: { type: string, format: uri, maxLength: 300 }
+        billingEmail: { type: string, format: email, maxLength: 254 }
+        billingAddressLine1: { type: string, maxLength: 200 }
+        billingAddressLine2: { type: string, maxLength: 200 }
+        billingPostalCode: { type: string, maxLength: 24 }
+        billingCity: { type: string, maxLength: 120 }
+        billingCountry: { type: string, pattern: '^[A-Z]{2}$' }
+        notes: { type: string, maxLength: 4000 }
+        active: { type: boolean }
     ProjectCreateCommand:
       type: object
       additionalProperties: false

@@ -2579,7 +2579,8 @@ const clientInputWithoutPlanningColor = clientInput;
 clientInput = function clientInputWithPlanningColor(input, existing = {}, options = {}) {
   const { color: requestedColor, ...baseInput } = input;
   const next = clientInputWithoutPlanningColor(baseInput, existing, options);
-  const color = cleanString(requestedColor ?? existing.color ?? '#6C5CE7', 7).toUpperCase();
+  const colorValue = requestedColor ?? existing.color ?? '#6C5CE7';
+  const color = typeof colorValue === 'string' ? colorValue.trim().toUpperCase() : '';
   if (!/^#[0-9A-F]{6}$/.test(color)) throw apiError(422, 'VALIDATION_ERROR', 'La couleur planning du client est invalide.', { fields: ['color'] });
   return { ...next, color };
 };

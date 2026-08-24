@@ -13,7 +13,7 @@ let state=typeof localStorage==='undefined'?clone(seed):(()=>{try{const x=JSON.p
 const bookingForm=typeof document==='undefined'?null:document.getElementById('bookingForm');
 let view='week',anchor='2026-08-17',planningDomain='postProduction',planningFullscreen=false,planningShowWeekends=true,planningGranularity='day',activePlanningProjectId='',activePlanningQuoteId='',planningQuoteControl=null,filters={site:'',resource:'',type:'',project:'',status:''},editingVersion=null,suppressBookingOpenUntil=0;
 const planningVirtualState={key:'',scrollLeft:0,scrollTop:0,viewportWidth:1200,viewportHeight:760,rowStart:0,columnStart:0};
-let planningVirtualRenderQueued=false,planningCreationDrag=null,suppressPlanningCellClickUntil=0;
+let planningVirtualRenderQueued=false,planningCreationDrag=null,suppressPlanningCellClickUntil=0,planningScrollbarResizeObserver=null;
 let apiMode='unknown',csrfToken=null,sessionNotice='';
 let planningSyncState=typeof navigator!=='undefined'&&navigator.onLine===false?'offline':'synced',planningConnectivityBound=false,planningPendingMutations=0,planningNetworkFailure=false;
 let planningPresence=[],activePlanningPresence=null,planningPresenceHeartbeat=null;
@@ -258,11 +258,14 @@ bind=function(){
   if(immersiveHead)immersiveHead.onclick=event=>{
     if(event.target===immersiveHead)setPlanningFullscreen(false);
   };
+  planningScrollbarResizeObserver?.disconnect();planningScrollbarResizeObserver=null;
   const timeline=document.querySelector('.planning-matrix-scroll'),scrollbar=document.querySelector('[data-planning-scroll]'),scrollbarTrack=scrollbar?.firstElementChild;
   if(timeline&&scrollbar&&scrollbarTrack){
     const fixedColumn=document.querySelector('.planning-fixed-column');
     const matrixShell=document.querySelector('.planning-matrix-shell'),matrixTrack=timeline.querySelector('.postprod-matrix');
-    matrixShell?.style.setProperty('--planning-scrollbar-size',`${Math.max(0,timeline.offsetHeight-timeline.clientHeight)}px`);
+    const syncPlanningScrollbarSize=()=>matrixShell?.style.setProperty('--planning-scrollbar-size',`${Math.max(0,timeline.offsetHeight-timeline.clientHeight)}px`);
+    syncPlanningScrollbarSize();
+    if(typeof ResizeObserver!=='undefined'){planningScrollbarResizeObserver=new ResizeObserver(syncPlanningScrollbarSize);planningScrollbarResizeObserver.observe(timeline);if(matrixShell)planningScrollbarResizeObserver.observe(matrixShell)}
     if(matrixShell&&matrixTrack)matrixTrack.style.width=`${Number(matrixShell.dataset.totalColumns)*Number(matrixShell.dataset.columnWidth)}px`;
     const restorePlanningScroll=()=>{
       timeline.scrollLeft=planningVirtualState.scrollLeft;
