@@ -400,6 +400,9 @@ test('une vue Projet agrandit uniform√©ment les lignes qui empilent plusieurs r√
   assert.match(source, /data-row-height="\$\{rowHeight\}"/);
   assert.match(source, /rowHeight=Number\(matrix\?\.dataset\.rowHeight\)\|\|92/);
   assert.match(source, /event\(booking,cell,stacked\)/);
+  assert.match(source, /const PLANNING_CELL_RENDER_LIMIT=50/);
+  assert.match(source, /visibleCells=cells\.slice\(0,PLANNING_CELL_RENDER_LIMIT\)/);
+  assert.match(source, /planning-stack-summary/);
   assert.equal((source.match(/planningEventOperationsBase\(booking,cell,compact\)|commercialPlanningEventBase\(booking,cell,compact\)/g)||[]).length, 2);
   assert.match(css, /\.planning-cell\.is-stacked \.planning-event\.is-compact-stack\{[^}]*height:58px/);
   assert.match(css, /\.planning-cell\.is-time-slot\.is-stacked\{overflow-x:hidden;overflow-y:auto/);
