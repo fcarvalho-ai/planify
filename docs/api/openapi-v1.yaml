@@ -794,6 +794,56 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /analytics/datasets:
+    get:
+      tags: [Analytics]
+      operationId: listAnalyticsDatasets
+      summary: Lister le catalogue fermé des datasets autorisés
+      responses:
+        '200':
+          description: Datasets disponibles avec leur version, formats et champs stables
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalyticsDatasetCatalog' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /analytics/datasets/{dataset}:
+    get:
+      tags: [Analytics]
+      operationId: readAnalyticsDataset
+      summary: Lire un dataset analytique borné au format JSON ou CSV UTF-8
+      parameters:
+        - name: dataset
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [signed-revenue, backlog, forecast, margins, occupancy, profitability, unbilled-overages, rate-discounts, planning-reservations, actuals]
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+        - { name: asOf, in: query, schema: { type: string, format: date } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: siteId, in: query, schema: { type: string } }
+        - { name: projectId, in: query, schema: { type: string } }
+        - { name: clientId, in: query, schema: { type: string } }
+        - { name: salesOwnerId, in: query, schema: { type: string } }
+        - { name: resourceId, in: query, schema: { type: string } }
+        - { name: resourceCategoryId, in: query, schema: { type: string } }
+        - { name: dimension, in: query, schema: { type: string } }
+        - { name: groupBy, in: query, schema: { type: string, enum: [day, week, month] } }
+      responses:
+        '200':
+          description: Page JSON ou fichier CSV calculé avec les permissions et scopes courants
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalyticsDatasetResponse' }
+            text/csv:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /analytics/dimensions:
     get:
       operationId: getAnalyticsDimensions
@@ -2292,6 +2342,42 @@ components:
         drilldown: { type: [string, 'null'] }
         currency: { type: string, pattern: '^[A-Z]{3}$' }
         currencyExponent: { type: integer, minimum: 0, maximum: 6 }
+    AnalyticsDatasetCatalog:
+      type: object
+      additionalProperties: false
+      required: [definitionVersion, generatedAt, items]
+      properties:
+        definitionVersion: { type: string, const: 'ANALYTICS_DATASET_CATALOG@1' }
+        generatedAt: { type: string, format: date-time }
+        items:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            additionalProperties: false
+            required: [dataset, definitionVersion, formats, fields, permissions]
+            properties:
+              dataset: { type: string }
+              definitionVersion: { type: string }
+              formats: { type: array, items: { type: string, enum: [json, csv] } }
+              fields: { type: array, items: { type: string } }
+              permissions: { type: array, items: { type: string } }
+    AnalyticsDatasetResponse:
+      type: object
+      additionalProperties: false
+      required: [dataset, definitionVersion, generatedAt, asOf, filters, fields, items, page, pageSize, total, pageCount]
+      properties:
+        dataset: { type: string }
+        definitionVersion: { type: string }
+        generatedAt: { type: string, format: date-time }
+        asOf: { type: string, format: date }
+        filters: { type: object, additionalProperties: { type: [string, 'null'] } }
+        fields: { type: array, items: { type: string } }
+        items: { type: array, maxItems: 500, items: { type: object, additionalProperties: true } }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 500 }
+        total: { type: integer, minimum: 0 }
+        pageCount: { type: integer, minimum: 0 }
     DashboardResponse:
       type: object
       additionalProperties: false
