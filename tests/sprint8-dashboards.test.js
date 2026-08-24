@@ -57,6 +57,16 @@ test('S8-A applique le filtre Projet à l’occupation et réconcilie la carte a
   assert.equal(model.sources.counts.reservations, 1); assert.equal(kpi.value, 417); assert.equal(detail.total, 1); assert.equal(detail.items[0].value, kpi.value);
 });
 
+test('S8-A borne les réalisés Projet aux réservations visibles, à leur période et à asOf', () => {
+  const db = makeSeed(), admin = authFor(db, ['quote.read', 'planning.read', 'project.read', 'actual.read']), source = db.reservations[0], project = db.projects.find(value => value.id === source.projectId);
+  const reservation = (id, startsAt, endsAt) => ({ ...structuredClone(source), id, projectId: project.id, startsAt, endsAt, status: 'confirmed', version: 1, sourceQuoteId: undefined, sourceQuoteVersionId: undefined, sourceQuoteLineId: undefined });
+  const visible = reservation('reservation_dashboard_actual_visible', '2026-08-10T08:00:00.000Z', '2026-08-10T09:00:00.000Z'), old = reservation('reservation_dashboard_actual_old', '2026-07-01T08:00:00.000Z', '2026-07-01T09:00:00.000Z'); db.reservations = [visible, old];
+  const record = (id, booking, confirmedAt) => ({ id, companyId: booking.companyId, reservationId: booking.id, projectId: booking.projectId, siteId: booking.siteId, sourceReservationVersion: booking.version, currentRevisionId: `${id}_revision`, plannedSnapshot: { resources: structuredClone(booking.resources) } }), revision = (recordValue, booking, confirmedAt) => ({ id: recordValue.currentRevisionId, actualRecordId: recordValue.id, revisionNumber: 1, startsAt: booking.startsAt, endsAt: booking.endsAt, confirmedAt });
+  const oldRecord = record('actual_dashboard_old', old), futureRecord = record('actual_dashboard_future', visible); db.actualRecords = [oldRecord, futureRecord]; db.actualRevisions = [revision(oldRecord, old, '2026-07-01T10:00:00.000Z'), revision(futureRecord, visible, '2026-08-11T10:00:00.000Z')];
+  const input = { asOf: '2026-08-10', from: '2026-08-10', to: '2026-08-10', projectId: project.id }, model = dashboardReadModel(db, admin, 'project', input), detail = dashboardDrilldownReadModel(db, admin, 'project', { ...input, kpiId: 'actualGap', pageSize: 100 }), byId = new Map(model.kpis.map(value => [value.id, value]));
+  assert.equal(byId.get('planning').value, 1); assert.equal(byId.get('actuals').value, 0); assert.equal(byId.get('actualCompletion').value, 0); assert.equal(byId.get('actualGap').value, 1); assert.deepEqual(detail.items.map(value => value.sourceId), [visible.id]);
+});
+
 test('S8-A exige un KPI explicite sur le drill-down public', () => {
   const db = makeSeed(), admin = authFor(db, ['finance.read', 'quote.read', 'planning.read', 'resource.read', 'actual.read', 'client.read', 'project.read', 'maintenance.read']);
   assert.throws(() => dashboardDrilldownReadModel(db, admin, 'direction', { asOf: '2026-08-23' }), error => error.status === 422 && error.code === 'DASHBOARD_KPI_REQUIRED');
