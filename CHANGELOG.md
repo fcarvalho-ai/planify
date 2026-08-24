@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0-rc1 — 2026-08-24
+
+- six dashboards adaptés aux rôles : Direction, Finance, Planning, Commercial, Exploitation et Chef de projet ;
+- KPI versionnés, définis et réconciliables avec filtres partageables, fraîcheur, sources et drill-down paginé ;
+- exports Planning Excel/PDF et KPI Excel locaux, bornés et protégés par permissions et scopes ;
+- API Analytics/BI JSON/CSV sur dix datasets, pagination, limites explicites et neutralisation des formules ;
+- confidentialité des coûts et marges de bout en bout, matrice HTTP réelle 7 rôles × 6 dashboards × 3 parcours ;
+- overrides de conflits centralisés, motivés, audités, idempotents et revalidés au rejeu ;
+- surfaces authentifiées fail-closed sur toutes les routes : shell et overlays masqués, `inert` et contenu métier purgé après logout ou `401` ;
+- REVIEW, QA, SECURITY, PERFORMANCE, INTEGRATION et E2E approuvés sans P0/P1 ; suite finale 339/339, lint et build verts.
+
 ## 0.4.0-rc1 — 2026-08-24
 
 - registre des réalisations distinct du planning, confirmation et corrections append-only, rapprochement prévu/planifié/réalisé/facturable ;

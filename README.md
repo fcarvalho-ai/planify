@@ -11,9 +11,9 @@ npm start
 
 Puis ouvrir <http://localhost:8080>.
 
-## Version candidate V1 — 0.4.0-rc1
+## Version candidate V1 — 0.5.0-rc1
 
-Le développement V1 suit l'ordre et le backlog placés dans `docs/specifications/`. Les gates G0 à G7 ainsi que les parcours Integration/E2E sont franchis. Le candidat `0.4.0-rc1` ajoute au parcours PlanyBot le registre des réalisations et le moteur Finance : coûts historiques, marges, backlog, forecast, occupation et rentabilité. Les montants commerciaux restent séparés des coûts internes et chaque projection respecte les permissions et périmètres courants. Le détail des preuves, limites P2 et empreintes est conservé dans `docs/project-status.md` et les rapports indépendants `docs/code-review.md`, `docs/qa-report.md`, `docs/security-review.md`, `docs/performance-report.md`, `docs/integration-report.md` et `docs/e2e-report.md`.
+Le développement V1 suit l'ordre et le backlog placés dans `docs/specifications/`. Les gates G0 à G8 ainsi que les parcours Integration/E2E sont franchis. Le candidat `0.5.0-rc1` ajoute aux réalisations et au moteur Finance six dashboards adaptés aux rôles, des KPI réconciliables, les exports Planning/KPI Excel et PDF et une API Analytics/BI locale. Les coûts et marges restent protégés de bout en bout ; les surfaces authentifiées échouent fermées après déconnexion ou expiration de session. Le détail des preuves, limites P2 et empreintes est conservé dans `docs/project-status.md` et les rapports indépendants `docs/code-review.md`, `docs/qa-report.md`, `docs/security-review.md`, `docs/performance-report.md`, `docs/integration-report.md` et `docs/e2e-report.md`.
 
 Le runtime RC1 reste local et autonome. Les contrats V1 sont introduits de façon additive dans `packages/` : erreurs/enveloppes, RBAC et scopes, idempotence, audit, événements, planning, pricing et consommation Devis/Planning. Les décisions structurantes sont dans `docs/adr/` et l'API candidate dans `docs/api/openapi-v1.yaml`.
 
@@ -27,7 +27,7 @@ npm run build
 node scripts/generate-performance-dataset.js --output /tmp/planify-performance.json
 ```
 
-État de référence de la candidate : `npm test` exécute 312 tests. Les fichiers `data/*.json`, `output/` et `tmp/` restent locaux et sont exclus de Git afin qu'aucune donnée de travail, export client ou artefact temporaire n'entre dans la release.
+État de référence de la candidate : `npm test` exécute 339 tests. Les fichiers `data/*.json`, `output/` et `tmp/` restent locaux et sont exclus de Git afin qu'aucune donnée de travail, export client ou artefact temporaire n'entre dans la release.
 
 Le générateur produit un jeu déterministe de 250 ressources et 10 000 réservations sur six mois. Il n'écrit jamais dans les données métier sans chemin `--output` explicite.
 
@@ -99,3 +99,7 @@ PLANIFY_DATA_FILE=/chemin/vers/planify.json node -e "console.log(require('./serv
 ```
 
 Chaque export doit utiliser un chemin neuf et distinct des données actives. Après restauration, remettre en service une version antérieure au Sprint 7 ; sinon le runtime courant réappliquera les migrations au prochain démarrage. Les exports restent la source de reprise des réalisations, coûts, dépenses et seuils créés depuis les sauvegardes.
+
+### Rollback Sprint 8 — dashboards et exports
+
+Le Sprint 8 n’ajoute aucune migration de données : dashboards, API Analytics/BI et exports sont des lectures dérivées des données existantes. Pour revenir à `0.4.0-rc1`, arrêter le serveur, conserver une copie privée du fichier de données courant, remettre en service le code et les actifs de `0.4.0-rc1`, puis redémarrer avec le même `PLANIFY_DATA_FILE`. Les données G7 restent compatibles ; les routes, exports et surfaces G8 disparaissent avec le retour applicatif. Vérifier ensuite connexion, Planning, Réalisations et Finance avant réouverture aux utilisateurs.
