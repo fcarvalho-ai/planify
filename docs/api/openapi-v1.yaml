@@ -1441,6 +1441,7 @@ components:
         currency: { type: string, pattern: '^[A-Z]{3}$', description: Facultative à la création ; hérite de la devise de la société active. }
         paymentTermsDays: { type: integer, minimum: 0, maximum: 365 }
         billingTerms: { type: string, maxLength: 1000 }
+        color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', default: '#6C5CE7', description: Couleur de repérage du client dans le Planning. }
         billingAddress: { $ref: '#/components/schemas/BillingAddress' }
         active: { type: boolean, default: true }
     ProjectCreateCommand:

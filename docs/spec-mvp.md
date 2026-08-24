@@ -58,7 +58,7 @@ L'utilisateur saisit ses identifiants, arrive sur le planning de son site par d�
 
 ### P2 — Créer le contexte métier
 
-Un administrateur crée une ressource avec nom, type, site, capacité et couleur. Un planificateur crée un client puis un projet associé. Les nouvelles valeurs sont immédiatement disponibles dans le formulaire de réservation.
+Un administrateur crée une ressource avec nom, type, site, capacité et couleur. Un planificateur crée un client, choisit sa couleur de repérage dans le planning, puis crée un projet associé. Les nouvelles valeurs sont immédiatement disponibles dans le formulaire de réservation.
 
 ### P3 — Créer une réservation
 
@@ -93,7 +93,7 @@ Le dashboard affiche, pour la période et le site filtrés, le taux d'occupation
 
 - shell avec navigation vers Planning, Dashboard, Clients/Projets, Ressources et Administration selon permission ;
 - vues jour/semaine/mois avec navigation précédent, aujourd'hui, suivant et accès direct à une date ;
-- lignes de ressources lisibles, réservation différenciée par statut, projet/couleur sans dépendre uniquement de la couleur ;
+- lignes de ressources lisibles, réservation différenciée par statut et par couleur Client sans dépendre uniquement de la couleur ;
 - panneau latéral pour créer/éditer sans perdre le contexte du planning ;
 - feedback immédiat pendant drag & drop, sauvegarde, erreur et conflit ;
 - filtres combinables, visibles et réinitialisables ;
@@ -124,6 +124,7 @@ La durée-capacité réservée additionne les segments de réservations non annu
 
 - [ ] Un administrateur peut créer une ressource sur un site avec type, capacité et couleur, puis la filtrer dans le planning.
 - [ ] Un planificateur peut créer un client et un projet associé ; le projet devient sélectionnable dans une réservation.
+- [ ] Un planificateur peut attribuer au Client une couleur hexadécimale ; ses réservations la reprennent comme repère visuel, tandis que le nom du Client et le statut restent lisibles et accessibles sans dépendre de la couleur.
 - [ ] Les doublons interdits et les données invalides produisent une erreur exploitable sans enregistrer partiellement.
 
 ### Planning
@@ -137,6 +138,7 @@ La durée-capacité réservée additionne les segments de réservations non annu
 - [ ] Un planificateur autorisé peut outrepasser un conflit uniquement avec un motif non vide, visible dans l'audit.
 - [ ] Une mise à jour utilisant une ancienne `version` est refusée sans écraser la version récente.
 - [ ] Les filtres site, ressource/type, projet et statut sont combinables et modifient planning et résultats de façon cohérente.
+- [ ] Le défilement vertical conserve l'alignement exact entre la colonne Ressources et la grille jusqu'aux dernières lignes, y compris lorsque la barre de défilement horizontale est présente.
 - [ ] Une mutation effectuée dans un second onglet provoque l'actualisation ciblée du premier en moins de 3 secondes sur la machine locale.
 
 ### Dashboard

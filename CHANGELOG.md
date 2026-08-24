@@ -1,5 +1,10 @@
 # Changelog
 
+## Non publié — après 0.5.0-rc5
+
+- correction de l'alignement vertical du Planning : la colonne Ressources retranche désormais la hauteur réelle de la barre horizontale et atteint exactement la même dernière ligne que la grille ;
+- ajout d'une couleur de repérage configurable par Client, validée côté serveur et affichée comme liseré sur ses réservations sans remplacer le nom ni le statut accessible.
+
 ## 0.5.0-rc5 — 2026-08-24
 
 - correction du scroll horizontal des vues Mois et 3 mois : la virtualisation et le CSS partagent désormais la même largeur de colonne ;

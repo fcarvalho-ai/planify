@@ -463,7 +463,10 @@ test('le planning rend des fenêtres virtualisées et restaure les deux axes de 
   assert.match(css, /scrollbar-gutter:stable both-edges/);
   assert.match(css, /\.planning-matrix-scroll::-webkit-scrollbar/);
   assert.match(css, /\.planning-fixed-column\{[^}]*overflow-y:auto/);
+  assert.match(css, /\.planning-matrix-shell \.planning-fixed-column\{height:calc\(100% - var\(--planning-scrollbar-size\)\)\}/);
   assert.match(css, /scrollbar-width:none/);
+  assert.match(source, /style\.setProperty\('--planning-scrollbar-size'/);
+  assert.match(source, /timeline\.offsetHeight-timeline\.clientHeight/);
 });
 
 test('la fenêtre virtuelle conserve un tampon pour ne pas reconstruire la grille à chaque cran de molette', () => {

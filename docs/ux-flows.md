@@ -59,7 +59,7 @@ Recherche globale `⌘/Ctrl K` : chercher projet, client, réservation, ressourc
 
 Déclencheurs : `Clients > Nouveau client` ou création inline depuis un projet.
 
-1. Ouvrir un drawer avec raison sociale requise, nom court, contacts et notes.
+1. Ouvrir un drawer avec raison sociale requise, nom court, couleur de repérage Planning, contacts et notes.
 2. À la saisie, rechercher les doublons normalisés ; afficher les correspondances sans bloquer.
 3. `Créer` sauvegarde puis confirme par toast.
 4. Depuis un projet, le nouveau client est automatiquement sélectionné et le focus passe au champ suivant.
@@ -89,6 +89,7 @@ Erreur serveur : conserver le formulaire, afficher l’erreur près de l’actio
 3. Flèches de toolbar changent de période ; `T` revient à aujourd’hui.
 4. Le chargement conserve la grille actuelle et affiche un indicateur dans la plage de dates.
 5. La sélection, les filtres et la position de scroll sont conservés entre vues lorsque possible.
+6. La colonne Ressources et la grille partagent exactement la même hauteur utile : la barre horizontale ne crée aucun décalage en fin de défilement vertical.
 
 ### Filtres
 
@@ -105,6 +106,7 @@ Les vues enregistrées sont hors MVP ; l’URL partageable couvre le besoin init
 ### Sélection et détail
 
 - Clic/Entrée sur une réservation : sélection + drawer, sans navigation complète.
+- Chaque réservation reprend un liseré de la couleur choisie sur son Client ; son libellé accessible annonce aussi le nom du Client et le statut reste textuel.
 - Flèches précédent/suivant du drawer suivent l’ordre visuel filtré.
 - Fermer restaure focus et scroll.
 - Un lien `Ouvrir la fiche projet` est disponible sans perdre le contexte (retour vers même URL planning).
@@ -260,4 +262,3 @@ Les brouillons de formulaires sont gardés localement 24 h, chiffrés/isolés pa
 ## 14. Instrumentation produit (sans données sensibles)
 
 Événements recommandés : `planning_viewed`, `filter_applied`, `booking_create_started/succeeded/failed`, `booking_moved`, `booking_resized`, `conflict_shown/resolved/overridden`, `dashboard_drilldown`. Propriétés : vue, durée d’action, type de ressource, sévérité, méthode pointeur/clavier/mobile ; exclure noms clients, projets, notes et identifiants personnels. Mesurer taux de succès, temps médian de création et abandon par étape.
-

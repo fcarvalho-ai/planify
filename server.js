@@ -2575,6 +2575,14 @@ function clientInput(input, existing = {}, options = {}) {
   if (next.name.length < 2) errors.push('name'); if (!/^[A-Z0-9][A-Z0-9_-]{1,31}$/.test(next.code)) errors.push('code'); if (!['active', 'prospect', 'inactive'].includes(next.status)) errors.push('status'); if (!validCurrency(next.currency) || CURRENCY_EXPONENTS[next.currency] === undefined) errors.push('currency'); if (!Number.isInteger(next.paymentTermsDays) || next.paymentTermsDays < 0 || next.paymentTermsDays > 365) errors.push('paymentTermsDays'); if (!next.billingTerms) errors.push('billingTerms'); if (next.email && !emailPattern.test(next.email)) errors.push('email'); if (next.billingEmail && !emailPattern.test(next.billingEmail)) errors.push('billingEmail'); if (typeof input.phone === 'string' && input.phone.trim().length > 40) errors.push('phone'); if (next.website && !/^https:\/\//i.test(next.website)) errors.push('website'); if (!/^[A-Z]{2}$/.test(next.billingAddress.country)) errors.push('billingAddress.country'); if (options.requireAddress) for (const field of ['line1', 'postalCode', 'city']) if (!next.billingAddress[field]) errors.push(`billingAddress.${field}`);
   if (errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Compte client invalide.', { fields: errors }); return next;
 }
+const clientInputWithoutPlanningColor = clientInput;
+clientInput = function clientInputWithPlanningColor(input, existing = {}, options = {}) {
+  const { color: requestedColor, ...baseInput } = input;
+  const next = clientInputWithoutPlanningColor(baseInput, existing, options);
+  const color = cleanString(requestedColor ?? existing.color ?? '#6C5CE7', 7).toUpperCase();
+  if (!/^#[0-9A-F]{6}$/.test(color)) throw apiError(422, 'VALIDATION_ERROR', 'La couleur planning du client est invalide.', { fields: ['color'] });
+  return { ...next, color };
+};
 function clientContactInput(input, existing = {}) {
   assertNoTenantFields(input); assertAllowedFields(input, new Set(['version', 'firstName', 'lastName', 'jobTitle', 'email', 'phone', 'active']));
   const next = { ...existing, firstName: cleanString(input.firstName ?? existing.firstName, 100), lastName: cleanString(input.lastName ?? existing.lastName, 100), jobTitle: cleanString(input.jobTitle ?? existing.jobTitle, 160), email: cleanString(input.email ?? existing.email, 254).toLowerCase(), phone: cleanString(input.phone ?? existing.phone, 40), active: input.active === undefined ? existing.active !== false : input.active !== false };
