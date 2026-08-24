@@ -3219,3 +3219,75 @@ Correction attendue : exclure explicitement toute option dont `optionDecision.st
 ## Verdict terminal
 
 La re-QA G7-D du candidat `57014500241b512eda1c202475f6793a9be213eb` est **REJECTED**. Les deux P1 initiaux sont corrigés et les preuves automatisées sont vertes, mais le cycle métier réel d'une double option déjà décidée conserve un double comptage. Ce **P1 résiduel** exige un nouveau retour DEV et une revalidation QA sur un nouveau candidat. G7 reste **BLOQUÉ**.
+
+---
+
+# Re-QA ultime G7-D — fermeture des négatifs d'occupation et de rentabilité
+
+Date : 2026-08-24 08:42 CEST
+
+Verdict : **APPROVED — 0 P0/P1 QA ouvert**
+
+Périmètre : candidat exact `7051fe4ff4849b1e9849e81b8266d73fa6c2fda6`, fermeture du P1 résiduel double option décidée, canonisation après scopes et ventilation des dépenses Projet sur l'axe prestation.
+
+Indépendance : aucun code, test, contrat, statut ou autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Empreintes du candidat testé
+
+```text
+server.js                         6f633bd876977b2a05f6e6e09e0236dfd55f89da04ea38afe86a17ced2e2d575
+app.js                            bd6bfb8fdc7e468e09c37a2eef5fe92c82e4988355976ab35fddaaf29b8b5641
+tests/api.test.js                 69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e
+tests/sprint7-occupancy.test.js   92c3c4215649220691f2cebb33320adeb22c2973d12e935d87050199e9252598
+docs/api/openapi-v1.yaml          9d2410c871f59d7f77aca5b902f1bd77e911c5ad333aad340629e3987283f565
+```
+
+Environnement : Node `v26.6.0`, Darwin `25.5.0` arm64.
+
+## Preuves fraîches
+
+| Commande exacte | Résultat observé |
+|---|---|
+| `node --test tests/sprint7-occupancy.test.js` | PASS, **8/8**, 0 échec/annulé/ignoré/TODO, 126,30 ms |
+| `node --test tests/api.test.js` | PASS, **42/42**, 0 échec |
+| `npm test` | PASS, **312/312**, 0 échec/annulé/ignoré/TODO, 10 413,99 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` | PASS, code 0 |
+| validation Ruby/Psych du contrat | PASS, OpenAPI `3.1.0`, **64 chemins / 78 opérations**, aucun `operationId` absent ou dupliqué |
+
+## Vérification des trois négatifs demandés
+
+### Gagnant confirmé et perdant décidé `lost`
+
+Le moteur exclut désormais explicitement toute réservation `option` dont `optionDecision.state="lost"` avant canonisation et agrégation. Le gagnant confirmé de huit heures reste seul compté : `plannedCapacityMs=28 800 000`, sans ajout du perdant conservé pour traçabilité.
+
+Statut : **conforme — P1 résiduel fermé**.
+
+### Option prioritaire hors site
+
+Les réservations sont filtrées par société, site, Projet et scopes d'entités avant la sélection canonique d'un groupe. Une option prioritaire située sur un site inaccessible ne supprime donc plus l'option visible de priorité inférieure. La reproduction obtient une seule réservation source visible et `28 800 000 ms` planifiés.
+
+Statut : **conforme**. Aucun total n'est influencé par une réservation hors scope.
+
+### Dépense Projet ventilée sur `serviceOfferingId`
+
+La ligne analytique d'une dépense Projet conserve maintenant son `serviceOfferingId`. La rentabilité par prestation retrouve l'axe `offering_occ` et lui attribue exactement `1 200` unités mineures de coût réel ; les ventilations Projet et Site restent à `5 200` avec les coûts de ressources inclus.
+
+Statut : **conforme**.
+
+## Non-régression
+
+- les deux P1 initiaux restent fermés : une double option ouverte n'est comptée qu'une fois et l'absence de réalisé produit `actualOccupancyBps=null`, laissant le signal planifié piloter l'alerte ;
+- les maintenances superposées, la borne de 366 jours, `asOf`, les dépenses Projet, l'absence explicite de référence catalogue, le non-facturé hors CA et la pagination 250 éléments restent couverts ;
+- le négatif HTTP d'un seuil Société écrit par un acteur limité à un site reste sans seuil, marqueur d'idempotence ni audit résiduel ;
+- les **312/312** tests complets confirment la non-régression automatisée des modules précédents ; lint, build, diff-check et structure OpenAPI sont propres.
+
+## Limites
+
+- cette re-QA technique ne remplace pas les verdicts indépendants REVIEW, SECURITY et PERFORMANCE portant sur le même candidat ;
+- aucune recette navigateur E2E n'est revendiquée ici. INTEGRATION/E2E doit encore démontrer le parcours global S7-A à S7-D et la persistance après rechargement/redémarrage.
+
+## Verdict terminal
+
+La re-QA ultime G7-D du candidat `7051fe4ff4849b1e9849e81b8266d73fa6c2fda6` est **APPROVED**. Les trois négatifs demandés passent, le P1 résiduel est fermé et aucune anomalie P0/P1 QA n'est ouverte. Le candidat peut poursuivre vers les autres gates indépendants puis INTEGRATION/E2E ; ce verdict seul ne débloque pas encore G7.

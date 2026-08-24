@@ -623,3 +623,68 @@ docs/api/openapi-v1.yaml            f677c159e2e412e966dd6eb421132f7a788ee08a36ef
 - Gate SECURITY S7-D : **REJECTED** sur le candidat `5f61fd4` ; retour DEV requis pour `SEC-S7D-01`.
 - Fichier modifié par ce gate : `docs/security-review.md` uniquement.
 - `docs/project-status.md` reste à mettre à jour par l'intégrateur.
+
+---
+
+# Revalidation ultime SECURITY — S7-D
+
+Date : 2026-08-24
+
+Candidat exact : `7051fe4ff4849b1e9849e81b8266d73fa6c2fda6`
+
+Reviewer : agent indépendant `g7d_security_performance`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts.**
+
+`SEC-S7D-03` est fermé. `financeOccupancy()` produit d'abord `visibleReservations` avec Société et `reservationSnapshotAllowed()` complet, puis canonicalise uniquement les options de cette collection. Une option d'un Site, Projet ou périmètre Ressource non autorisé ne peut plus modifier le gagnant ni les totaux visibles. Le compteur de sources reprend la même collection filtrée.
+
+Les options portant `optionDecision.state=lost` sont exclues avant la canonicalisation et avant l'occupation ; une Réservation confirmée gagnante reste comptée une fois. Les dépenses Projet conservent désormais leur `serviceOfferingId` dans le drill-down de marge et la dimension Prestation, après `projectCostAllowed()` et `offeringAllowed()`.
+
+## Fermeture des P1
+
+- **SEC-S7D-01 — seuil global hors scope : fermé.** `organizationScope` est exigé avant marqueur/rejeu ; Site, Société, version, idempotence, audit et SSE restent fail-closed.
+- **SEC-S7D-03 — influence cachée des doubles options : fermé.** Le test inter-Site place une option cachée de priorité supérieure dans le même groupe ; le Site visible conserve `28 800 000 ms-capacité` et `reservationCount=1`.
+
+## Contrôles conformes
+
+- Permissions `finance.read`/`finance.cost.manage`, session, Origin/CSRF et Société de session restent imposés par le résolveur central.
+- Tous les agrégats S7-D filtrent les sources autorisées avant total et pagination ; les dépenses liées à une Prestation repassent par le scope de cette Prestation.
+- Une option perdue n'est ni canonique ni planifiée ; le choix à priorité égale reste déterministe par identifiant.
+- Le non-facturé reste hors CA signé/facturé ; aucun read-model ne crée de Devis ou Réservation.
+- Coûts et marges restent derrière `finance.read`, les sorties UI sont échappées et aucune dépendance/réseau/télémétrie n'est ajoutée.
+- Migration, digests, sauvegarde privée et rollback exportable ne sont pas affectés par ce correctif de calcul.
+
+## P2 suivis non bloquants
+
+1. `sprint7OccupancyStateValid()` ne lie pas encore exhaustivement chaque scope d'idempotence à Société/Site/acteur/résultat et ne refuse pas explicitement les scopes dupliqués.
+2. Le rejeu d'un seuil global après révocation est fail-closed par la garde placée avant le marqueur, mais la séquence HTTP complète création → révocation → rejeu et l'absence SSE ne disposent toujours pas d'un test dédié.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `7051fe4ff4849b1e9849e81b8266d73fa6c2fda6` |
+| ciblés S7 Actual/Finance/Forecast/Occupation/Migration | **PASS, 41/41** |
+| `node --test tests/api.test.js` | **PASS, 42/42** |
+| `npm test` | **PASS, 312/312**, 0 échec/skip/todo |
+| `node --check server.js && node --check app.js` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           6f633bd876977b2a05f6e6e09e0236dfd55f89da04ea38afe86a17ced2e2d575
+app.js                              bd6bfb8fdc7e468e09c37a2eef5fe92c82e4988355976ab35fddaaf29b8b5641
+tests/sprint7-occupancy.test.js     92c3c4215649220691f2cebb33320adeb22c2973d12e935d87050199e9252598
+tests/api.test.js                   69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e
+docs/api/openapi-v1.yaml            9d2410c871f59d7f77aca5b902f1bd77e911c5ad333aad340629e3987283f565
+```
+
+## Handoff
+
+- Gate SECURITY S7-D : **APPROVED** sur `7051fe4`, 0 P0/0 P1.
+- Fichier modifié : `docs/security-review.md` uniquement ; consolidation du statut par l'intégrateur.

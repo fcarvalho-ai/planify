@@ -673,3 +673,78 @@ scripts/benchmark-finance.js        89af6c12faa9127f56fc8ee1d413f025e5755e108aeb
 - Gate PERFORMANCE S7-D : **REJECTED** sur le candidat `5f61fd4` ; retour DEV requis pour `PERF-S7D-01`.
 - Fichier modifié par ce gate : `docs/performance-report.md` uniquement.
 - `docs/project-status.md` reste à mettre à jour par l'intégrateur.
+
+---
+
+# Revalidation ultime PERFORMANCE — S7-D
+
+Date : 2026-08-24
+
+Candidat exact : `7051fe4ff4849b1e9849e81b8266d73fa6c2fda6`
+
+Reviewer : agent indépendant `g7d_security_performance`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts.**
+
+Le correctif de sécurité remplace deux scans avec résolution de scope par une seule collection `visibleReservations`, réutilisée pour canonicalisation, agrégation et compteur. L'exclusion des options `lost` et la propagation de `serviceOfferingId` sont des comparaisons/affectations constantes ; aucun nouveau parcours asymptotique n'est introduit.
+
+## Benchmark représentatif frais
+
+Commande exécutée deux fois : `npm run benchmark:finance`.
+
+Dataset : **250 ressources, 10 000 Réservations, 2 000 Devis, 2 000 ActualRecords et 2 000 ProjectCosts**.
+
+| Chemin direct | p95 passage 1 | p95 passage 2 | pire p95 | Seuil |
+|---|---:|---:|---:|---:|
+| Marges | `27,65 ms` | `29,13 ms` | `29,13 ms` | `<300 ms` |
+| Backlog | `89,84 ms` | `77,21 ms` | `89,84 ms` | `<300 ms` |
+| Forecast | `71,34 ms` | `58,20 ms` | `71,34 ms` | `<300 ms` |
+| Occupation 1 jour | `21,94 ms` | `23,37 ms` | `23,37 ms` | `<300 ms` |
+| Occupation annuelle | `38,38 ms` | `31,33 ms` | `38,38 ms` | `<300 ms` |
+| Rentabilité | `26,26 ms` | `28,90 ms` | `28,90 ms` | `<300 ms` |
+| Non-facturé | `46,39 ms` | `46,88 ms` | `46,88 ms` | `<300 ms` |
+| Remises | `7,14 ms` | `7,37 ms` | `7,37 ms` | `<300 ms` |
+
+Les deux exécutions sortent avec code `0`. Le pire chemin reste le Backlog à `89,84 ms`, soit moins d'un tiers du seuil. L'occupation annuelle conserve une marge supérieure à ×7,8.
+
+## Analyse d'impact
+
+- `visibleReservations` fait un seul filtrage complet `O(R)` avant canonicalisation `O(R)` et agrégation bornée aux jours recouverts ; l'ancien facteur `R × 365` reste fermé.
+- Les options perdues sont éliminées avant les Maps et boucles temporelles, diminuant le travail dans les jeux arbitrés.
+- La ventilation Prestation des ProjectCosts ne change ni leur nombre, ni le calcul des montants ; elle renseigne seulement la clé de groupe existante.
+- Pagination et limites de drill-down restent inchangées : 500 lignes d'occupation, 200 pour les autres read-models et sources bornées.
+
+## P2 suivis non bloquants
+
+1. Le benchmark reste direct moteur et exclut auth, lecture/validation JSON, sérialisation HTTP et concurrence des dix requêtes Finance.
+2. Aucun profil navigateur frais ne prouve encore scripting/paint/heap ni l'affichage exploitable `<2 s`; ce point reste à couvrir dans le smoke E2E Finance.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande | Résultat |
+|---|---|
+| `npm run benchmark:finance` — passage 1 | **PASS**, annuel p95 `38,38 ms` |
+| `npm run benchmark:finance` — passage 2 | **PASS**, annuel p95 `31,33 ms` |
+| ciblés S7 Actual/Finance/Forecast/Occupation/Migration | **PASS, 41/41** |
+| `node --test tests/api.test.js` | **PASS, 42/42** |
+| `npm test` | **PASS, 312/312** |
+| `node --check server.js && node --check app.js` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           6f633bd876977b2a05f6e6e09e0236dfd55f89da04ea38afe86a17ced2e2d575
+app.js                              bd6bfb8fdc7e468e09c37a2eef5fe92c82e4988355976ab35fddaaf29b8b5641
+tests/sprint7-occupancy.test.js     92c3c4215649220691f2cebb33320adeb22c2973d12e935d87050199e9252598
+scripts/benchmark-finance.js        f8b72c6c3b69feb01387cb69a3478a34449a313d9c4722de4ea7622957ecc596
+```
+
+## Handoff
+
+- Gate PERFORMANCE S7-D : **APPROVED** sur `7051fe4`, 0 P0/0 P1.
+- Fichier modifié : `docs/performance-report.md` uniquement ; consolidation du statut par l'intégrateur.
