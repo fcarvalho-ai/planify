@@ -1,3 +1,28 @@
+# Rapport d’intégration RC5 — Planning long et Pilotage réconcilié
+
+Date : 2026-08-24
+Environnement : macOS arm64, Node.js v26.6.0, navigateur intégré
+Candidat applicatif exact : `4e094d589ae215f31152110d30f1163929ca1338`
+Consolidation des gates : `5e9d11064dd3e527fc492ace1720c3f99629d27a`
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+Le serveur local a été redémarré sur le candidat exact avec la base de démonstration isolée `/private/tmp/planify-g8-po-recipe.json`. L’authentification, le chargement API, les fichiers statiques, le Planning et Pilotage ont été rejoués ensemble ; aucune ressource réseau externe n’est requise. Le rechargement redemande une authentification dans le navigateur intégré, puis reconstruit les mêmes cinq réservations visibles et les quatre vues Planning.
+
+Intégration Planning : Jour, Semaine, Mois et 3 mois sont les seules commandes ; la vue 6 semaines est absente. Mois et 3 mois matérialisent chacune 92 dates et 3 956 cellules. Mois expose une piste de 9 568 px dans un viewport de 590 px et atteint `scrollLeft=0` puis `8 835`; 3 mois atteint `0` puis `6 386` sur 6 992 px. Le nombre de dates/cellules reste constant aux deux extrémités.
+
+Intégration Pilotage : Direction rend trois cartes Forecast métier 30/60/90 jours avec dates françaises et montants « Déjà planifié / À planifier », sans clé API brute. Exploitation ouvre le détail dans un dialogue : Occupation planifiée affiche 48 sources et valeurs localisées ; Occupation réelle à zéro affiche un état vide sans `— bps`; le bouton Fermer supprime le dialogue et restaure le focus sur « Voir le détail ». La console navigateur est restée sans avertissement ni erreur.
+
+Le parcours Projet → Le Grand Format → Ouvrir le planning applique `project_3` et rend les deux cartes de 58 px avec un intervalle visuel de 9 px (`bottom=632`, `top=641`), sans recouvrement. Les preuves automatisées terminales sont Dashboards 14/14, Planning 46/46, suite complète 345/345, lint/build/diff-check PASS. REVIEW, QA, SECURITY et PERFORMANCE approuvent le même candidat sans P0/P1.
+
+Limite non bloquante : la touche Échap n’a pas déclenché l’événement natif du dialogue via l’API d’automatisation du navigateur ; la fermeture par bouton et la restitution de focus sont prouvées dynamiquement, tandis qu’Échap reste couvert statiquement et par les tests.
+
+RC5 franchit INTEGRATION et peut passer à RELEASE après consolidation E2E.
+
+---
+
 # Rapport d’intégration G8 — Dashboards, exports et sécurité finale
 
 Date : 2026-08-24

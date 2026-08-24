@@ -1,3 +1,38 @@
+# Rapport E2E RC5 — Planning long et Pilotage
+
+Date : 2026-08-24
+Environnement : macOS arm64, Node.js v26.6.0, navigateur intégré
+Candidat applicatif exact : `4e094d589ae215f31152110d30f1163929ca1338`
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+La campagne différentielle RC5 a rejoué dans l’interface les chemins modifiés depuis RC4, après redémarrage du serveur sur le hash exact. Elle complète le parcours E2E global G8 déjà approuvé ; les chemins de mutation Réservation, conflit/override, annulation, SSE et lecteur sont byte-identiques ou couverts par la suite complète fraîche.
+
+| Scénario | Résultat observé |
+|---|---|
+| Connexion administrateur | Authentification locale réussie ; Planning reconstruit 75 salles et cinq réservations de démonstration. |
+| Vues Planning | Quatre vues seulement : Jour, Semaine, Mois, 3 mois ; aucune commande 6 semaines. |
+| Scroll Mois | 92 dates, 3 956 cellules, piste stable ; extrémités `0` et `8 835` atteintes, première date 01/07 et dernière 30/09. |
+| Scroll 3 mois | Même période civile et DOM stable ; extrémités `0` et `6 386` atteintes. |
+| Projet → Planning | Le Grand Format filtre `project_3`; Mix final et Export masters restent séparés, deux cartes de 58 px sans couverture. |
+| Forecast Direction | Trois cartes Horizon 30/60/90, dates françaises, euros, ventilation planifié/à planifier ; aucune clé `scheduledMinor`, `unscheduledMinor`, `totalMinor` ou `through`. |
+| Détail Occupation planifiée | Dialogue nommé, 48 sources, pourcentages et états « Sous-utilisé » ; focus initial sur Fermer. |
+| Détail Occupation réelle vide | 0 source, état vide explicite, aucune ligne artificielle `— bps`. |
+| Fermeture et focus | Bouton Fermer retire le dialogue et restitue le focus au déclencheur « Voir le détail ». |
+| Rechargement / reconnexion | Le navigateur redemande la connexion ; après reconnexion, mêmes vues et réservations, console propre. |
+
+Les cas chiffrés `occupancyGap` impossibles à produire sans modifier le seed sont vérifiés sur le même candidat par les négatifs pérennes : une seule période réalisée donne carte/détail `0 bps`; deux lignes `[0,-833]` donnent une moyenne et une carte identiques à `-416 bps`.
+
+Preuves : ciblés QA jusqu’à 135/135, Dashboards 14/14, Planning 46/46, suite complète 345/345, lint/build/diff-check PASS. Aucun accès réseau externe, téléchargement ou donnée réelle n’a été utilisé.
+
+Limite P2 : la fermeture Échap n’a pas été observable via la couche d’automatisation, bien que le gestionnaire natif `cancel` reste présent et testé statiquement. La fermeture accessible principale, le focus et les autres gestes sont prouvés.
+
+Le candidat peut passer au gate RELEASE RC5.
+
+---
+
 # Rapport E2E G8 — Dashboards, exports et surfaces authentifiées
 
 ## Addendum vue Projet Planning `0.5.0-rc4` — 2026-08-24
