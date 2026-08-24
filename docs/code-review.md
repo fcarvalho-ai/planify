@@ -1,3 +1,63 @@
+# Re-REVIEW finale RC5 — arrondi unique `occupancyGap`
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat exact : `4e094d589ae215f31152110d30f1163929ca1338` (`fix: round occupancy gap after aggregation`)
+
+Correctif contrôlé : `ace4048f20e3524b003c49df0f1ee42d01551ee8..4e094d589ae215f31152110d30f1163929ca1338`
+
+Nature : revue indépendante seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert.**
+
+`REV-RC5-01` est fermé. Le KPI `occupancyGap` et son drill-down utilisent le même sous-ensemble de périodes disposant d'un réalisé, la carte additionne désormais directement les écarts journaliers `actualOccupancyBps - plannedOccupancyBps`, puis applique un unique `Math.round` après division. La valeur de carte est donc exactement la moyenne arrondie des lignes du détail.
+
+## Exactitude et consommateurs
+
+- Sans période réalisée, `actualItems` est vide et `occupancyGapBps` reste `null`, conformément à l'état indisponible historique.
+- Avec une seule période réalisée parmi deux périodes planifiées 1 h/8 h, la période sans réalisé est exclue des deux surfaces et carte/détail valent `0 bps`.
+- Avec deux périodes réalisées, planifiées 1 h puis 3 h et réalisées 1 h puis 1 h, les lignes sont `[0, -833]` et l'arrondi unique donne `-416 bps` sur la carte comme dans le détail.
+- `sourceCount` reste `actualItems.length`, donc nombre, ensemble et valeur sont alignés.
+- La définition affichée décrit maintenant explicitement une « moyenne des écarts » sur les périodes disposant d'un réalisé ; `pilotageValue()` conserve la conversion bps en pourcentage français sans recalcul métier.
+- `actualOccupancy` continue d'exposer sa propre moyenne et `plannedOccupancy` continue de couvrir toutes les périodes planifiées : le correctif ne modifie pas leurs contrats.
+- Aucun changement d'API, permission, scope, pagination, Forecast ou Planning n'est introduit par ce lot minimal.
+
+## Couverture de non-régression
+
+Le test pérenne couvre désormais les deux défauts successifs : exclusion d'une période sans réalisé et divergence d'un point de base due au double arrondi. Il compare `sourceCount`, `total`, les valeurs exactes des lignes, leur moyenne arrondie et la carte (`0`, puis `-416`). Le cas aurait échoué sur les deux candidats précédents.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` : `4e094d589ae215f31152110d30f1163929ca1338`.
+- Inspection du diff, de `dashboardReadModel()`, `dashboardDrilldownReadModel()` et du consommateur Pilotage : **conforme**.
+- `node --test tests/sprint8-dashboards.test.js` : **PASS, 14/14**, 0 échec/skip/todo, durée `2,476 s`.
+- `node --test tests/planning-postproduction.test.js` : **PASS, 46/46**, 0 échec/skip/todo, durée `210,913 ms`.
+- `npm test` : **PASS, 345/345**, 0 échec/cancelled/skip/todo, durée `9,261 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check ace4048f20e3524b003c49df0f1ee42d01551ee8..4e094d589ae215f31152110d30f1163929ca1338` : **PASS**.
+
+Empreintes contrôlées :
+
+```text
+server.js                        2f850f7f2e797b3228524b9e94d0566004e951f28126d9141b51cc0e6918aa20
+tests/sprint8-dashboards.test.js 22fce8f6b77ea70572c9fd6bef0d87e4fce552f07d97c712761e6861a4cbc6ab
+app.js                           0fc0dad429e78aa6aea63884f6d903939189e2793b6505b3d363d7e49cbc36cd
+planning.css                     1e5227f04bb781756318676054242713664e07dee048dee4e664198dd3ed289b
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW RC5 ciblé est **APPROVED** sur `4e094d589ae215f31152110d30f1163929ca1338` : 0 P0, 0 P1. L'intégrateur reste responsable de la mise à jour du statut et des gates aval impactés sur ce même hash.
+
+---
+
 # Re-REVIEW RC5 ciblée — réconciliation `occupancyGap`
 
 Date : 2026-08-24

@@ -1,3 +1,49 @@
+# Revalidation finale SECURITY RC5 — moyenne directe occupancyGap
+
+Date : 2026-08-24
+
+Candidat exact : `4e094d589ae215f31152110d30f1163929ca1338`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 P2 résiduel, 0 P3.**
+
+Le changement remplace la différence de deux moyennes arrondies par l'arrondi unique de la moyenne des écarts, afin d'être mathématiquement identique au drill-down. Il réutilise strictement le même tableau `actualItems`, déjà construit après `financeOccupancy()` et ses scopes. Aucune autorité, donnée, route, sortie, mutation ou taille de réponse ne change.
+
+## Contrôle différentiel
+
+- **Scopes inchangés :** société, site, Projet, client, ressource/catégorie et snapshots sont toujours filtrés dans `financeOccupancy()` avant `actualItems`. La nouvelle expression ne lit que `actualOccupancyBps` et `plannedOccupancyBps` des mêmes lignes autorisées.
+- **Réconciliation sans fuite :** la carte expose `round(sum(actual − planned) / actualItems.length)`, exactement comme la moyenne des valeurs du détail. Les périodes sans réalisé restent exclues ; `sourceCount` demeure `actualItems.length`.
+- **Sorties sûres :** résultat numérique en points de base ou `null` si aucune période réelle. Aucun texte libre, identifiant, détail supplémentaire ou signal d'existence hors scope n'est ajouté.
+- **RBAC/mutations :** `actual.read` reste requis pour le KPI réel, la matrice Exploitation et le drill-down sont inchangés. Le calcul est pur ; persistance, audit, SSE, CSRF et exports ne sont pas touchés.
+
+## P2 résiduel
+
+**SEC-G8-05 reste ouvert hors impact :** purge incomplète de certaines valeurs internes d'overlays statiques après fin de session. Ce diff serveur arithmétique n'interagit pas avec le DOM.
+
+## Preuves fraîches et réutilisation différentielle
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `4e094d589ae215f31152110d30f1163929ca1338` |
+| `node --test tests/sprint8-dashboards.test.js` | **PASS, 14/14**, durée `1 718,16 ms` |
+| cas d'arrondi différentiel | détail `[0, -833]`, carte et moyenne détail `-416` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+La suite complète `345/345` du parent immédiat `ace4048` est réutilisée uniquement comme non-régression différentielle ; elle n'est pas présentée comme une exécution fraîche de `4e094d5`. Le test exact couvre les scopes, RBAC, erreurs, exports et le nouveau cas d'arrondi. Hashes : `server.js` `2f850f7f2e797b3228524b9e94d0566004e951f28126d9141b51cc0e6918aa20`; test dashboards `22fce8f6b77ea70572c9fd6bef0d87e4fce552f07d97c712761e6861a4cbc6ab`.
+
+## Handoff
+
+- Gate SECURITY final RC5 : **APPROVED** sur `4e094d5`, 0 P0/0 P1/1 P2 résiduel/0 P3.
+- Fichier modifié : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation d'impact SECURITY RC5 — réconciliation occupancyGap
 
 Date : 2026-08-24

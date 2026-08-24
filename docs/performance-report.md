@@ -1,3 +1,55 @@
+# Revalidation finale PERFORMANCE RC5 — moyenne directe occupancyGap
+
+Date : 2026-08-24
+
+Candidat exact : `4e094d589ae215f31152110d30f1163929ca1338`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts, 1 P3.**
+
+Le correctif remplace un `reduce()` des valeurs planifiées suivi d'une soustraction par un `reduce()` direct des écarts. Nombre de parcours, cardinalité, allocations et complexité restent identiques : O(A) en temps et O(1) en mémoire additionnelle, avec A égal au nombre de périodes autorisées disposant d'un réalisé.
+
+## Mesure ciblée fraîche
+
+Dataset contractuel : 250 ressources, 10 000 réservations, 2 000 documents, 2 000 réalisés et 2 000 coûts Projet. Deux warm-ups puis 20 itérations, filtre Projet + Ressource, du 1er au 23 août 2026.
+
+| Chemin | p50 | p95 | max | Parent `ace4048` p95 |
+|---|---:|---:|---:|---:|
+| dashboard Exploitation complet | `20,31 ms` | `20,92 ms` | `21,27 ms` | `20,97 ms` |
+| drill-down `occupancyGap`, page 100 | `40,20 ms` | `41,21 ms` | `46,47 ms` | `42,15 ms` |
+
+Les deux chemins restent très sous le seuil `< 300 ms` et ne montrent aucune régression. `app.js`, Planning, Forecast, exports et rendu Pilotage sont byte-identiques ; leurs mesures RC5 sont donc réutilisées différentiellement, sans campagne longue.
+
+## P2/P3 hérités, sans aggravation
+
+1. Cap Planning local à chaque cellule, avec risque DOM sur une vue longue artificiellement concentrée.
+2. Marge réduite du drill-down montant facturable RC5 (`277,38 ms` p95), chemin indépendant d'Exploitation.
+3. Preuve navigateur RC5 encore absente pour scroll/layout/focus ; aucun frontend n'est modifié ici.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `4e094d589ae215f31152110d30f1163929ca1338` |
+| `node --test tests/sprint8-dashboards.test.js` | **PASS, 14/14**, durée `1 718,16 ms` |
+| benchmark ciblé 20 itérations | résultats ci-dessus |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+La suite complète `345/345` du parent immédiat est une preuve différentielle, pas une exécution fraîche du candidat. Hashes : `server.js` `2f850f7f2e797b3228524b9e94d0566004e951f28126d9141b51cc0e6918aa20`; test dashboards `22fce8f6b77ea70572c9fd6bef0d87e4fce552f07d97c712761e6861a4cbc6ab`; `app.js` inchangé `0fc0dad429e78aa6aea63884f6d903939189e2793b6505b3d363d7e49cbc36cd`.
+
+## Handoff
+
+- Gate PERFORMANCE final RC5 : **APPROVED** sur `4e094d5`, 0 P0/0 P1/2 P2/1 P3 hérités.
+- Fichier modifié : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation d'impact PERFORMANCE RC5 — réconciliation occupancyGap
 
 Date : 2026-08-24

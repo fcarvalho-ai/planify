@@ -4819,3 +4819,55 @@ Les contrôles RC5 Planning, modal/localisation et Forecast restent verts, tout 
 ## Verdict terminal
 
 La re-QA RC5 ciblée sur `ace4048f20e3524b003c49df0f1ee42d01551ee8` est **REJECTED** avec **0 P0 et 1 P1 QA ouvert**. Le cas « plusieurs planifiées, une seule réalisée » est corrigé, mais plusieurs périodes réalisées peuvent encore produire une carte `occupancyGap` différente d'un point de base de la moyenne du détail (`−417` contre `−416 bps`). Les ciblés **135/135**, la suite complète **345/345**, lint, build et diff-check sont verts ; une correction de l'arrondi et une nouvelle re-QA restent requises.
+
+---
+
+# Re-QA finale RC5 — arrondi `occupancyGap`
+
+Date : 2026-08-24 20:57 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat exact `4e094d589ae215f31152110d30f1163929ca1338`, fermeture du P1 d'arrondi carte/source/détail `occupancyGap`, scénario à une période réalisée, scénario multi-réalisés `[0, −833]`, puis suites RC5 ciblées et complètes. Aucun nouveau parcours long ni recette navigateur.
+
+Indépendance : aucun code, test, statut ni autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Environnement et empreintes
+
+```text
+Node                                     v26.6.0, Darwin arm64
+server.js                                2f850f7f2e797b3228524b9e94d0566004e951f28126d9141b51cc0e6918aa20
+tests/sprint8-dashboards.test.js         22fce8f6b77ea70572c9fd6bef0d87e4fce552f07d97c712761e6861a4cbc6ab
+app.js                                   0fc0dad429e78aa6aea63884f6d903939189e2793b6505b3d363d7e49cbc36cd
+planning.css                             1e5227f04bb781756318676054242713664e07dee048dee4e664198dd3ed289b
+```
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| une période réalisée à l'identique + une période seulement planifiée | PASS : carte `0 bps`, `sourceCount=1`, détail total 1, lignes `[0]`, moyenne arrondie `0`, égalité vraie |
+| deux périodes réalisées, détails `[0, −833]` | PASS : carte `−416 bps`, `sourceCount=2`, détail total 2, moyenne arrondie `−416`, égalité vraie |
+| inspection du calcul | PASS : somme des écarts ligne à ligne sur `actualItems`, division par le même dénominateur, puis un unique `Math.round` final |
+| test de non-régression ajouté | PASS : protège simultanément le périmètre à une seule réalisée et le demi-arrondi négatif multi-réalisés |
+| `node --test --test-reporter=dot tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/planning-postproduction.test.js tests/sprint7-forecast.test.js tests/foundations.test.js tests/api.test.js` | PASS, **135/135**, code 0 |
+| `npm test` | PASS, **345/345**, 0 échec/annulé/ignoré/TODO, 9 893,38 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check 4e094d5^ 4e094d5` | PASS, code 0 |
+
+## Fermeture du P1
+
+La carte ne soustrait plus deux moyennes arrondies séparément. Elle calcule maintenant chaque écart `actualOccupancyBps − plannedOccupancyBps` sur les seules périodes ayant un réalisé, en fait la moyenne, puis arrondit une seule fois. Son périmètre, son dénominateur et sa règle d'arrondi sont donc identiques à ceux permettant de réconcilier les lignes détaillées.
+
+La reproduction précédemment bloquante retourne désormais exactement `−416 bps` des deux côtés pour `[0, −833]`. Le cas initial avec une seule période réalisée reste à `0 bps`, et la période seulement planifiée ne réentre pas dans le dénominateur.
+
+## Limites
+
+- conformément au périmètre demandé, aucune nouvelle recette navigateur ni campagne de performance longue n'a été lancée ;
+- les critères RC5 non directement affectés sont couverts par la sous-suite cumulative et la suite complète, sans réutiliser un verdict ancien pour le calcul modifié ;
+- le verdict porte exclusivement sur le hash exact ci-dessus et devient caduc si le calcul, le drill-down ou les tests concernés changent.
+
+## Verdict terminal
+
+La re-QA finale RC5 sur `4e094d589ae215f31152110d30f1163929ca1338` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. La carte `occupancyGap`, son `sourceCount` et son détail se réconcilient dans le cas à une seule période réalisée (`0 bps`) comme dans le cas multi-réalisés `[0, −833]` (`−416 bps`). Preuves terminales : ciblés **135/135**, suite complète **345/345**, lint, build et diff-check verts.
