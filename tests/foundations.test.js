@@ -59,6 +59,13 @@ test('le shell authentifié reste entièrement masqué hors session', () => {
   assert.match(css, /\.app-shell\[hidden\]\{display:none!important\}/);
 });
 
+test('les alias du design system utilisés par les modules métier sont définis', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8');
+  for (const token of ['primary', 'surface', 'surface-soft', 'text', 'border']) {
+    assert.match(css, new RegExp(`--${token}:var\\(--`), `variable --${token} manquante`);
+  }
+});
+
 test('les sept rôles V1 sont fermés et le scope masque un autre tenant ou site', () => {
   assert.deepEqual(ROLES, ['ADMIN', 'PLANNING_MANAGER', 'PLANNER', 'SALES', 'PROJECT_MANAGER', 'FINANCE', 'READ_ONLY']);
   assert.equal(standardRoleDefinitions('c1').length, 7);
