@@ -3983,7 +3983,7 @@ function dashboardActualRows(db, auth, reservations, input, indexes = actualInde
   const visibleReservations = new Map(reservations.map(value => [value.id, value]));
   return (db.actualRecords || []).filter(record => {
     const reservation = visibleReservations.get(record.reservationId), revision = (indexes.revisionsByRecordId.get(record.id) || []).find(value => value.id === record.currentRevisionId);
-    return Boolean(reservation && revision && actualRecordAllowed(db, auth, record, indexes) && cleanString(revision.confirmedAt, 10) <= input.asOf && revision.startsAt.slice(0, 10) <= input.to && revision.endsAt.slice(0, 10) >= input.from);
+    return Boolean(reservation && revision && record.sourceReservationVersion === reservation.version && actualRecordAllowed(db, auth, record, indexes) && cleanString(revision.confirmedAt, 10) <= input.asOf && revision.startsAt.slice(0, 10) <= input.to && revision.endsAt.slice(0, 10) >= input.from);
   });
 }
 function dashboardReadModel(db, auth, kind, rawInput = {}) {
