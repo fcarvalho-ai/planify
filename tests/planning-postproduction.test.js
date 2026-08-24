@@ -386,10 +386,22 @@ test('la fenêtre virtuelle borne lignes et dates tout en conservant les dimensi
 
 test('une vue Projet agrandit uniformément les lignes qui empilent plusieurs réservations', () => {
   const second = { ...period, id: 'booking_period_2', title: 'Deuxième session' };
+  const third = { ...period, id: 'booking_period_3', title: 'Troisième session' };
+  const fourth = { ...period, id: 'booking_period_4', title: 'Quatrième session' };
   const slots = [{ date: '2026-08-17' }];
   assert.equal(planningMaxCellStack([period, second], [room], slots), 2);
+  assert.equal(planningMaxCellStack([period, second, third, fourth], [room], slots), 3);
   assert.equal(planningRowHeight(92, 1), 92);
   assert.equal(planningRowHeight(92, 2), 132);
+  assert.equal(planningRowHeight(92, 3), 194);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8');
+  assert.match(source, /stackDepth=filters\.project\?planningMaxCellStack/);
+  assert.match(source, /data-row-height="\$\{rowHeight\}"/);
+  assert.match(source, /rowHeight=Number\(matrix\?\.dataset\.rowHeight\)\|\|92/);
+  assert.match(source, /event\(booking,cell,stacked\)/);
+  assert.equal((source.match(/planningEventOperationsBase\(booking,cell,compact\)|commercialPlanningEventBase\(booking,cell,compact\)/g)||[]).length, 2);
+  assert.match(css, /\.planning-cell\.is-stacked \.planning-event\.is-compact-stack\{[^}]*height:58px/);
 });
 
 test('le planning rend des fenêtres virtualisées et restaure les deux axes de défilement', () => {
