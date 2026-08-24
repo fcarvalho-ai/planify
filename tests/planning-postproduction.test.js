@@ -26,6 +26,7 @@ const {
   snapPlanningTime,
   planningVirtualSlice,
   planningVirtualWindowNeedsRender,
+  planningColumnWidth,
   planningMaxCellStack,
   planningCellEntriesBySlot,
   planningRowHeight,
@@ -78,6 +79,23 @@ test('les vues Jour, Semaine, 6 semaines, Mois et 3 mois restent disponibles hor
   assert.match(source, /view==='quarter'\?3:1/);
   assert.doesNotMatch(source, /if\(!planningFullscreen&&view==='sixWeeks'\)view='month'/);
   assert.match(css, /view-quarter/);
+});
+
+test('le plein écran partage les mêmes largeurs entre CSS et virtualisation horizontale', () => {
+  assert.equal(planningColumnWidth('sixWeeks', 'day', true), 44);
+  assert.equal(planningColumnWidth('month', 'day', true), 52);
+  assert.equal(planningColumnWidth('quarter', 'day', true), 38);
+  assert.equal(planningColumnWidth('sixWeeks', 'day', false), 104);
+  assert.equal(planningColumnWidth('month', 'day', false), 104);
+  assert.equal(planningColumnWidth('quarter', 'day', false), 76);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8');
+  assert.equal((css.match(/minmax\(var\(--planning-day-width\),1fr\)/g)||[]).length, 3);
+  assert.match(source,/matrixTrack\.style\.width=`\$\{Number\(matrixShell\.dataset\.totalColumns\)\*Number\(matrixShell\.dataset\.columnWidth\)\}px`/);
+  assert.match(css,/\.planning-matrix-shell \.postprod-matrix\.is-virtualized\{box-sizing:border-box\}/);
+  const quarterWidth=planningColumnWidth('quarter','day',true),quarter=planningVirtualSlice(92,99999,2239,quarterWidth,5);
+  assert.equal(quarter.end,92);
+  assert.equal(quarter.before+quarter.count*quarterWidth+quarter.after,92*quarterWidth);
 });
 
 test('le ghost de création normalise une sélection souris dans les deux directions', () => {

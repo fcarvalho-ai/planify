@@ -1,5 +1,11 @@
 # Changelog
 
+## Non publié — 0.5.0-rc5-dev
+
+- correction du scroll horizontal des vues 6 semaines, Mois et 3 mois : la virtualisation et le CSS partagent désormais la même largeur de colonne ;
+- largeur totale de période figée pendant les reconstructions virtuelles, afin que les dernières dates restent atteignables en un seul défilement ;
+- recette navigateur en plein écran et mode normal jusqu’aux dates terminales, avec suite complète 342/342, lint et build verts.
+
 ## 0.5.0-rc4 — 2026-08-24
 
 - correction du parcours Projet → Planning : plusieurs réservations d’une même salle/date restent dans leur ligne ;

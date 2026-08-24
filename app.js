@@ -105,6 +105,12 @@ function planningInitialScrollLeft(dates,columnWidth){
   const anchorIndex=Math.max(0,dates.indexOf(anchor)),viewportColumns=Math.max(1,Math.floor((planningVirtualState.viewportWidth||1040)/columnWidth));
   return Math.max(0,(anchorIndex-Math.floor(viewportColumns/2))*columnWidth);
 }
+function planningColumnWidth(viewValue,granularity='day',fullscreen=false){
+  if(viewValue==='day')return granularity==='hour'?72:granularity==='halfDay'?180:260;
+  if(viewValue==='week')return 170;
+  if(fullscreen)return viewValue==='month'?52:viewValue==='sixWeeks'?44:viewValue==='quarter'?38:104;
+  return viewValue==='quarter'?76:104;
+}
 function planningReservationPath(){const dates=dateRange(),from=dates[0]||anchor,to=shiftDate(dates[dates.length-1]||anchor,1);return`/api/v1/reservations?from=${encodeURIComponent(`${from}T00:00:00Z`)}&to=${encodeURIComponent(`${to}T00:00:00Z`)}`}
 async function loadPlanningPresence(){if(apiMode!=='api'||!state.user)return;try{const siteId=filters.site?`?siteId=${encodeURIComponent(filters.site)}`:'',payload=await api(`/api/v1/planning/presence${siteId}`);planningPresence=listItems(payload).filter(item=>Date.parse(item.expiresAt)>Date.now())}catch(error){if(error.status===403)planningPresence=[];else throw error}}
 function planningPresenceFor(reservationId){const item=planningPresence.find(value=>value.reservationId===reservationId&&Date.parse(value.expiresAt)>Date.now());return item?.actorUserId===state.user?.id?null:item}
@@ -172,7 +178,7 @@ function planningCellEntriesBySlot(bookings,rooms,slots,timedGrid=false,granular
 }
 function planningRowHeight(baseHeight,stackDepth){const depth=Math.max(1,Number(stackDepth)||1);return Math.max(baseHeight,12+depth*58+(depth-1)*4)}
 function planningMatrix(){
-  const dates=dateRange(),rooms=postProductionRooms(),siteId=filters.site||rooms[0]?.siteId,slots=planningTimelineSlots(view,planningGranularity,dates,siteId),timedGrid=view==='day'&&planningGranularity!=='day',bookings=state.bookings.filter(matches),columnWidth=view==='day'?(planningGranularity==='hour'?72:planningGranularity==='halfDay'?180:260):view==='week'?170:view==='quarter'?76:104,today=new Date().toISOString().slice(0,10);
+  const dates=dateRange(),rooms=postProductionRooms(),siteId=filters.site||rooms[0]?.siteId,slots=planningTimelineSlots(view,planningGranularity,dates,siteId),timedGrid=view==='day'&&planningGranularity!=='day',bookings=state.bookings.filter(matches),columnWidth=planningColumnWidth(view,planningGranularity,planningFullscreen),today=new Date().toISOString().slice(0,10);
   if(!rooms.length)return'<div class="planning-empty"><strong>Aucune salle de post-production</strong><p>Créez ou activez une salle de montage, d’étalonnage, de mixage ou de PAD dans Ressources.</p></div>';
   const compactView=view==='month'||view==='sixWeeks'||view==='quarter',baseRowHeight=timedGrid?104:planningFullscreen&&compactView?64:compactView?74:92,stackDepth=filters.project?planningMaxCellStack(bookings,rooms,slots,timedGrid,planningGranularity,3):1,rowHeight=planningRowHeight(baseRowHeight,stackDepth),virtualKey=[view,planningGranularity,planningFullscreen,anchor,filters.site,filters.resource,filters.type,filters.project,filters.status,rowHeight,dates[0],dates.at(-1),rooms.map(room=>room.id).join(',')].join('|');
   if(planningVirtualState.key!==virtualKey){planningVirtualState.key=virtualKey;planningVirtualState.scrollLeft=view==='day'&&planningGranularity==='hour'?16*columnWidth:planningInitialScrollLeft(dates,columnWidth);planningVirtualState.scrollTop=0;planningVirtualState.rowStart=0;planningVirtualState.columnStart=0}
@@ -250,6 +256,8 @@ bind=function(){
   const timeline=document.querySelector('.planning-matrix-scroll'),scrollbar=document.querySelector('[data-planning-scroll]'),scrollbarTrack=scrollbar?.firstElementChild;
   if(timeline&&scrollbar&&scrollbarTrack){
     const fixedColumn=document.querySelector('.planning-fixed-column');
+    const matrixShell=document.querySelector('.planning-matrix-shell'),matrixTrack=timeline.querySelector('.postprod-matrix');
+    if(matrixShell&&matrixTrack)matrixTrack.style.width=`${Number(matrixShell.dataset.totalColumns)*Number(matrixShell.dataset.columnWidth)}px`;
     const restorePlanningScroll=()=>{
       timeline.scrollLeft=planningVirtualState.scrollLeft;
       timeline.scrollTop=planningVirtualState.scrollTop;
@@ -1085,4 +1093,4 @@ if(typeof document!=='undefined'){
   bookingForm?.addEventListener('submit',()=>{if(bookingForm.dataset.timePolicyTouched!=='true')return;const granularity=bookingForm.elements.timeGranularity?.value||'day';bookingForm.elements.start.value=snapPlanningTime(bookingForm.elements.start.value,granularity,'start');bookingForm.elements.end.value=snapPlanningTime(bookingForm.elements.end.value,granularity,'end')},{capture:true});
   if(location.hash.slice(1)==='pilotage')render();
 }
-if(typeof module!=='undefined')module.exports={mins,time,overlaps,bookingIssues,occupancy,seed,clone,esc,unauthenticatedState,shouldEndSession,bookingDates,bookingRenderedCells,bookingCellState,shiftDate,daysBetween,planningCreationRange,planningMovedPeriod,planningResizedPeriod,planningTimelineSlots,planningCellInterval,planningShiftedInstants,planningZonedCandidates,planningZonedIso,planningLocalParts,francePublicHolidayLabel,snapPlanningTime,postProductionKind,fromApiReservation,toApiReservation,manualPriceOverridePayload,planningDatesFor,planningVirtualSlice,planningVirtualWindowNeedsRender,planningMaxCellStack,planningCellEntriesBySlot,planningRowHeight};
+if(typeof module!=='undefined')module.exports={mins,time,overlaps,bookingIssues,occupancy,seed,clone,esc,unauthenticatedState,shouldEndSession,bookingDates,bookingRenderedCells,bookingCellState,shiftDate,daysBetween,planningCreationRange,planningMovedPeriod,planningResizedPeriod,planningTimelineSlots,planningCellInterval,planningShiftedInstants,planningZonedCandidates,planningZonedIso,planningLocalParts,francePublicHolidayLabel,snapPlanningTime,postProductionKind,fromApiReservation,toApiReservation,manualPriceOverridePayload,planningDatesFor,planningVirtualSlice,planningVirtualWindowNeedsRender,planningColumnWidth,planningMaxCellStack,planningCellEntriesBySlot,planningRowHeight};

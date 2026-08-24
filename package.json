@@ -1,6 +1,6 @@
 {
   "name": "planify-post-prod",
-  "version": "0.5.0-rc4",
+  "version": "0.5.0-rc5-dev",
   "private": true,
   "description": "MVP local autonome de planning post-production",
   "scripts": {
