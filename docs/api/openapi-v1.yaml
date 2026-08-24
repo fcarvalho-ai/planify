@@ -730,6 +730,70 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /dashboards/{kind}/export.xlsx:
+    get:
+      tags: [Dashboards]
+      operationId: exportDashboardKpisXlsx
+      summary: Exporter les KPI du tableau de bord avec le même périmètre de calcul
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string, enum: [direction, finance, planning, sales, operations, project] }
+        - { name: asOf, in: query, schema: { type: string, format: date } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: siteId, in: query, schema: { type: string } }
+        - { name: projectId, in: query, schema: { type: string } }
+        - { name: clientId, in: query, schema: { type: string } }
+        - { name: salesOwnerId, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Classeur XLSX local des indicateurs autorisés
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /exports/planning.xlsx:
+    get:
+      tags: [Dashboards]
+      operationId: exportPlanningXlsx
+      summary: Exporter les réservations Planning autorisées au format Excel
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: siteId, in: query, schema: { type: string } }
+        - { name: projectId, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Classeur XLSX local du Planning
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /exports/planning.pdf:
+    get:
+      tags: [Dashboards]
+      operationId: exportPlanningPdf
+      summary: Exporter les réservations Planning autorisées au format PDF
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: siteId, in: query, schema: { type: string } }
+        - { name: projectId, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: PDF local du Planning
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /analytics/dimensions:
     get:
       operationId: getAnalyticsDimensions
