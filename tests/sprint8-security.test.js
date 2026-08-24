@@ -8,7 +8,7 @@ const fs = require('node:fs');
 
 process.env.PLANIFY_DATA_FILE = path.join(os.tmpdir(), `planify-s8-security-${process.pid}-${Date.now()}.json`);
 
-const { createServer, resetData, makeSeed, readDb } = require('../server.js');
+const { createServer, dashboardReadModel, exportPdfBuffer, exportXlsxBuffer, planningExportRows, resetData, makeSeed, readDb } = require('../server.js');
 
 let server;
 let baseUrl;
@@ -32,6 +32,18 @@ async function login(email) {
   assert.equal(result.response.status, 200);
   return { cookie: result.response.headers.get('set-cookie').split(';', 1)[0], csrf: result.data.csrfToken, user: result.data.user };
 }
+
+async function openEventStream(auth) {
+  const controller = new AbortController(), response = await fetch(`${baseUrl}/api/v1/events`, { headers: { cookie: auth.cookie, accept: 'text/event-stream' }, signal: controller.signal }); assert.equal(response.status, 200);
+  const reader = response.body.getReader(), decoder = new TextDecoder(); let buffered = '';
+  while (!buffered.includes(': connected')) { const chunk = await reader.read(); if (chunk.done) throw new Error('Flux SSE fermé avant connexion.'); buffered += decoder.decode(chunk.value, { stream: true }); }
+  return { controller, reader, decoder, buffered: buffered.slice(buffered.indexOf(': connected') + ': connected'.length).replace(/^\n\n/, '') };
+}
+async function nextInvalidation(stream, timeoutMs = 800) {
+  const read = async () => { while (!stream.buffered.includes('event: invalidation')) { const chunk = await stream.reader.read(); if (chunk.done) return null; stream.buffered += stream.decoder.decode(chunk.value, { stream: true }); } const boundary = stream.buffered.indexOf('\n\n'), event = stream.buffered.slice(0, boundary + 2); stream.buffered = stream.buffered.slice(boundary + 2); return event; };
+  return Promise.race([read(), new Promise(resolve => setTimeout(() => resolve(null), timeoutMs))]);
+}
+function closeEventStream(stream) { stream.controller.abort(); stream.reader.cancel().catch(() => {}); }
 
 before(async () => {
   resetData(makeSeed());
@@ -129,6 +141,17 @@ test('S8-D applique la matrice des sept rôles, six dashboards et trois exports 
   assert.deepEqual([...financeRoles].sort(), ['ADMIN', 'FINANCE']);
 
   const dashboards = ['direction', 'finance', 'planning', 'sales', 'operations', 'project'];
+  const requirements = { direction: ['finance.read', 'quote.read', 'planning.read', 'resource.read', 'actual.read'], finance: ['finance.read', 'quote.read'], planning: ['planning.read', 'resource.read'], sales: ['quote.read', 'client.read', 'project.read|project.manage'], operations: ['planning.read', 'resource.read', 'maintenance.read'], project: ['quote.read', 'planning.read', 'project.read|project.manage'] }, db = readDb(); let checked = 0;
+  for (const role of roles) {
+    const permissions = role.permissions.includes('*') ? ['*'] : role.permissions, auth = { user: { id: `matrix_${role.code}`, companyId: 'company_northlight', organizationScope: true, siteIds: db.sites.filter(value => value.companyId === 'company_northlight').map(value => value.id), organizationUnitIds: [], projectScopeRestricted: false, projectIds: [], entityScopes: {}, effectivePermissions: permissions } }, hasPermission = value => permissions.includes('*') || value.split('|').some(permission => permissions.includes(permission));
+    for (const dashboard of dashboards) {
+      const allowed = requirements[dashboard].every(hasPermission); let model = null, error = null; try { model = dashboardReadModel(db, auth, dashboard, { asOf: '2026-08-23', from: '2026-08-01', to: '2026-08-23' }); } catch (caught) { error = caught; }
+      assert.equal(Boolean(model), allowed, `${role.code}/${dashboard}`); if (!allowed) assert.equal(error?.status, 403); if (model && !hasPermission('finance.read')) assert.doesNotMatch(JSON.stringify(model), /plannedMargin|actualMargin|plannedCost|actualCost|costUnitMinor/);
+      for (const format of ['screen', 'xlsx', 'pdf']) { checked++; if (!model) continue; if (format === 'xlsx') assert.equal(exportXlsxBuffer('Matrice', ['Dashboard'], [[dashboard]]).subarray(0, 2).toString(), 'PK'); if (format === 'pdf') assert.equal(exportPdfBuffer('Matrice', dashboard, ['Dashboard'], [[dashboard]]).subarray(0, 8).toString(), '%PDF-1.4'); }
+    }
+    if (hasPermission('planning.read') && hasPermission('project.read|project.manage')) assert.doesNotThrow(() => planningExportRows(db, auth, { from: '2026-08-01', to: '2026-08-31' }));
+  }
+  assert.equal(checked, 7 * 6 * 3);
   const observed = {};
   for (const dashboard of dashboards) observed[dashboard] = (await request(`/api/v1/dashboards/${dashboard}`, {}, planner)).response.status;
   assert.deepEqual(observed, { direction: 403, finance: 403, planning: 200, sales: 200, operations: 200, project: 200 });
@@ -151,7 +174,21 @@ test('S8-D applique la matrice des sept rôles, six dashboards et trois exports 
 
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(source, /JSON\.stringify\(\{ eventId: id\('event'\), type, occurredAt: now\(\), companyId, siteId: entity\.siteId, entityId: entity\.id, entityVersion: entity\.version \}\)/);
+  assert.match(source, /if \(!result\.replay && result\.item\.sourceQuoteId\) emit\('quote\.planningProgress\.v1'/);
   const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8'), html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   assert.match(app, /d\.overrideReason\?\.trim\(\)\.length\|\|0\)<3/);
   assert.match(html, /name="overrideReason" minlength="3" maxlength="500"/);
+});
+
+test('S8-D ne réémet aucun SSE Devis au replay exact d’une copie de cellule liée', async () => {
+  const db = readDb(), sourceBase = db.reservations.find(value => value.id === 'reservation_1') || db.reservations[0]; assert.ok(sourceBase);
+  const source = { ...structuredClone(sourceBase), id: 'reservation_s8d_quote_cell', title: 'Cellule liée S8-D', status: 'confirmed', startsAt: '2031-04-01T07:00:00.000Z', endsAt: '2031-04-01T16:00:00.000Z', planningMode: 'dailyCells', includeWeekends: true, sourceQuoteId: 'quote_s8d_cell', sourceQuoteVersionId: 'quoteVersion_s8d_cell', sourceQuoteLineId: 'quoteLine_s8d_cell', planningQuantityMilli: '1000', planningUnit: 'jour', cellOverrides: [], version: 1 };
+  const resourceId = source.resources[0].resourceId, quote = { id: 'quote_s8d_cell', companyId: source.companyId, siteId: source.siteId, projectId: source.projectId, kind: 'quote', status: 'accepted', currentVersionId: 'quoteVersion_s8d_cell', currency: 'EUR', currencyExponent: 2, lines: [{ id: 'quoteLine_s8d_cell', category: 'room', section: 'Montage', label: 'Montage Avid', sourceType: 'resource', sourceId: resourceId, unit: 'jour', quantityMilli: '100000', planning: { bookingIds: [], plannedQuantityMilli: '0', requestedDurationDays: 100, status: 'unplanned' }, netHt: '100000', costTotal: '0' }], version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  db.reservations.push(source); db.quotes ||= []; db.quotes.push(quote); resetData(db); admin = await login('admin@northlight.fr');
+  const stream = await openEventStream(admin); try {
+    const payload = { sourceDate: '2031-04-01', sourceResourceId: resourceId, targetDate: '2031-04-02', targetResourceId: resourceId }, options = { method: 'POST', headers: { 'Idempotency-Key': 's8d-cell-replay' }, body: JSON.stringify(payload) };
+    const created = await request(`/api/v1/reservations/${source.id}/duplicate`, options, admin); assert.equal(created.response.status, 201);
+    const first = await nextInvalidation(stream); const second = await nextInvalidation(stream); assert.match(`${first}${second}`, /reservation\.cellDuplicated\.v1/); assert.match(`${first}${second}`, /quote\.planningProgress\.v1/);
+    const replay = await request(`/api/v1/reservations/${source.id}/duplicate`, options, admin); assert.equal(replay.response.status, 200); assert.equal(replay.data.id, created.data.id); assert.equal(await nextInvalidation(stream, 250), null);
+  } finally { closeEventStream(stream); }
 });

@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 process.env.PLANIFY_DATA_FILE = path.join(os.tmpdir(), `planify-sprint8-dashboards-${process.pid}-${Date.now()}.json`);
-const { createServer, dashboardReadModel, makeSeed, resetData } = require('../server.js');
+const { createServer, dashboardDrilldownReadModel, dashboardReadModel, makeSeed, resetData } = require('../server.js');
 
 function authFor(db, permissions, overrides = {}) {
   const companyId = db.companies[0].id;
@@ -17,13 +17,35 @@ test('S8-A produit les six read-models versionnés sans inventer facturé ni enc
   const db = makeSeed(), admin = authFor(db, ['finance.read', 'quote.read', 'planning.read', 'resource.read', 'actual.read', 'client.read', 'project.read', 'maintenance.read']);
   for (const kind of ['direction', 'finance', 'planning', 'sales', 'operations', 'project']) {
     const result = dashboardReadModel(db, admin, kind, { asOf: '2026-08-23', from: '2026-08-01', to: '2026-08-23' });
-    assert.equal(result.dashboard, kind); assert.equal(result.definitionVersion, `DASHBOARD_${kind.toUpperCase()}@1`); assert.equal(result.asOf, '2026-08-23'); assert.ok(result.kpis.length >= 3); assert.equal(result.sources.freshness.mode, 'live'); assert.equal(result.sources.scopeDigest.length, 64);
+    assert.equal(result.dashboard, kind); assert.equal(result.definitionVersion, `DASHBOARD_${kind.toUpperCase()}@2`); assert.equal(result.asOf, '2026-08-23'); assert.ok(result.kpis.length >= 3); assert.equal(result.sources.freshness.mode, 'live'); assert.equal(result.sources.scopeDigest.length, 64);
   }
   const finance = dashboardReadModel(db, admin, 'finance', { asOf: '2026-08-23' });
   assert.equal(finance.kpis.find(value => value.id === 'invoicedRevenue').status, 'unavailable');
   assert.equal(finance.kpis.find(value => value.id === 'invoicedRevenue').value, null);
   assert.match(finance.kpis.find(value => value.id === 'invoicedRevenue').definition, /module de facturation non livré/);
   assert.equal(finance.kpis.find(value => value.id === 'collectedRevenue').status, 'unavailable');
+});
+
+test('S8-A couvre les KPI obligatoires, conserve les filtres et réconcilie CA signé avec le détail', () => {
+  const db = makeSeed(), admin = authFor(db, ['finance.read', 'quote.read', 'planning.read', 'resource.read', 'actual.read', 'client.read', 'project.read', 'maintenance.read']);
+  const required = {
+    direction: ['signedRevenue', 'earnedRevenue', 'backlog', 'plannedMargin', 'actualMargin', 'occupancy', 'saturation', 'underutilization'],
+    finance: ['billableRevenue', 'plannedCost', 'actualCost', 'complementsRequired', 'invoicedRevenue', 'collectedRevenue'],
+    planning: ['occupancy', 'saturation', 'underutilization', 'openOptions', 'conflicts', 'unplannedProjects'],
+    sales: ['budgets', 'quotes', 'budgetConversion', 'conversion', 'discount'],
+    operations: ['resources', 'maintenance', 'unavailable', 'plannedOccupancy', 'actualOccupancy', 'occupancyGap'],
+    project: ['projects', 'planning', 'planningCompleteness', 'unplannedProjects', 'actuals'],
+  };
+  for (const [kind, ids] of Object.entries(required)) { const model = dashboardReadModel(db, admin, kind, { asOf: '2026-08-23', from: '2026-08-01', to: '2026-08-23' }); for (const id of ids) assert.ok(model.kpis.some(value => value.id === id), `${kind}.${id}`); }
+  const resource = db.resources.find(value => value.companyId === db.companies[0].id), planning = dashboardReadModel(db, admin, 'planning', { asOf: '2026-08-23', from: '2026-08-01', to: '2026-08-23', resourceId: resource.id, resourceCategoryId: resource.resourceCategoryId });
+  assert.equal(planning.filters.resourceId, resource.id); assert.equal(planning.filters.resourceCategoryId, resource.resourceCategoryId || null); assert.match(planning.kpis.find(value => value.id === 'occupancy').drilldown, /resourceId=/);
+  const direction = dashboardReadModel(db, admin, 'direction', { asOf: '2026-08-23', from: '2026-08-01', to: '2026-08-23' }), detail = dashboardDrilldownReadModel(db, admin, 'direction', { asOf: '2026-08-23', from: '2026-08-01', to: '2026-08-23', kpiId: 'signedRevenue', pageSize: 500 });
+  assert.equal(detail.total, direction.kpis.find(value => value.id === 'acceptedQuotes').value); assert.equal(detail.items.reduce((sum, value) => sum + BigInt(value.value), 0n), BigInt(direction.kpis.find(value => value.id === 'signedRevenue').value));
+});
+
+test('S8-A refuse Exploitation sans maintenance.read et ne divulgue aucun compteur', () => {
+  const db = makeSeed(), withoutMaintenance = authFor(db, ['planning.read', 'resource.read']);
+  assert.throws(() => dashboardReadModel(db, withoutMaintenance, 'operations', { asOf: '2026-08-23' }), error => error.status === 403 && error.code === 'DASHBOARD_FORBIDDEN' && error.details.missingPermissions.includes('maintenance.read'));
 });
 
 test('S8-A n’expose aucun coût ni marge au Commercial sans finance.read', () => {
@@ -58,6 +80,8 @@ test('S8-A expose le dashboard via HTTP avec le contrat d’erreur stable', asyn
   const base = `http://127.0.0.1:${server.address().port}`, login = await fetch(`${base}/api/v1/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'admin@northlight.fr', password: 'demo2026' }) }), session = await login.json(), cookie = login.headers.get('set-cookie').split(';', 1)[0];
   const response = await fetch(`${base}/api/v1/dashboards/direction?asOf=2026-08-23`, { headers: { cookie } }), data = await response.json();
   assert.equal(response.status, 200); assert.equal(data.dashboard, 'direction'); assert.equal(data.kpis.some(value => value.id === 'signedRevenue'), true);
+  const drilldown = await fetch(`${base}/api/v1/dashboards/direction/drilldown?asOf=2026-08-23&kpiId=signedRevenue&page=1&pageSize=10`, { headers: { cookie } }), detail = await drilldown.json();
+  assert.equal(drilldown.status, 200); assert.equal(detail.dashboard, 'direction'); assert.equal(detail.kpiId, 'signedRevenue'); assert.ok(Array.isArray(detail.items)); assert.ok(detail.items.every(value => value.kpiId === 'signedRevenue'));
   const invalid = await fetch(`${base}/api/v1/dashboards/direction?asOf=2999-01-01`, { headers: { cookie } }), error = await invalid.json();
   assert.equal(invalid.status, 422); assert.equal(error.error.code, 'DASHBOARD_PERIOD_INVALID'); assert.ok(error.error.requestId);
 });
@@ -68,4 +92,6 @@ test('S8-A câble la route, l’interface Pilotage et le contrat OpenAPI', () =>
   assert.match(html, /data-route="pilotage"/);
   assert.match(app, /DASHBOARD_KINDS_UI/);
   assert.match(openapi, /\/dashboards\/\{kind\}:/);
+  assert.match(openapi, /\/dashboards\/\{kind\}\/drilldown:/);
+  assert.match(openapi, /DashboardDrilldownResponse:/);
 });

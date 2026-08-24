@@ -720,12 +720,50 @@ paths:
         - name: salesOwnerId
           in: query
           schema: { type: string }
+        - name: resourceId
+          in: query
+          schema: { type: string }
+        - name: resourceCategoryId
+          in: query
+          schema: { type: string }
       responses:
         '200':
           description: Tableau de bord calculé avec les permissions et scopes courants
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DashboardResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /dashboards/{kind}/drilldown:
+    get:
+      tags: [Dashboards]
+      operationId: getRoleDashboardDrilldown
+      summary: Lire les sources paginées d’un indicateur avec le même périmètre
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string, enum: [direction, finance, planning, sales, operations, project] }
+        - { name: kpiId, in: query, schema: { type: string } }
+        - { name: asOf, in: query, schema: { type: string, format: date } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: siteId, in: query, schema: { type: string } }
+        - { name: projectId, in: query, schema: { type: string } }
+        - { name: clientId, in: query, schema: { type: string } }
+        - { name: salesOwnerId, in: query, schema: { type: string } }
+        - { name: resourceId, in: query, schema: { type: string } }
+        - { name: resourceCategoryId, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+      responses:
+        '200':
+          description: Sources autorisées et réconciliables de l’indicateur
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardDrilldownResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -747,9 +785,11 @@ paths:
         - { name: projectId, in: query, schema: { type: string } }
         - { name: clientId, in: query, schema: { type: string } }
         - { name: salesOwnerId, in: query, schema: { type: string } }
+        - { name: resourceId, in: query, schema: { type: string } }
+        - { name: resourceCategoryId, in: query, schema: { type: string } }
       responses:
         '200':
-          description: Classeur XLSX local des indicateurs autorisés
+          description: Classeur XLSX local avec feuilles Synthèse, Détail et Définitions
           content:
             application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
               schema: { type: string, format: binary }
@@ -766,12 +806,15 @@ paths:
         - { name: to, in: query, schema: { type: string, format: date } }
         - { name: siteId, in: query, schema: { type: string } }
         - { name: projectId, in: query, schema: { type: string } }
+        - { name: resourceId, in: query, schema: { type: string } }
+        - { name: resourceCategoryId, in: query, schema: { type: string } }
       responses:
         '200':
-          description: Classeur XLSX local du Planning
+          description: Classeur XLSX local avec feuilles Planning, Filtres et Définitions ; une ligne par allocation et jour
           content:
             application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
               schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
@@ -785,12 +828,15 @@ paths:
         - { name: to, in: query, schema: { type: string, format: date } }
         - { name: siteId, in: query, schema: { type: string } }
         - { name: projectId, in: query, schema: { type: string } }
+        - { name: resourceId, in: query, schema: { type: string } }
+        - { name: resourceCategoryId, in: query, schema: { type: string } }
       responses:
         '200':
-          description: PDF local du Planning
+          description: PDF local du Planning, 62 jours maximum, A4 paysage jusqu’à 14 jours puis A3 paysage
           content:
             application/pdf:
               schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
@@ -2374,6 +2420,41 @@ components:
         filters: { type: object, additionalProperties: { type: [string, 'null'] } }
         fields: { type: array, items: { type: string } }
         items: { type: array, maxItems: 500, items: { type: object, additionalProperties: true } }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 500 }
+        total: { type: integer, minimum: 0 }
+        pageCount: { type: integer, minimum: 0 }
+    DashboardDrilldownItem:
+      type: object
+      additionalProperties: false
+      required: [kpiId, sourceType, sourceId]
+      properties:
+        kpiId: { type: string }
+        sourceType: { type: string }
+        sourceId: { type: string }
+        projectId: { type: [string, 'null'] }
+        clientId: { type: [string, 'null'] }
+        reservationId: { type: [string, 'null'] }
+        quoteId: { type: [string, 'null'] }
+        actualRecordId: { type: [string, 'null'] }
+        resourceId: { type: [string, 'null'] }
+        value: {}
+        unit: { type: [string, 'null'] }
+        status: { type: [string, 'null'] }
+        label: { type: [string, 'null'] }
+    DashboardDrilldownResponse:
+      type: object
+      additionalProperties: false
+      required: [dashboard, definitionVersion, generatedAt, asOf, period, filters, items, page, pageSize, total, pageCount]
+      properties:
+        dashboard: { type: string, enum: [direction, finance, planning, sales, operations, project] }
+        definitionVersion: { type: string }
+        generatedAt: { type: string, format: date-time }
+        asOf: { type: string, format: date }
+        period: { type: object, additionalProperties: true }
+        filters: { type: object, additionalProperties: { type: [string, 'null'] } }
+        kpiId: { type: [string, 'null'] }
+        items: { type: array, maxItems: 500, items: { $ref: '#/components/schemas/DashboardDrilldownItem' } }
         page: { type: integer, minimum: 1 }
         pageSize: { type: integer, minimum: 1, maximum: 500 }
         total: { type: integer, minimum: 0 }

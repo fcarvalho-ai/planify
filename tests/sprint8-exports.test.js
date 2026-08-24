@@ -27,6 +27,8 @@ test('S8-B applique les scopes avant de produire les lignes Planning', () => {
   const auth = authFor(db, ['planning.read', 'project.read'], { organizationScope: false, siteIds: [visible.siteId], projectScopeRestricted: true, projectIds: [visible.id], entityScopes: { project: [visible.id], client: [visible.clientId], reservation: db.reservations.filter(value => value.projectId === visible.id).map(value => value.id), resource: db.resources.filter(value => value.siteId === visible.siteId).map(value => value.id) } });
   const output = planningExportRows(db, auth, { from: '2026-01-01', to: '2026-12-31' });
   assert.equal(output.items.every(value => db.reservations.find(item => item.id === value.reservationId)?.projectId === visible.id), true);
+  assert.equal(output.items.every(value => /^\d{4}-\d{2}-\d{2}$/.test(value.day) && value.clientId && value.resourceId), true);
+  assert.equal(new Set(output.items.map(value => `${value.reservationId}:${value.resourceId}:${value.day}`)).size, output.items.length);
   assert.throws(() => planningExportRows(db, auth, { from: '2026-01-01', to: '2026-12-31', projectId: hidden.id }), error => error.status === 404);
 });
 
@@ -35,13 +37,15 @@ test('S8-B expose Planning XLSX/PDF et KPI XLSX avec bornes et permissions', asy
   t.after(async () => { await new Promise(resolve => server.close(resolve)); for (const name of fs.readdirSync(path.dirname(process.env.PLANIFY_DATA_FILE))) if (name.startsWith(path.basename(process.env.PLANIFY_DATA_FILE))) try { fs.unlinkSync(path.join(path.dirname(process.env.PLANIFY_DATA_FILE), name)); } catch {} });
   const base = `http://127.0.0.1:${server.address().port}`, login = async email => { const response = await fetch(`${base}/api/v1/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: 'demo2026' }) }); return response.headers.get('set-cookie').split(';', 1)[0]; }, admin = await login('admin@northlight.fr'), viewer = await login('viewer@northlight.fr');
   const xlsx = await fetch(`${base}/api/v1/exports/planning.xlsx?from=2026-08-01&to=2026-08-31`, { headers: { cookie: admin } }), xlsxBuffer = Buffer.from(await xlsx.arrayBuffer());
-  assert.equal(xlsx.status, 200); assert.match(xlsx.headers.get('content-type'), /spreadsheetml/); assert.equal(xlsxBuffer.subarray(0, 2).toString(), 'PK'); assert.match(xlsxBuffer.toString('utf8'), /ID réservation/);
+  assert.equal(xlsx.status, 200); assert.match(xlsx.headers.get('content-type'), /spreadsheetml/); assert.equal(xlsxBuffer.subarray(0, 2).toString(), 'PK'); assert.match(xlsxBuffer.toString('utf8'), /ID réservation/); for (const sheet of ['Planning', 'Filtres', 'Définitions']) assert.match(xlsxBuffer.toString('utf8'), new RegExp(`name="${sheet}"`)); assert.match(xlsxBuffer.toString('utf8'), /numFmtId="164"/);
   const pdf = await fetch(`${base}/api/v1/exports/planning.pdf?from=2026-08-01&to=2026-08-31`, { headers: { cookie: admin } }), pdfBuffer = Buffer.from(await pdf.arrayBuffer());
   assert.equal(pdf.status, 200); assert.equal(pdfBuffer.subarray(0, 8).toString(), '%PDF-1.4'); assert.match(pdfBuffer.toString('latin1'), /Planning des reservations/); assert.doesNotMatch(pdfBuffer.toString('latin1'), /costUnitMinor|Marge interne/);
   const kpi = await fetch(`${base}/api/v1/dashboards/finance/export.xlsx?asOf=2026-08-23`, { headers: { cookie: admin } }), kpiBuffer = Buffer.from(await kpi.arrayBuffer());
-  assert.equal(kpi.status, 200); assert.equal(kpiBuffer.subarray(0, 2).toString(), 'PK'); assert.match(kpiBuffer.toString('utf8'), /invoicedRevenue/); assert.match(kpiBuffer.toString('utf8'), /Indisponible|unavailable/);
+  assert.equal(kpi.status, 200); assert.equal(kpiBuffer.subarray(0, 2).toString(), 'PK'); assert.match(kpiBuffer.toString('utf8'), /invoicedRevenue/); assert.match(kpiBuffer.toString('utf8'), /Indisponible|unavailable/); for (const sheet of ['Synthèse', 'Détail', 'Définitions']) assert.match(kpiBuffer.toString('utf8'), new RegExp(`name="${sheet}"`));
   const forbidden = await fetch(`${base}/api/v1/dashboards/finance/export.xlsx?asOf=2026-08-23`, { headers: { cookie: viewer } }); assert.equal(forbidden.status, 403);
   const invalid = await fetch(`${base}/api/v1/exports/planning.xlsx?from=2025-01-01&to=2026-08-31`, { headers: { cookie: admin } }); assert.equal(invalid.status, 422); assert.equal((await invalid.json()).error.code, 'EXPORT_PERIOD_INVALID');
+  const pdfTooLong = await fetch(`${base}/api/v1/exports/planning.pdf?from=2026-01-01&to=2026-03-04`, { headers: { cookie: admin } }); assert.equal(pdfTooLong.status, 422); assert.equal((await pdfTooLong.json()).error.details.maximumDays, 62);
+  const a3 = await fetch(`${base}/api/v1/exports/planning.pdf?from=2026-08-01&to=2026-08-15`, { headers: { cookie: admin } }), a3Buffer = Buffer.from(await a3.arrayBuffer()); assert.equal(a3.status, 200); assert.match(a3Buffer.toString('latin1'), /\/MediaBox \[0 0 1191 842\]/); assert.match(a3Buffer.toString('latin1'), /Europe\/Paris/); assert.match(a3Buffer.toString('latin1'), /Legende:/);
 });
 
 test('S8-B câble les exports dans les interfaces et OpenAPI', () => {
