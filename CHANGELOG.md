@@ -1,6 +1,6 @@
 # Changelog
 
-## Non publié — 0.5.0-rc5-dev
+## 0.5.0-rc5 — 2026-08-24
 
 - correction du scroll horizontal des vues Mois et 3 mois : la virtualisation et le CSS partagent désormais la même largeur de colonne ;
 - largeur totale de période figée pendant les reconstructions virtuelles, afin que les dernières dates restent atteignables en un seul défilement ;
@@ -9,7 +9,8 @@
 - suppression de la vue 6 semaines devenue redondante ; le sélecteur propose Jour, Semaine, Mois et 3 mois ;
 - le détail des KPI Pilotage s’ouvre dans une fenêtre accessible et localisée ; les occupations réelles absentes ne génèrent plus de fausses lignes « — bps » et l’écart planifié/réalisé est calculé sur le même ensemble que son détail ;
 - la section Forecast du tableau Direction présente désormais les horizons 30/60/90 jours en français, avec dates lisibles et montants planifiés/à planifier formatés en euros ;
-- recette navigateur en plein écran et mode normal jusqu’aux dates terminales, avec 12 déplacements continus en 337 ms, suite complète 343/343, lint et build verts.
+- recette navigateur en plein écran et mode normal jusqu’aux dates terminales, avec 92 dates et 3 956 cellules stables en Mois/3 mois ; Forecast 30/60/90, détail Pilotage localisé et parcours Projet → Planning vérifiés ; suite complète 345/345, lint et build verts ;
+- REVIEW, QA, SECURITY, PERFORMANCE, INTEGRATION et E2E approuvés sans P0/P1 sur le même candidat applicatif.
 
 ## 0.5.0-rc4 — 2026-08-24
 

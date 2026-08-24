@@ -11,9 +11,9 @@ npm start
 
 Puis ouvrir <http://localhost:8080>.
 
-## Version de développement V1 — 0.5.0-rc5-dev
+## Release locale V1 — 0.5.0-rc5
 
-Le développement V1 suit l'ordre et le backlog placés dans `docs/specifications/`. La release `0.5.0-rc4` reste taguée et reproductible. Le lot courant `0.5.0-rc5-dev` corrige le scroll horizontal des vues Mois et 3 mois en alignant les largeurs CSS et de virtualisation, en maintenant une largeur totale stable et en évitant toute reconstruction horizontale pendant le geste. Le Planning propose désormais quatre vues : Jour, Semaine, Mois détaillé sur trois mois glissants, et 3 mois compact ; la vue 6 semaines redondante a été retirée. Le correctif DEV est vérifié localement ; les gates indépendants doivent être rejoués avant de promouvoir une RC5. Les coûts et marges restent protégés de bout en bout ; les surfaces authentifiées échouent fermées après déconnexion ou expiration de session. Le détail des preuves, limites P2 et empreintes est conservé dans `docs/project-status.md` et les rapports indépendants `docs/code-review.md`, `docs/qa-report.md`, `docs/security-review.md`, `docs/performance-report.md`, `docs/integration-report.md` et `docs/e2e-report.md`.
+La release locale `0.5.0-rc5` corrige le scroll horizontal des vues Mois et 3 mois en alignant les largeurs CSS et de virtualisation, en maintenant une largeur totale stable et en évitant toute reconstruction horizontale pendant le geste. Le Planning propose désormais quatre vues : Jour, Semaine, Mois détaillé sur trois mois glissants, et 3 mois compact ; la vue 6 semaines redondante a été retirée. Le détail Pilotage est présenté dans une fenêtre accessible et localisée, tandis que le Forecast Direction expose trois horizons métier 30/60/90 jours. Les coûts et marges restent protégés de bout en bout ; les surfaces authentifiées échouent fermées après déconnexion ou expiration de session. Tous les gates techniques, l’intégration et la recette E2E sont approuvés sans P0/P1. Le détail des preuves, limites P2 et empreintes est conservé dans `docs/project-status.md` et les rapports indépendants `docs/code-review.md`, `docs/qa-report.md`, `docs/security-review.md`, `docs/performance-report.md`, `docs/integration-report.md` et `docs/e2e-report.md`.
 
 Le runtime RC1 reste local et autonome. Les contrats V1 sont introduits de façon additive dans `packages/` : erreurs/enveloppes, RBAC et scopes, idempotence, audit, événements, planning, pricing et consommation Devis/Planning. Les décisions structurantes sont dans `docs/adr/` et l'API candidate dans `docs/api/openapi-v1.yaml`.
 
@@ -27,7 +27,7 @@ npm run build
 node scripts/generate-performance-dataset.js --output /tmp/planify-performance.json
 ```
 
-État de référence de la candidate : `npm test` exécute 340 tests. Les fichiers `data/*.json`, `output/` et `tmp/` restent locaux et sont exclus de Git afin qu'aucune donnée de travail, export client ou artefact temporaire n'entre dans la release.
+État de référence de la release : `npm test` exécute 345 tests. Les fichiers `data/*.json`, `output/` et `tmp/` restent locaux et sont exclus de Git afin qu'aucune donnée de travail, export client ou artefact temporaire n'entre dans la release.
 
 Le générateur produit un jeu déterministe de 250 ressources et 10 000 réservations sur six mois. Il n'écrit jamais dans les données métier sans chemin `--output` explicite.
 
@@ -103,3 +103,7 @@ Chaque export doit utiliser un chemin neuf et distinct des données actives. Apr
 ### Rollback Sprint 8 — dashboards et exports
 
 Le Sprint 8 n’ajoute aucune migration de données : dashboards, API Analytics/BI et exports sont des lectures dérivées des données existantes. Pour revenir à `0.4.0-rc1`, arrêter le serveur, conserver une copie privée du fichier de données courant, remettre en service le code et les actifs de `0.4.0-rc1`, puis redémarrer avec le même `PLANIFY_DATA_FILE`. Les données G7 restent compatibles ; les routes, exports et surfaces G8 disparaissent avec le retour applicatif. Vérifier ensuite connexion, Planning, Réalisations et Finance avant réouverture aux utilisateurs.
+
+### Rollback applicatif RC5
+
+RC5 n'ajoute aucune migration de données par rapport à RC4. Pour revenir à la release précédente, arrêter le serveur, conserver une copie privée du fichier `PLANIFY_DATA_FILE`, puis remettre en service le tag `v0.5.0-rc4` et redémarrer avec la même copie de données. Vérifier ensuite connexion, Planning, Pilotage et Finance. Le retour Git doit être réalisé dans un clone ou worktree dédié afin de ne pas écraser des changements locaux.
