@@ -1054,3 +1054,60 @@ tests/foundations.test.js           6b47b94a2b09c3fd116a03a527fb6096265c8142716d
 - Gate SECURITY G8 post-E2E : **REJECTED** sur `593d392`, 0 P0/1 P1 (`SEC-G8-04`)/1 P2 (`SEC-G8-05`)/0 P3.
 - Retour DEV requis pour neutraliser toutes les surfaces hors shell lors de toute fin de session, puis re-gate Sécurité.
 - Fichier modifié par cet axe : `docs/security-review.md` uniquement ; `docs/project-status.md` reste à consolider par l'intégrateur.
+
+---
+
+# Revalidation terminale SECURITY — fermeture overlays G8
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `08595fc2e643490c416117210e1b8dd8ddf34ed2`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 P2 ouvert, 0 P3.**
+
+`SEC-G8-04` est fermé. Le chemin commun `syncAuthenticatedSurfaces(false)` est appelé au début de tout rendu hors session, qu'il provienne d'un `401`, du logout ou de l'initialisation. Avant d'afficher la connexion, il masque et rend inertes `#modalBackdrop`, `#commandPalette` et `#stockDrawerBackdrop`, masque/rend inerte le shell, purge le contenu principal puis transfère le focus vers le champ e-mail si nécessaire. Un overlay ouvert ne peut donc plus rester visible, accessible ou focalisable après perte de session.
+
+## Fermeture de SEC-G8-04
+
+- La liste fermée des trois overlays hors shell est traitée par un seul helper appelé avant le retour non authentifié.
+- Chaque overlay reçoit `inert=true` et `hidden=true` hors session. À la prochaine session, `inert=false` est rétabli sans ouvrir arbitrairement l'overlay ; son état `hidden` reste fermé jusqu'à une action autorisée.
+- `app.replaceChildren()` élimine le document métier principal avant l'affichage de la connexion.
+- Le focus n'est déplacé vers `loginForm.elements.email` que si l'élément actif n'est pas déjà dans l'écran de connexion, ce qui évite de casser une saisie de reconnexion.
+- La détection `401` et `endSession()` restent fail-closed ; CSRF et SSE sont neutralisés. Aucun contrat serveur, RBAC, scope, export ou projection financière n'est modifié.
+
+## P2 résiduel — SEC-G8-05 réduit mais non fermé
+
+Le contenu principal `#app` est maintenant purgé, ce qui réduit matériellement l'exposition DOM signalée. Les overlays statiques sont en revanche seulement cachés et rendus inertes : leurs champs de formulaire, résultats de recherche ou contenu de tiroir déjà injectés ne sont pas explicitement vidés. Ils ne sont plus visibles, exposés à l'arbre d'accessibilité ni utilisables au clavier, mais peuvent rester inspectables localement jusqu'au prochain rendu. Un effacement ciblé des valeurs et résultats sensibles à la fin de session fermerait ce durcissement non bloquant.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `08595fc2e643490c416117210e1b8dd8ddf34ed2` |
+| diff `593d392..08595fc` | `app.js` + helper central ; test Foundations renforcé ; aucun changement backend |
+| ciblés Foundations + dashboards + sécurité G8 | **PASS, 32/32**, 0 échec/skip/todo, durée `2 439,05 ms` |
+| `npm test` | **PASS, 339/339**, 0 échec/skip/todo, durée `11 011,94 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+Le navigateur intégré demeure indisponible (`browsers.list()` vide après consultation du diagnostic de connexion). Le contrôle visuel et la navigation clavier réelle ne sont donc pas affirmés ; le gate repose sur le contrat DOM, l'ordre synchrone des mutations et les tests. Un smoke navigateur session expirée avec chacun des trois overlays ouvert reste recommandé en E2E.
+
+```text
+app.js                              24a00f070b3677cf920a2d802a16721c7f25d4dd42d72d3fbea14b6fdd6cbddc
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+styles.css                          b26952fc8f08d8c3798c0764a7da2286acb35a53f5abcd03114545c869d6b8a1
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+tests/foundations.test.js           0a09c42af8028fa4676ec9f984c8aa01cb1a4854494b3f55a52674ed14288b80
+```
+
+## Handoff
+
+- Gate SECURITY G8 overlays : **APPROVED** sur `08595fc`, 0 P0/0 P1/1 P2 (`SEC-G8-05`)/0 P3.
+- `SEC-G8-04` est fermé ; aucune reprise DEV bloquante demandée sur cet axe.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; `docs/project-status.md` reste à consolider par l'intégrateur.

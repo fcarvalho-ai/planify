@@ -1197,3 +1197,56 @@ tests/foundations.test.js           6b47b94a2b09c3fd116a03a527fb6096265c8142716d
 
 - Gate PERFORMANCE G8 post-E2E : **APPROVED** sur `593d392`, 0 P0/0 P1/0 nouveau P2/1 P3 (`PERF-G8-07`).
 - Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; `docs/project-status.md` reste à consolider par l'intégrateur.
+
+---
+
+# Revalidation terminale PERFORMANCE — fermeture overlays G8
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `08595fc2e643490c416117210e1b8dd8ddf34ed2`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 0 nouveau P2, 1 P3.**
+
+Sur le chemin chaud authentifié, `syncAuthenticatedSurfaces(true)` traite un shell et une liste fixe de trois overlays : son propre coût est O(1), sans requête, calcul métier, sérialisation ni nouveau listener. Lors de la seule transition vers l'état non authentifié, `app.replaceChildren()` libère le DOM courant ; ce nettoyage est O(n) selon le nombre de nœuds de la page affichée, mais ponctuel, requis pour réduire la rémanence des données, et borné par les vues déjà paginées/virtualisées. Il n'affecte pas les dashboards, drill-downs ou exports backend.
+
+## Analyse d'impact
+
+- Trois overlays fixes reçoivent chacun au plus une affectation `inert`, plus `hidden=true` uniquement hors session.
+- Le transfert de focus est conditionnel et exécuté uniquement hors session.
+- `server.js`, données, SSE serveur, RBAC, dashboards, Finance, XLSX/PDF et benchmarks G8 restent bit-identiques au candidat précédent.
+- Les suites ciblée et complète restent vertes ; aucune croissance de test ou d'exécution anormale n'est attribuable à ces quelques opérations DOM.
+
+## P3 — PERF-G8-07 maintenu
+
+Le navigateur intégré est toujours indisponible. Aucune trace fraîche de teardown DOM, style/layout/paint ou transition overlay → connexion n'a pu être collectée. Le risque demeure faible et non bloquant compte tenu du caractère ponctuel de la purge et de la liste fixe d'overlays, mais un profil navigateur doit accompagner le prochain smoke E2E. Les P2 généraux G8 déjà ouverts restent inchangés et hors impact de ce correctif.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `08595fc2e643490c416117210e1b8dd8ddf34ed2` |
+| diff `593d392..08595fc` | helper frontend et test statique uniquement ; aucun changement backend/API/données |
+| ciblés Foundations + dashboards + sécurité G8 | **PASS, 32/32**, durée `2 439,05 ms` |
+| `npm test` | **PASS, 339/339**, durée `11 011,94 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+```text
+app.js                              24a00f070b3677cf920a2d802a16721c7f25d4dd42d72d3fbea14b6fdd6cbddc
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+styles.css                          b26952fc8f08d8c3798c0764a7da2286acb35a53f5abcd03114545c869d6b8a1
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+tests/foundations.test.js           0a09c42af8028fa4676ec9f984c8aa01cb1a4854494b3f55a52674ed14288b80
+```
+
+## Handoff
+
+- Gate PERFORMANCE G8 overlays : **APPROVED** sur `08595fc`, 0 P0/0 P1/0 nouveau P2/1 P3 (`PERF-G8-07`).
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; `docs/project-status.md` reste à consolider par l'intégrateur.
