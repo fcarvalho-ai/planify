@@ -11,9 +11,9 @@ npm start
 
 Puis ouvrir <http://localhost:8080>.
 
-## Version candidate V1 — 0.3.0-rc1
+## Version candidate V1 — 0.4.0-rc1
 
-Le développement V1 suit l'ordre et le backlog placés dans `docs/specifications/`. Les gates G0 à G6 ainsi que les parcours Integration/E2E sont franchis. Le candidat `0.3.0-rc1` ajoute PlanyBot et l’import contrôlé des plannings clients : l’assistant analyse et propose, l’opérateur confirme, puis le moteur métier exécute. Aucun dialogue, fichier ou aperçu ne crée silencieusement de réservation. Le détail des preuves, limites P2 et empreintes est conservé dans `docs/project-status.md` et les rapports indépendants `docs/code-review.md`, `docs/qa-report.md`, `docs/security-review.md`, `docs/performance-report.md`, `docs/integration-report.md` et `docs/e2e-report.md`.
+Le développement V1 suit l'ordre et le backlog placés dans `docs/specifications/`. Les gates G0 à G7 ainsi que les parcours Integration/E2E sont franchis. Le candidat `0.4.0-rc1` ajoute au parcours PlanyBot le registre des réalisations et le moteur Finance : coûts historiques, marges, backlog, forecast, occupation et rentabilité. Les montants commerciaux restent séparés des coûts internes et chaque projection respecte les permissions et périmètres courants. Le détail des preuves, limites P2 et empreintes est conservé dans `docs/project-status.md` et les rapports indépendants `docs/code-review.md`, `docs/qa-report.md`, `docs/security-review.md`, `docs/performance-report.md`, `docs/integration-report.md` et `docs/e2e-report.md`.
 
 Le runtime RC1 reste local et autonome. Les contrats V1 sont introduits de façon additive dans `packages/` : erreurs/enveloppes, RBAC et scopes, idempotence, audit, événements, planning, pricing et consommation Devis/Planning. Les décisions structurantes sont dans `docs/adr/` et l'API candidate dans `docs/api/openapi-v1.yaml`.
 
@@ -27,7 +27,7 @@ npm run build
 node scripts/generate-performance-dataset.js --output /tmp/planify-performance.json
 ```
 
-État de référence de la candidate : `npm test` exécute 270 tests. Les fichiers `data/*.json`, `output/` et `tmp/` restent locaux et sont exclus de Git afin qu'aucune donnée de travail, export client ou artefact temporaire n'entre dans la release.
+État de référence de la candidate : `npm test` exécute 312 tests. Les fichiers `data/*.json`, `output/` et `tmp/` restent locaux et sont exclus de Git afin qu'aucune donnée de travail, export client ou artefact temporaire n'entre dans la release.
 
 Le générateur produit un jeu déterministe de 250 ressources et 10 000 réservations sur six mois. Il n'écrit jamais dans les données métier sans chemin `--output` explicite.
 
@@ -87,3 +87,15 @@ PLANIFY_DATA_FILE=/chemin/vers/planify.json node -e "console.log(require('./serv
 ```
 
 Après restauration, remettre en service une version antérieure au Sprint 6 ; sinon le runtime courant réappliquera la migration au démarrage. Les réservations déjà exécutées après confirmation humaine restent des opérations métier à rapprocher depuis l’export et ne sont jamais supprimées silencieusement.
+
+### Rollback Sprint 7 — réalisations et Finance
+
+Les trois migrations Sprint 7 doivent être retirées dans l’ordre inverse de leur application : Occupation, Finance, puis Réalisations. Chaque commande exige un export privé distinct de l’état courant avant la restauration byte-exacte :
+
+```bash
+PLANIFY_DATA_FILE=/chemin/vers/planify.json node -e "console.log(require('./server.js').rollbackSprint7Occupancy({ exportFile: '/chemin/vers/recovery-s7-occupancy.json' }))"
+PLANIFY_DATA_FILE=/chemin/vers/planify.json node -e "console.log(require('./server.js').rollbackSprint7Finance({ exportFile: '/chemin/vers/recovery-s7-finance.json' }))"
+PLANIFY_DATA_FILE=/chemin/vers/planify.json node -e "console.log(require('./server.js').rollbackSprint7Actuals({ exportFile: '/chemin/vers/recovery-s7-actuals.json' }))"
+```
+
+Chaque export doit utiliser un chemin neuf et distinct des données actives. Après restauration, remettre en service une version antérieure au Sprint 7 ; sinon le runtime courant réappliquera les migrations au prochain démarrage. Les exports restent la source de reprise des réalisations, coûts, dépenses et seuils créés depuis les sauvegardes.

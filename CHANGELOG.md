@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0-rc1 — 2026-08-24
+
+- registre des réalisations distinct du planning, confirmation et corrections append-only, rapprochement prévu/planifié/réalisé/facturable ;
+- coûts internes datés, dépenses Projet versionnées et instantanés historiques empêchant toute réécriture des marges passées ;
+- projections financières Backlog, Forecast 30/60/90 jours, Revenue Chain et marges avec traçabilité Devis/version/ligne ;
+- capacité nette, occupation planifiée/réelle, seuils société/site versionnés, rentabilité multidimensionnelle et réalisé non facturé actionnable ;
+- déduction déterministe des doubles options après filtrage des droits et exclusion des options perdues ;
+- confidentialité Finance de bout en bout : permissions dédiées, projections API/UI, audit expurgé et isolation société/site/projet/client/devis/ressource/prestation ;
+- migrations Sprint 7 Réalisations, Finance et Occupation avec sauvegardes privées vérifiées et rollbacks byte-exacts précédés d’un export obligatoire ;
+- REVIEW, QA, SECURITY, PERFORMANCE, INTEGRATION et E2E approuvés sans P0/P1 ; suite finale 312/312, lint, build et OpenAPI verts.
+
 ## 0.3.0-rc1 — 2026-08-23
 
 - PlanyBot contextuel : dialogue local, résumés Projet, conflits, disponibilité et recommandations de ressources explicables ;

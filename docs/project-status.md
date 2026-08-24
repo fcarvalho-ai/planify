@@ -1,11 +1,13 @@
 # État du projet — Planning Post Prod
 
-Version : `0.3.0-rc1`
-Date : 2026-08-23
+Version : `0.4.0-rc1`
+Date : 2026-08-24
 
 Organisation : gouvernance multi-agents formalisée dans `AGENTS.md`; dépôt Git initialisé sur `main`.
 
 Architecture cible : le synoptique global fourni par le Product Owner est adopté comme cible de développement. La migration reste incrémentale depuis la RC1, sans big bang.
+
+Décision RELEASE G7 2026-08-24 : la candidate locale **`0.4.0-rc1`** consolide Réalisations et Finance sur le candidat applicatif `7051fe4`, les gates indépendants G7-D et le parcours Integration/E2E. `package.json`, `CHANGELOG.md`, `README.md` et les procédures de rollback Sprint 7 sont alignés. Les preuves terminales sont : REVIEW/QA/SECURITY/PERFORMANCE à 0 P0/P1, suite complète 312/312, lint/build/OpenAPI/diff-check PASS, benchmark représentatif sous les seuils, création et relecture Finance après redémarrage, refus lecteur et console navigateur propre. La publication ou le déploiement distant ne font pas partie de cette release locale.
 
 Décision retour DEV G7-D 2026-08-24 : les P1 du premier passage sont corrigés sur un nouveau candidat à figer. Le moteur déduplique les options par groupe/priorité, conserve le signal planifié en l’absence de réalisé et parcourt seulement les jours intersectés ; la fenêtre annuelle 250 ressources/10 000 réservations passe de `3 235,26 ms` à `36,70 ms` p95. `asOf` borne maintenant les coûts réels et les dépenses Projet sont ventilées dans les axes. Le seuil global exige `organizationScope` avant idempotence/mutation ; le négatif HTTP vérifie l’absence de seuil, marqueur et audit. Le non-facturé expose Réservations et action suggérée ; la comparaison tarifaire distingue le catalogue indisponible, fournit remise et marge pondérées ; les quatre listes sont paginées. Preuves DEV fraîches : S7-D 7/7, API 42/42, suite complète 311/311, lint/build/diff-check PASS. Re-REVIEW, re-QA et re-SECURITY/PERFORMANCE restent obligatoires ; G7 demeure **BLOQUÉ** jusque-là.
 
@@ -219,7 +221,7 @@ Décision produit 2026-08-14 : l’ordre de livraison est désormais strictement
 | Performance | Approved | Agent 10 | 100 ressources / 10 000 réservations | Mono-processus local |
 | Sécurité | Approved | Agent 11 | Auth, CSRF, RBAC, isolation, statique, fail-closed | Aucun bloquant connu |
 | Intégration | Intégré RC1 | Agent 12 | Frontend/API local vérifié | Aucun |
-| Release V1 | **0.2.0-rc2 APPROVED — candidate locale** | Intégration / PO | G0–G5, Integration/E2E et correctif Équipe approuvés ; suite finale 262/262, lint/build/diff-check PASS ; contrôle navigateur planner validé. Données, exports et temporaires exclus du commit. | Aucun P0/P1. Publication ou déploiement distant non demandé ; limites P2 conservées dans les rapports. |
+| Release V1 | **0.4.0-rc1 APPROVED — candidate locale** | Intégration / PO | G0–G7 et Integration/E2E approuvés ; suite finale 312/312, lint/build/OpenAPI/diff-check PASS ; parcours Finance avec reload, restart, persistance et lecteur refusé. Données, exports et temporaires exclus du commit. | Aucun P0/P1. Publication ou déploiement distant non demandé ; limites P2 conservées dans les rapports. |
 | Organisation 01 / Fiscalité 01b | DEV intégré, revalidation indépendante requise | Product/Domain Organisation + Backend/Frontend 01 | 84/84 tests complets le 2026-08-15 ; syntaxe et diff-check propres ; dernier benchmark HTTP p95 1,574 ms lecture / 3,214 ms écriture | Exemples de saisie ajoutés ; archivage logique Organisation et désactivation Service/Ressource réservés aux administrateurs, via une commande compacte « − » et un avertissement explicite avant confirmation, avec contrôles de dépendances et conservation de l'historique. Les anciens verdicts APPROVED doivent être rejoués sur ce nouveau candidat avant Ressources 02 ; validation produit O2/O3 reste à clôturer |
 | Ressources 02 | DEV partiel intégré, revalidation indépendante requise | Product/Domain Ressources + Intégration | 90/90 tests complets le 2026-08-15 ; smoke navigateur Ressources et Parc matériel | Premier incrément visible : liste professionnelle des salles et affectation/dépose d’exemplaires Stock par site. La fondation Organisation reste le prérequis de validation avant poursuite Ressources 02 |
 | Projets 04 + Planning 03 | DEV initial Post-production intégré, revalidation indépendante requise | Product Planning/Workflow + Intégration | Gate SPEC APPROVED ; 97/97 tests complets ; smoke navigateur semaine/mois/sélecteur | Projet référencé obligatoire. Première tranche limitée à la matrice Post-production ; exceptions unitaires de cellule intégrées, Planning Location reste hors de ce candidat |
