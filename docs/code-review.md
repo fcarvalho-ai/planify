@@ -5533,3 +5533,68 @@ Environnement : macOS arm64, Node `v26.6.0`.
 ### Handoff
 
 Seul `docs/code-review.md` est modifié. L'intégrateur doit maintenir G8 en **BLOQUÉ — retour DEV très ciblé** et mettre à jour `docs/project-status.md`. Après ajout du filtre de version et du négatif correspondant, une nouvelle REVIEW indépendante sur le nouveau hash exact reste obligatoire.
+
+---
+
+## re-REVIEW finale G8 — version courante du réalisé Projet
+
+Date : 2026-08-24
+Reviewer : agent indépendant `g8_review_final`
+Périmètre : diff strict `b56d13f0cf576dbb5726f567d1c98a2081d2ca61..5f2b7d13dc034735f26c9c54dcead2a51fc20d6f`, régression des P1 historiques et du cache/performance Finance.
+Indépendance : aucun code, test ou autre document modifié ; ownership limité à `docs/code-review.md`.
+
+### Candidat exact
+
+- commit : `5f2b7d13dc034735f26c9c54dcead2a51fc20d6f` ;
+- `server.js` : `b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d` ;
+- `app.js` : `8897086486d372cf94b87c0b6c4a5fb5e0d5a6d10d2c67b4489e282af95aa0e5` ;
+- OpenAPI : `7395603efc38905461287d6c517d61653729869a76230a020ea3b3e6877a860c` ;
+- test Dashboard : `098b4f463bafb9c7ba5722c549415954a5aa92502f0b9abdd3918c7b013ee747` ;
+- tests Exports / BI / Sécurité : `7570ca69…`, `a0c8dbf3…`, `9c08bff3…` ;
+- benchmark Finance : `087702c7b9bf7d19c4f2a1042bd5318a234332f4863f7c3e571f34857d73e08e`.
+
+### Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert.**
+
+Le dernier P1 G8 est fermé. `dashboardActualRows` exige maintenant l'égalité entre `record.sourceReservationVersion` et la version de la Réservation visible avant tout agrégat (`server.js:3982-3987`). Le même helper alimente les cartes Projet/Exploitation et leurs drill-downs ; carte, détail et export partagent donc la sélection corrigée.
+
+### Preuves fonctionnelles indépendantes
+
+Un probe déterministe frais a contrôlé les quatre états demandés avec la même période Projet :
+
+| État | Carte `actuals` | Carte avancement | Carte écart | Détail actuals | Détail écart |
+|---|---:|---:|---:|---:|---:|
+| Réservation v1, réalisé v1 confirmé après `asOf` | 0 | 0 bps | 1 | 0 | 1 |
+| Réservation v2, seulement réalisé historique v1 | 0 | 0 bps | 1 | 0 | 1 |
+| Réservation v2, réalisé courant v2 | 1 | 10 000 bps | 0 | 1 | 0 |
+| Réservation v2, historique v1 + courant v2 | 1 | 10 000 bps | 0 | 1 | 0 |
+
+Le dernier cas confirme l'absence de double comptage entre versions. Le test automatisé reproduit également le stale v1, ajoute le courant v2, puis exige l'unique identifiant courant au drill-down (`tests/sprint8-dashboards.test.js:60-72`). L'invariant de persistance interdit par ailleurs deux `actualRecords` pour le même couple Réservation/version ; le scénario historique v1 + courant v2 est le doublon métier légitime à filtrer.
+
+### Non-régression des anciens P1
+
+- cache Finance toujours limité au même acteur/appel, non global et non énumérable ; il reste absent de `Object.keys` et `JSON.stringify` ;
+- drill-down Finance `billableRevenue` toujours alimenté par le résultat complet autorisé, avec pagination après sélection et refus explicite au-delà de 10 000 ;
+- benchmark frais représentatif : 250 ressources, 10 000 réservations, 2 000 Devis, 2 000 réalisés et 2 000 coûts ; `billableDrilldown` p95 **214,76 ms**, sous le seuil `< 300 ms` ;
+- filtres et réconciliation d'occupation, sections Forecast/Pipeline UI/XLSX, pagination et URL partageable, poids de remise, borne 366 jours, matrice HTTP 7 × 6 × 3, `maintenance.read`, `kpiId`, OpenAPI, exports et replay SSE restent inchangés et couverts par les suites vertes.
+
+### P2 non bloquant maintenu
+
+Le suivi accessibilité antérieur demeure : le pattern ARIA des onglets Pilotage et la restauration explicite du focus après pagination restent à compléter lors de la validation UX finale. Aucun défaut P0/P1 n'en découle dans ce diff strict.
+
+### Commandes et résultats frais
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `node --test tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` : **68 réussis, 0 échec, 0 ignoré**, 3 468,11 ms ;
+- `npm test` : **338 réussis, 0 échec, 0 ignoré**, 9 452,20 ms ;
+- `npm run lint` : **PASS** ;
+- `npm run build` : **PASS**, cinq actifs runtime vérifiés ;
+- `npm run benchmark:finance` : **PASS**, pire p95 Finance contrôlé `214,76 ms` pour `billableDrilldown` ;
+- `git diff --check` avant rapport : **PASS** ;
+- probes mémoire v1 futur, stale v1/v2, courant v2, historique+courant et sérialisation cache : **PASS**.
+
+### Handoff
+
+La gate REVIEW G8 est **APPROVED** sur le commit exact ci-dessus. Seul `docs/code-review.md` est modifié. L'intégrateur doit reporter ce verdict dans `docs/project-status.md` et confirmer les autres gates indépendants sur le même hash avant INTEGRATION/E2E ; toute modification applicative ultérieure invalidera cette approbation.

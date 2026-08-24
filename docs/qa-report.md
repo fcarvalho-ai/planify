@@ -3638,3 +3638,82 @@ Correction attendue : exclure dans l'ensemble Dashboard tout record dont `source
 ## Verdict terminal
 
 La re-QA ultime G8 du candidat exact `b56d13f0cf576dbb5726f567d1c98a2081d2ca61` est **REJECTED** avec **0 P0 et 1 P1**. Les **338/338** tests, lint, build, OpenAPI, exports, matrice réelle `126`, pagination/cache Finance, probes d'occupation et bornage ancien/futur passent. Toutefois, une ancienne version de réalisé est encore comptée comme courante et fausse carte et drill-down Chef de projet. Retour DEV ciblé requis, puis nouvelle re-QA sur un nouveau hash exact et gates aval impactés.
+
+---
+
+# Re-QA finale G8 — cohérence de version Réservation / réalisé
+
+Date : 2026-08-24 12:25 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat exact `5f2b7d13dc034735f26c9c54dcead2a51fc20d6f`, fermeture du dernier P1 G8 sur `sourceReservationVersion`, cohérence carte/détails Chef de projet, puis revalidation ciblée et complète des contrats G8/API.
+
+Indépendance : aucun code, test, contrat, statut ou autre rapport modifié ; seul `docs/qa-report.md` est actualisé. Le worktree était propre avant la rédaction.
+
+## Empreintes du candidat testé
+
+```text
+server.js                         b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+app.js                            8897086486d372cf94b87c0b6c4a5fb5e0d5a6d10d2c67b4489e282af95aa0e5
+tests/sprint8-dashboards.test.js  098b4f463bafb9c7ba5722c549415954a5aa92502f0b9abdd3918c7b013ee747
+tests/sprint8-exports.test.js     7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-security.test.js    9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+docs/api/openapi-v1.yaml          7395603efc38905461287d6c517d61653729869a76230a020ea3b3e6877a860c
+scripts/benchmark-finance.js      087702c7b9bf7d19c4f2a1042bd5318a234332f4863f7c3e571f34857d73e08e
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64.
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| `node --test tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **68/68**, 0 échec/annulé/ignoré/TODO, 3 393,73 ms |
+| `npm test` | PASS, **338/338**, 0 échec/annulé/ignoré/TODO, 10 681,70 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check 5f2b7d13dc034735f26c9c54dcead2a51fc20d6f^ 5f2b7d13dc034735f26c9c54dcead2a51fc20d6f` | PASS, code 0 |
+| validation Ruby/Psych OpenAPI | PASS, OpenAPI `3.1.0`, **71 chemins / 85 opérations / 355 références**, aucun `$ref`, `operationId` ou paramètre de chemin manquant ; `kpiId` requis et réponse export `401` présente |
+
+## Reproduction terminale du P1 corrigé
+
+Une sonde indépendante utilise une Réservation visible le 10 août en `version=2`, puis remplace uniquement la version source du réalisé courant.
+
+### Réalisé obsolète `sourceReservationVersion=1`
+
+```text
+planning           1
+actuals             0
+actualCompletion    0 bps
+actualGap           1
+```
+
+Les détails `actuals` et `actualCompletion` sont vides. Le détail `actualGap` contient exactement `reservation_version2`. Le réalisé obsolète n'influence donc plus ni carte, ni compteur, ni détail.
+
+### Réalisé courant `sourceReservationVersion=2`
+
+```text
+planning           1
+actuals             1
+actualCompletion    10000 bps
+actualGap           0
+```
+
+Les détails `actuals` et `actualCompletion` contiennent exactement `actual_v2`, rattaché à `reservation_version2`; le détail `actualGap` est vide. La carte et ses trois drill-downs partagent le même ensemble source dans les deux scénarios.
+
+Statut du P1 : **fermé**.
+
+## Non-régression G8
+
+La suite ciblée rejoue les cas ancien/futur hors fenêtre, filtres et réconciliation d'occupation, pagination et bornes, exports XLSX/PDF, matrice réelle des permissions/scopes, négatif sans KPI, neutralisation des formules et replay SSE exact. La suite complète reste intégralement verte.
+
+## Limites
+
+- cette QA technique ne revendique pas une recette navigateur E2E ni une nouvelle mesure Performance ; ces preuves relèvent de leurs gates indépendants ;
+- les vérifications OpenAPI sont sémantiques et structurelles, sans générateur client externe ;
+- l'approbation porte exclusivement sur le hash exact ci-dessus et devient caduque si le code ou les tests couverts changent.
+
+## Verdict terminal
+
+La re-QA finale G8 du candidat exact `5f2b7d13dc034735f26c9c54dcead2a51fc20d6f` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Les scénarios version obsolète et version courante produisent les cartes et détails attendus, et toutes les preuves contractuelles sont vertes : ciblés **68/68**, suite complète **338/338**, lint, build, OpenAPI et diff-check.
