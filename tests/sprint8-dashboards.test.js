@@ -43,6 +43,16 @@ test('S8-A couvre les KPI obligatoires, conserve les filtres et réconcilie CA s
   assert.equal(detail.total, direction.kpis.find(value => value.id === 'acceptedQuotes').value); assert.equal(detail.items.reduce((sum, value) => sum + BigInt(value.value), 0n), BigInt(direction.kpis.find(value => value.id === 'signedRevenue').value));
 });
 
+test('S8-A ne fabrique pas de lignes d’occupation réelle sans réalisé', () => {
+  const db = makeSeed(), admin = authFor(db, ['planning.read', 'resource.read', 'actual.read', 'project.read', 'maintenance.read']);
+  const input = { asOf: '2026-08-23', from: '2026-08-01', to: '2026-08-23' }, operations = dashboardReadModel(db, admin, 'operations', input);
+  for (const kpiId of ['actualOccupancy', 'occupancyGap']) {
+    const kpi = operations.kpis.find(value => value.id === kpiId), detail = dashboardDrilldownReadModel(db, admin, 'operations', { ...input, kpiId, pageSize: 500 });
+    assert.equal(detail.total, kpi.sourceCount, `${kpiId} doit réconcilier carte et détail`);
+    assert.ok(detail.items.every(value => value.value !== null), `${kpiId} ne doit pas exposer de ligne « — bps »`);
+  }
+});
+
 test('S8-A refuse Exploitation sans maintenance.read et ne divulgue aucun compteur', () => {
   const db = makeSeed(), withoutMaintenance = authFor(db, ['planning.read', 'resource.read']);
   assert.throws(() => dashboardReadModel(db, withoutMaintenance, 'operations', { asOf: '2026-08-23' }), error => error.status === 403 && error.code === 'DASHBOARD_FORBIDDEN' && error.details.missingPermissions.includes('maintenance.read'));
@@ -128,6 +138,7 @@ test('S8-A câble la route, l’interface Pilotage et le contrat OpenAPI', () =>
   assert.match(html, /data-route="pilotage"/);
   assert.match(app, /DASHBOARD_KINDS_UI/);
   assert.match(app, /pilotagePageSectionsBase/); assert.match(app, /data-pilotage-detail-page/); assert.match(app, /pilotageShareFilters/);
+  assert.match(app, /<dialog class="pilotage-detail-dialog"/); assert.match(app, /data-pilotage-detail-close/); assert.match(app, /Sous-utilisé/); assert.match(app, /pilotageDetailValue/);
   assert.match(openapi, /\/dashboards\/\{kind\}:/);
   assert.match(openapi, /\/dashboards\/\{kind\}\/drilldown:/);
   assert.match(openapi, /DashboardDrilldownResponse:/);
