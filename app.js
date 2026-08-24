@@ -163,7 +163,7 @@ function planningCellEntriesBySlot(bookings,rooms,slots,timedGrid=false,granular
     if(!roomIds.has(cell.resourceId))continue;
     const candidates=slotsByDate.get(cell.date)||[];let slot;
     if(!timedGrid)slot=candidates[0];
-    else if(granularity!=='hour')slot=candidates[mins(booking.start)<780?0:1];
+    else if(granularity!=='hour'){const candidate=candidates[mins(booking.start)<780?0:1];slot=candidate&&planningSlotContainsBooking(booking,cell,candidate)?candidate:undefined}
     else{const interval=planningCellInterval(booking,cell);slot=candidates.find(value=>interval.startMs>=value.startMs&&interval.startMs<value.endMs)}
     if(!slot)continue;
     const key=`${cell.resourceId}|${slot.key}`,values=entries.get(key)||[];values.push({booking,cell});entries.set(key,values);

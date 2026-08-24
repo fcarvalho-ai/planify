@@ -393,6 +393,12 @@ test('une vue Projet agrandit uniformÃ©ment les lignes qui empilent plusieurs rÃ
   assert.equal(planningMaxCellStack([period, second], [room], slots), 2);
   const indexed = planningCellEntriesBySlot([period, second], [room], slots);
   assert.deepEqual(indexed.get(`${room.id}|2026-08-17`).map(({ booking }) => booking.id), [period.id, second.id]);
+  const halfDaySlots = planningTimelineSlots('day', 'halfDay', ['2026-08-17']);
+  const outsideHalfDays = [
+    { ...period, id: 'before_half_day', start: '06:00', end: '08:00' },
+    { ...period, id: 'after_half_day', start: '19:00', end: '20:00' },
+  ];
+  assert.equal(planningCellEntriesBySlot(outsideHalfDays, [room], halfDaySlots, true, 'halfDay').size, 0);
   assert.equal(planningMaxCellStack([period, second, third, fourth], [room], slots), 3);
   assert.equal(planningRowHeight(92, 1), 92);
   assert.equal(planningRowHeight(92, 2), 132);
