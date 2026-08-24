@@ -1,3 +1,78 @@
+# Re-REVIEW terminale G8 — composition finale du rendu authentifié
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `68489b1fc0575706ecbf13c191ab033dc1981d63` (`fix(auth): synchronize shell across composed routes`)
+
+Correctif contrôlé : `08595fc2e643490c416117210e1b8dd8ddf34ed2..68489b1fc0575706ecbf13c191ab033dc1981d63`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert ; 2 P2 antérieurs restent suivis.**
+
+Le correctif ferme le défaut de composition du rendu final. La synchronisation du shell et des overlays est maintenant exécutée par le wrapper terminal avant toute délégation vers une route spécialisée. Les routes Stock, Organisation, Finance, Commercial, Clients, Actuals et Pilotage ne peuvent donc plus court-circuiter `syncAuthenticatedSurfaces()` lorsqu'elles rendent directement leur page authentifiée.
+
+## Vérification de la composition
+
+- Le wrapper terminal est défini après tous les wrappers de route : `renderSprint8ExportsBase` capture le rendu composé incluant Pilotage, Actuals, Clients, Commercial, Finance, Organisation, Stock et le rendu de base.
+- Sa première instruction est `syncAuthenticatedSurfaces(Boolean(state.user))`, avant l'appel à `renderSprint8ExportsBase()`. La synchronisation ne dépend donc plus du fait qu'un consommateur spécialisé délègue ou non au rendu de base.
+- Aucun `render=function` n'est défini après ce wrapper. Les ajouts suivants composent Planning, ressources avancées et personnel sans remplacer le rendu terminal.
+- Sur les routes génériques, la synchronisation peut être rejouée une seconde fois par le rendu de base ; l'opération est idempotente et bornée à quatre éléments et à la purge déjà vide hors session.
+
+## Transitions de session
+
+- **Démarrage** : le premier rendu, exécuté avant les derniers modules, atteint déjà le rendu de base avec `state.user=null` et conserve le document fail-closed. Le rendu terminal est ensuite en place pour toutes les actions utilisateur et asynchrones.
+- **Login** : le gestionnaire appelle la variable globale `render` après hydratation ; il utilise donc le wrapper terminal, réactive shell/overlays, puis la route spécialisée masque la connexion et construit uniquement la page autorisée.
+- **Logout** : après `state.user=null`, le wrapper terminal masque et rend inertes shell et overlays, purge `#app`, puis le rendu de base affiche la connexion et restaure son focus.
+- **Expiration `401`** : `api()` appelle `endSession()`, qui utilise également le rendu global terminal. La fermeture est identique au logout, y compris sur Finance, Clients, Actuals ou Pilotage.
+- **Reconnexion** : la synchronisation enlève `inert` du shell et des overlays sans rouvrir ces derniers ; le consommateur courant reconstruit ensuite la route avec le nouveau contexte et les permissions de session.
+
+## Consommateurs et non-régression
+
+- Les wrappers spécialisés continuent de gérer leurs permissions, chargements et bindings sans modification de contrat.
+- Le wrapper Export Planning délègue toujours avant d'ajouter ses deux liens et retourne sans effet hors session, hors Planning ou sans `planning.read`.
+- Serveur, OpenAPI, données, moteurs Dashboard/Finance, exports, Actuals, RBAC, idempotence et SSE sont inchangés par le correctif.
+- Aucun nouvel appel réseau, écouteur, fallback ou dépendance n'est introduit.
+
+## P2 suivis, non bloquants
+
+1. Le contrôle Foundations reste statique et n'exécute pas réellement la matrice routes spécialisées × login/logout/401/reconnexion dans un DOM navigateur.
+2. La purge continue de viser `#app`, sans vider tous les sous-contenus cachés des overlays ni tous les read-models JavaScript. Ils restent cependant fermés/inertes et leurs chemins publics d'ouverture reconstruisent le contexte courant ; aucune réexposition automatique n'a été trouvée.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` et `git rev-parse 68489b1` : `68489b1fc0575706ecbf13c191ab033dc1981d63` au début de la revue.
+- Inspection de tous les `render=function`, du wrapper terminal et des chemins démarrage/login/logout/`401`/reconnexion : **conforme**.
+- `node --check app.js` : **PASS**.
+- `node --test tests/foundations.test.js` : **PASS, 16/16**, 0 échec/skip/todo, durée `310,28 ms`.
+- `npm test` : **PASS, 339/339**, 0 échec/skip/todo, durée `7,790 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check 08595fc..68489b1` : **PASS**.
+- Limite : aucun smoke navigateur frais n'est revendiqué ; la preuve de composition repose sur l'ordre d'évaluation explicite, l'inspection de tous les consommateurs et les tests automatisés.
+
+Empreintes contrôlées :
+
+```text
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+styles.css                          b26952fc8f08d8c3798c0764a7da2286acb35a53f5abcd03114545c869d6b8a1
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+tests/foundations.test.js           1b8a66d2e062c31287bedfce6bcf82ae88fb2da63f1648c128749163d726d8e0
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW G8 est **APPROVED** sur le candidat exact `68489b1fc0575706ecbf13c191ab033dc1981d63` : 0 P0, 0 P1, 2 P2 suivis. L'intégrateur doit reporter ce verdict et faire porter les gates aval sur ce même état applicatif.
+
+---
+
 # Re-REVIEW terminale G8 — fermeture des overlays à la fin de session
 
 Date : 2026-08-24

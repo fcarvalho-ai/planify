@@ -3868,3 +3868,81 @@ Les tests ciblés rejouent le contrat de session, le shell/overlays hors session
 ## Verdict terminal
 
 La re-QA terminale du correctif overlays sur `08595fc2e643490c416117210e1b8dd8ddf34ed2` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Startup, login, logout, expiration `401`, reload et reconnexion sont cohérents ; les trois overlays sont fermés/inertes hors session, le DOM principal est purgé et le focus revient sur l'adresse e-mail. Les preuves sont vertes : ciblés **106/106**, suite complète **339/339**, lint, build et diff-check.
+
+---
+
+# Re-QA terminale G8 — synchronisation du shell sur les routes composées
+
+Date : 2026-08-24 13:12 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat applicatif exact `68489b1fc0575706ecbf13c191ab033dc1981d63`, synchronisation terminale du shell et des surfaces authentifiées sur toutes les routes composées, cycle login/logout/`401`/reconnexion, overlays/focus, droits et non-régression G8.
+
+Indépendance : aucun code, test, contrat, statut ou autre rapport modifié ; seul `docs/qa-report.md` est actualisé. Pendant la campagne, HEAD a avancé vers `9ec1d239…` par un commit limité à `docs/security-review.md` et `docs/performance-report.md`; les fichiers applicatifs/testés sont restés byte-identiques au candidat `68489b1…`.
+
+## Empreintes du candidat testé
+
+```text
+app.js                            4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+index.html                        419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+styles.css                        b26952fc8f08d8c3798c0764a7da2286acb35a53f5abcd03114545c869d6b8a1
+tests/foundations.test.js         1b8a66d2e062c31287bedfce6bcf82ae88fb2da63f1648c128749163d726d8e0
+tests/sprint8-dashboards.test.js  098b4f463bafb9c7ba5722c549415954a5aa92502f0b9abdd3918c7b013ee747
+tests/sprint8-exports.test.js     7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-security.test.js    9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+server.js                         b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64.
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| probe comportemental du wrapper `render()` terminal sur **24 routes** | PASS : shell visible/non inerte et trois overlays réactivés après login sur chaque route ; logout ferme/inert les overlays et purge `app` |
+| `PLANIFY_DATA_FILE=/private/tmp/planify-g8-review-ui.json PORT=8221 npm start` | PASS : démarrage autonome, parcours HTTP complet, puis arrêt du serveur |
+| probe HTTP `startup → login → logout → 401 → reconnexion → me` | statuts exacts `200 → 200 → 204 → 401 → 200 → 200`; administrateur reconnecté avec 45 permissions et CSRF |
+| `node --test tests/foundations.test.js tests/domain.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **106/106**, 0 échec/annulé/ignoré/TODO, 3 390,18 ms |
+| `npm test` | PASS, **339/339**, 0 échec/annulé/ignoré/TODO, 8 795,73 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check 68489b1^ 68489b1` | PASS, code 0 |
+
+## Routes spécialisées après connexion
+
+La sonde indépendante part volontairement avec le shell masqué et les trois overlays inertes, affecte un utilisateur authentifié, puis appelle le point d'entrée `render()` final pour chacune des 24 routes suivantes :
+
+```text
+equipment, stock, maintenance,
+organizations, organization-identity, organization-structure,
+organization-governance, organization-activation, organization-new, team,
+finance, projects, quotes, project-*, quote-*,
+clients, client-*, client-rates-*,
+actuals, pilotage, planning, settings, dashboard, resources
+```
+
+Pour **24/24**, `syncAuthenticatedSurfaces(Boolean(state.user))` est exécuté avant le wrapper spécialisé : shell `hidden=false`, `aria-hidden="false"`, `inert=false`; `modalBackdrop`, `commandPalette` et `stockDrawerBackdrop` repassent tous à `inert=false`; le contenu de route est ensuite rendu. Le défaut E2E historique où Pilotage pouvait apparaître sans réafficher le shell est fermé par le point d'entrée terminal commun.
+
+## Cycle de session et reprise de focus
+
+- hors session/reload : shell masqué et inerte, trois overlays fermés/inertes, contenu principal supprimé, focus e-mail ;
+- après login ou reconnexion : shell et overlays réactivés avant toute délégation vers une route spécialisée ;
+- après logout ou expiration `401` : fermeture/inertage immédiat des surfaces, purge du DOM, retour au champ e-mail et message d'expiration le cas échéant ;
+- côté serveur : la session déconnectée répond `401` au rejeu, puis une nouvelle authentification et `/auth/me` répondent `200`.
+
+Statut : **conforme**.
+
+## Droits et non-régression G8
+
+La suite ciblée rejoue les sept rôles, les six Dashboards et trois formats, les négatifs Finance/Maintenance/scopes, les exports, filtres et bornes, les réconciliations et le replay SSE exact. La suite complète reste intégralement verte. Le parcours navigateur intégrateur déjà fourni — six Dashboards, lecteur, filtres, export et console propre — est cohérent avec ces preuves indépendantes, sans être utilisé comme substitut aux contrôles QA ci-dessus.
+
+## Limites
+
+- aucun navigateur contrôlable n'était exposé directement à cette session QA : la preuve indépendante des routes repose sur le wrapper exact exécuté dans un DOM instrumenté, le parcours HTTP local et les tests automatisés ;
+- les fichiers temporaires contiennent uniquement des cookies de démonstration locaux devenus inutilisables après arrêt du serveur, sans donnée réelle ;
+- l'approbation porte exclusivement sur le hash applicatif exact `68489b1…` et devient caduque si les fichiers couverts changent.
+
+## Verdict terminal
+
+La re-QA terminale G8 sur `68489b1fc0575706ecbf13c191ab033dc1981d63` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Les **24/24 routes** spécialisées synchronisent désormais le shell et les overlays avant rendu ; logout, `401`, focus et reconnexion sont cohérents. Les preuves sont vertes : ciblés **106/106**, suite complète **339/339**, lint, build et diff-check.
