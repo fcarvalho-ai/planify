@@ -23,6 +23,7 @@ tags:
   - name: People
   - name: Actuals
   - name: Finance
+  - name: Dashboards
 paths:
   /auth/login:
     post:
@@ -688,6 +689,47 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SuccessEnvelope' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /dashboards/{kind}:
+    get:
+      tags: [Dashboards]
+      operationId: getRoleDashboard
+      summary: Lire un tableau de bord métier réconciliable
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string, enum: [direction, finance, planning, sales, operations, project] }
+        - name: asOf
+          in: query
+          schema: { type: string, format: date }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: siteId
+          in: query
+          schema: { type: string }
+        - name: projectId
+          in: query
+          schema: { type: string }
+        - name: clientId
+          in: query
+          schema: { type: string }
+        - name: salesOwnerId
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Tableau de bord calculé avec les permissions et scopes courants
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /analytics/dimensions:
     get:
       operationId: getAnalyticsDimensions
@@ -2171,6 +2213,50 @@ components:
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/ReservationPresence' } }
         ttlMs: { type: integer, minimum: 1000 }
+    DashboardKpi:
+      type: object
+      additionalProperties: false
+      required: [id, label, value, unit, status, definition, sourceCount, drilldown]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        value: { type: [string, integer, 'null'] }
+        unit: { type: [string, 'null'], enum: [minor, bps, count, 'null'] }
+        status: { type: string, enum: [available, unavailable, partial, warning] }
+        definition: { type: string }
+        sourceCount: { type: integer, minimum: 0 }
+        drilldown: { type: [string, 'null'] }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        currencyExponent: { type: integer, minimum: 0, maximum: 6 }
+    DashboardResponse:
+      type: object
+      additionalProperties: false
+      required: [dashboard, definitionVersion, generatedAt, asOf, currency, currencyExponent, period, filters, availability, kpis, alerts, sections, sources]
+      properties:
+        dashboard: { type: string, enum: [direction, finance, planning, sales, operations, project] }
+        definitionVersion: { type: string }
+        generatedAt: { type: string, format: date-time }
+        asOf: { type: string, format: date }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        currencyExponent: { type: integer, minimum: 0, maximum: 6 }
+        period:
+          type: object
+          required: [from, to, timezone]
+          properties:
+            from: { type: string, format: date }
+            to: { type: string, format: date }
+            timezone: { type: string }
+        filters: { type: object, additionalProperties: { type: [string, 'null'] } }
+        availability:
+          type: object
+          required: [invoiced, collected]
+          properties:
+            invoiced: { type: string, enum: [available, unavailable] }
+            collected: { type: string, enum: [available, unavailable] }
+        kpis: { type: array, maxItems: 50, items: { $ref: '#/components/schemas/DashboardKpi' } }
+        alerts: { type: array, maxItems: 100, items: { type: object, additionalProperties: true } }
+        sections: { type: array, maxItems: 20, items: { type: object, additionalProperties: true } }
+        sources: { type: object, additionalProperties: true }
   responses:
     Unauthorized: { description: Session absente ou expirée, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
     Forbidden: { description: Permission insuffisante, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
