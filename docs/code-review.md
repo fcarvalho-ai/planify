@@ -5381,3 +5381,86 @@ Correction attendue : ajouter la réponse `401 Unauthorized` et un test contract
 Aucun E2E navigateur ni benchmark n'a été exécuté dans cette re-REVIEW ; ces preuves appartiennent aux gates aval. Aucun serveur ni artefact d'export n'est laissé actif ou conservé. Les tests verts ne compensent pas les trois écarts de contrat démontrés.
 
 Seul `docs/code-review.md` est modifié. L'intégrateur doit conserver G8 en **BLOQUÉ — retour DEV requis** dans `docs/project-status.md`. Toute correction de code, test ou OpenAPI invalidera cette re-REVIEW et exigera un nouveau verdict indépendant sur le nouveau hash.
+
+---
+
+## re-REVIEW terminale G8 — réconciliation Projet et fermeture des P1 historiques
+
+Date : 2026-08-24
+Reviewer : agent indépendant `g8_review_final`
+Périmètre : commit exact demandé, fermeture des P1 du re-gate précédent, consommateurs UI/OpenAPI, accessibilité et cas limites associés.
+Indépendance : aucun code, test ou autre document modifié ; seul le présent rapport relève de cet agent.
+
+### Candidat exact contrôlé
+
+- commit : `33ec24b2632729dd5faa45f47ca162b84c0df1d4` ;
+- `server.js` : `9c76d64ff05850e41a91bddca4519f7870b231b8ff95aa3ad061a5b41bdb7e37` ;
+- `app.js` : `8897086486d372cf94b87c0b6c4a5fb5e0d5a6d10d2c67b4489e282af95aa0e5` ;
+- `index.html` : `d78c8c8a68cec49d7c2a73d694129099fd09415be41b422eb4abcf4f498e2a89` ;
+- `planning.css` : `51b38d7ed0eef30e085725777bc293c6e2c435dc87e07056913dbc116608197d` ;
+- `docs/api/openapi-v1.yaml` : `7395603efc38905461287d6c517d61653729869a76230a020ea3b3e6877a860c` ;
+- tests Dashboards / Exports / BI / Sécurité : `d864ebde…`, `7570ca69…`, `a0c8dbf3…`, `9c08bff3…`.
+
+### Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 1 P1 ouvert, 1 P2.**
+
+Les correctifs ferment les défauts historiques sur les filtres d'occupation, la granularité journalière, les sections Forecast/Pipeline UI et XLSX, la pagination et l'URL partageable, le poids de remise, la limite stricte de 10 000 lignes, la borne inclusive de 366 jours, la matrice HTTP réelle, `maintenance.read`, le `kpiId` obligatoire, OpenAPI et le replay SSE. Un défaut bloquant subsiste néanmoins dans les KPI Projet : la carte et son propre drill-down peuvent produire des résultats contradictoires.
+
+### P1 — le réalisé Projet n'est pas borné aux réservations visibles et désynchronise carte et détail
+
+Dans le dashboard Projet, `actualCount` compte tous les `actualRecords` des Projets autorisés (`server.js:4031`), sans restreindre les réalisés à la période courante ni aux identifiants des réservations effectivement présentes dans `reservations`. Les formules soustraient ensuite ce total global au nombre de réservations visibles (`server.js:4034-4035`). Le drill-down `actualGap`, lui, applique correctement une différence d'ensembles entre `reservationRows` de la période et les identifiants de réservations réalisées (`server.js:4051`, `server.js:4061`).
+
+Probe frais déterministe : un même Projet contient une réservation réalisée le 17 août, hors fenêtre, et une réservation non réalisée le 18 août, seule visible pour `from=to=2026-08-18`. Résultat observé :
+
+```text
+planning = 1
+actuals = 1
+actualGap (carte) = 0
+actualCompletion (carte) = 10000 bps
+actualGap (drill-down) = 1, réservation review_visible
+```
+
+La carte annonce donc 100 % d'avancement et aucun écart alors que son propre détail annonce une réservation sans réalisé. Le compteur `actuals` inclut également un réalisé hors période. Ce comportement viole directement le critère de réconciliation carte/détail et rend l'écart Projet trompeur.
+
+Correction attendue : construire l'ensemble des `reservationId` visibles après tous les filtres temporels et de ressources, ne retenir dans les KPI `actuals`/`actualCompletion` que les réalisés associés à cet ensemble, puis calculer `actualGap` par différence d'ensembles comme le drill-down. Ajouter au minimum un test avec un réalisé hors fenêtre et une réservation visible non réalisée, en exigeant carte `actualGap=1`, avancement `0` et détail total `1`.
+
+### État des autres P1 du re-gate précédent
+
+| Point contrôlé | État | Preuve |
+|---|---|---|
+| Filtres occupation et réconciliation journalière | **FERMÉ** | `financeOccupancy` reçoit le périmètre Projet/Client/commercial ; la carte et le détail Planning utilisent `groupBy: day`. Le test filtré obtient 417 bps sur une unique source et le même résultat au détail. |
+| Sections Forecast/Pipeline et écarts Projet UI/XLSX | **PARTIEL** | Forecast/Pipeline sont rendus dans des régions tabulaires UI (`app.js:1043`) et dans la feuille `Sections` (`server.js:2806`). Les KPI Projet existent, mais leur calcul reste incorrect selon le P1 ci-dessus. |
+| Pagination, URL partageable et poids | **FERMÉ** | Pagination précédente/suivante et chargement de page sont câblés (`app.js:1043-1044`) ; les filtres `pilotage.*` sont sérialisés par `history.replaceState` (`app.js:1039`) ; le détail remise expose son poids et l'export possède la colonne correspondante. |
+| Refus explicite au-delà de 10 000 lignes | **FERMÉ** | Le read-model d'export lève `422 EXPORT_TOO_LARGE` avant troncature (`server.js:4068`) ; le test 10 001 sources le couvre. |
+| Borne Planning XLSX de 366 jours inclusifs | **FERMÉ** | La validation accepte 366 jours inclusifs et refuse 367 ; les cas limites sont testés. |
+| Matrice HTTP 7 × 6 × 3 | **FERMÉ** | Le test change réellement le rôle effectif, se reconnecte, puis appelle écran, drill-down et XLSX pour chaque dashboard, soit 126 contrôles HTTP (`tests/sprint8-security.test.js:155-165`) ; Planning XLSX/PDF sont en plus appelés pour chaque rôle. |
+| `maintenance.read` | **FERMÉ** | Exploitation exige explicitement `maintenance.read` (`server.js:3972`) et le test négatif refuse le dashboard sans divulguer de compteur. |
+| `kpiId` public obligatoire | **FERMÉ** | Absence refusée par `422 DASHBOARD_KPI_REQUIRED` (`server.js:4047`) ; paramètre `required: true` dans OpenAPI (`docs/api/openapi-v1.yaml:749`). |
+| OpenAPI / consommateurs | **FERMÉ pour les P1/P2 historiques** | Drill-down, pagination, filtres, poids, classeur à quatre feuilles et réponses `401/403/404/422` sont documentés ; l'UI consomme les nouveaux champs. |
+| Second SSE au replay `duplicateReservationCell` | **FERMÉ** | Les émissions restent conditionnées au premier commit ; le test dynamique confirme l'absence d'une seconde invalidation au replay. |
+
+### P2 — sémantique clavier des onglets incomplète
+
+Les boutons de dashboard utilisent `role="tab"` et `aria-selected`, mais n'exposent toujours ni `aria-controls`, ni panneau `role="tabpanel"`, ni roving `tabindex`, ni navigation spécifique par flèches gauche/droite (`app.js:1042-1044`). Les régions tabulaires, états de chargement/erreur et boutons de pagination sont correctement nommés, mais le pattern ARIA Tabs n'est pas complet. Le rerendu asynchrone du détail ne restaure pas non plus explicitement le focus après un changement de page.
+
+Correction attendue : soit adopter le pattern Tabs complet (relations tab/panel, roving tabindex, Home/End et flèches), soit retirer les rôles ARIA spécialisés et conserver des boutons ordinaires correctement nommés ; préserver/restaurer le focus lors de la pagination.
+
+### Preuves fraîches exécutées
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` : `33ec24b2632729dd5faa45f47ca162b84c0df1d4` ; worktree initial propre ;
+- `node --test tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` : **67 réussis, 0 échec, 0 ignoré**, 2 047,81 ms ; une première tentative sandboxée a rencontré `EPERM` sur loopback puis a été rejouée dans l'environnement autorisé ;
+- `npm test` : **337 réussis, 0 échec, 0 ignoré**, 8 400,15 ms ;
+- `npm run lint` : **PASS** ;
+- `npm run build` : **PASS**, cinq actifs runtime vérifiés ;
+- `git diff --check` avant rédaction du rapport : **PASS** ;
+- probe de réconciliation Projet en mémoire sur jeu minimal : contradiction reproductible `actualGap carte 0` / `actualGap détail 1` ; aucun fichier de données de travail modifié ;
+- inspection ciblée de `server.js`, `app.js`, `index.html`, OpenAPI et des quatre suites Sprint 8.
+
+### Limites et handoff
+
+Aucun E2E navigateur ni benchmark n'a été exécuté dans cette REVIEW ; ces preuves restent aux gates aval. Aucun serveur ou artefact temporaire n'est laissé actif. Les tests verts ne couvrent pas le scénario temporel qui démontre le P1.
+
+Seul `docs/code-review.md` est modifié. L'intégrateur doit maintenir G8 en **BLOQUÉ — retour DEV** et mettre à jour `docs/project-status.md`. Toute correction invalidera ce verdict et exigera une nouvelle REVIEW indépendante sur le nouveau hash exact.

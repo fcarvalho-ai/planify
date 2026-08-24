@@ -3452,3 +3452,99 @@ Statut : **fermé**.
 ## Verdict terminal
 
 La re-QA G8 du candidat `1d4d97b3c43b6d91756b5c74207371dd879c760a` est **REJECTED** avec **0 P0 et 1 P1**. Les exports, la permission Maintenance et le rejeu SSE sont corrigés, et les **334/334** tests restent verts. En revanche, les filtres Projet/Client/commercial ne bornent pas l'occupation et le drill-down utilise une granularité différente de la carte ; G8 ne satisfait donc toujours pas la réconciliation obligatoire. Retour DEV ciblé requis, puis re-REVIEW, re-QA et gates aval impactés sur un nouveau hash exact.
+
+---
+
+# Re-QA terminale G8 — réconciliation et bornes finales
+
+Date : 2026-08-24 12:07 CEST
+
+Verdict : **REJECTED — 1 P1 QA ouvert**
+
+Périmètre : candidat applicatif exact `33ec24b2632729dd5faa45f47ca162b84c0df1d4`, fermeture du P1 précédent sur l'occupation, sections/export Dashboard, pagination et URL partageable, bornes 10 000 lignes/366 jours, négatif drill-down sans KPI et matrice HTTP des rôles.
+
+Indépendance : aucun code, test, contrat, statut ou autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Empreintes du candidat testé
+
+```text
+server.js                         9c76d64ff05850e41a91bddca4519f7870b231b8ff95aa3ad061a5b41bdb7e37
+app.js                            8897086486d372cf94b87c0b6c4a5fb5e0d5a6d10d2c67b4489e282af95aa0e5
+tests/sprint8-dashboards.test.js  d864ebdeb5cadd76ee50d474e95af5bfba588dfccd7772a4e8f19ae7d40f1084
+tests/sprint8-exports.test.js     7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-security.test.js    9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+docs/api/openapi-v1.yaml          7395603efc38905461287d6c517d61653729869a76230a020ea3b3e6877a860c
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64.
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| `node --test tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **67/67**, 0 échec/annulé/ignoré/TODO, 1 997,23 ms |
+| `npm test` | PASS, **337/337**, 0 échec/annulé/ignoré/TODO, 8 316,68 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` | PASS avant rédaction du rapport |
+| validation Ruby/Psych OpenAPI | PASS, OpenAPI `3.1.0`, **71 chemins / 85 opérations / 355 références**, aucun `$ref`, `operationId` ou paramètre de chemin manquant ; `kpiId` requis et réponse `401` Dashboard exportée documentée |
+| probe Projet historique | PASS : carte `417 bps`, détail `[417]`, compteur Réservation `1` |
+| probe Direction historique | PASS : carte `2 000 bps`, moyenne des dix lignes `2 000 bps` |
+| probe pagination/URL | PASS : URL conserve `asOf/from/to/projectId/kpiId`; `205` sources, 3 pages, 100 éléments sur pages 1 et 2, aucun chevauchement |
+| probes bornes | PASS : sans KPI `422 DASHBOARD_KPI_REQUIRED`; `10 001` sources `422 EXPORT_TOO_LARGE` avec `total=10001`; 367 jours inclusifs `422 EXPORT_PERIOD_INVALID` |
+| probe Dashboard Projet avec réalisé hors période | **ÉCHEC métier** : Planning période `1`, Réalisés période affichés `1`, avancement `10 000 bps`, écart `0`; attendu Réalisés `0`, avancement `0 bps`, écart `1` |
+
+## Fermetures confirmées
+
+### Occupation filtrée et carte/détail
+
+Le moteur d'occupation applique maintenant Projet, Client et commercial avant les réservations/réalisés. Le scénario historique d'une heure visible et huit heures appartenant à un autre Projet restitue exactement `417 bps`, tant sur la carte que dans le détail. Direction utilise désormais la même granularité journalière que son drill-down ; les dix lignes `[10000, 10000, 0…]` donnent la même moyenne `2 000 bps` que la carte.
+
+Statut : **P1 précédent fermé**.
+
+### Sections, export et réconciliation pondérée
+
+L'interface rend les sections Dashboard en tableaux sémantiques. L'export KPI contient `Synthèse`, `Détail`, `Sections` et `Définitions`; le test HTTP retrouve la section Forecast. Le détail de remise fournit son poids de réconciliation et le contrat OpenAPI l'expose.
+
+Statut : **conforme sur les cas testés**.
+
+### Pagination, URL et bornes
+
+Le lien de drill-down conserve période et filtres, puis l'interface ajoute `page` et `pageSize=100`; les boutons précédent/suivant réemploient le même KPI. Les filtres partageables sont hydratés depuis l'URL locale. Le détail public exige un KPI explicite, la page publique reste bornée à 500 et l'export interne refuse plus de 10 000 lignes au lieu de tronquer. Le Planning refuse correctement une fenêtre de 367 jours inclusifs.
+
+Statut : **conforme**.
+
+### Matrice réelle et négatifs historiques
+
+La campagne remappe successivement le compte Planificateur sur les sept rôles standards et appelle réellement, par HTTP, écran, drill-down et XLSX pour les six Dashboards : **126 combinaisons**. Elle vérifie en plus les deux exports Planning par rôle, rétablit ensuite le seed, puis rejoue les négatifs coûts/marges et le replay SSE exact.
+
+Statut : **conforme**.
+
+## P1 résiduel — le Dashboard Projet mélange les réalisés hors période
+
+Le Dashboard Projet filtre correctement ses Réservations avec `from/to`, mais calcule `actualCount` sur tous les `actualRecords` des Projets autorisés, sans appliquer la période ni `asOf`. Le drill-down `actuals`, `actualCompletion` et `actualGap` réutilise également cette collection non bornée.
+
+Reproduction déterministe : même Projet et même ressource, une Réservation visible le 10 août sans réalisé, plus une ancienne Réservation du 1er juillet avec réalisé confirmé. Pour la fenêtre limitée au 10 août, la carte annonce :
+
+```text
+planning           1
+actuals             1
+actualCompletion    10000 bps
+actualGap           0
+```
+
+Le résultat attendu dans cette période est `actuals=0`, `actualCompletion=0 bps` et `actualGap=1`. La source de juillet ne doit modifier ni valeur, ni compteur, ni détail d'août.
+
+Impact : Chef de projet peut voir un avancement complet fictif et aucun écart alors que la Réservation de la fenêtre n'a aucun réalisé. La règle G8 « mêmes période/filtres avant agrégation et détail » reste violée.
+
+Correction attendue : dériver les réalisés depuis les Réservations visibles de la fenêtre et leur version source, borner la révision courante par `asOf/from/to`, puis employer exactement cet ensemble pour `actuals`, `actualCompletion`, `actualGap`, leurs `sourceCount` et drill-down. Ajouter les négatifs réalisé antérieur, futur, autre version et autre Projet.
+
+## Limites
+
+- aucune recette navigateur E2E n'est revendiquée par cette QA technique ; les contrôles d'URL/interface sont couverts par inspection et tests de contrat, tandis que les parcours HTTP sont réellement exécutés ;
+- le benchmark contractuel relève du gate Performance et n'est pas rejoué dans cette QA ;
+- les suites vertes ne couvrent pas encore le scénario réalisé hors période décrit ci-dessus.
+
+## Verdict terminal
+
+La re-QA terminale G8 du candidat `33ec24b2632729dd5faa45f47ca162b84c0df1d4` est **REJECTED** avec **0 P0 et 1 P1**. Tous les contrôles explicitement demandés passent, y compris les deux anciens probes, les bornes, l'OpenAPI et la matrice HTTP `126`. Toutefois, les KPI Réalisés/Avancement/Écart du Dashboard Chef de projet ignorent la période et peuvent produire un avancement fictif. Retour DEV ciblé requis, puis nouvelle re-QA et gates aval impactés sur un nouveau hash exact.
