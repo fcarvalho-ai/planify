@@ -5,6 +5,7 @@
 - correction du scroll horizontal des vues 6 semaines, Mois et 3 mois : la virtualisation et le CSS partagent désormais la même largeur de colonne ;
 - largeur totale de période figée pendant les reconstructions virtuelles, afin que les dernières dates restent atteignables en un seul défilement ;
 - les vues longues conservent leurs 31/42/92 colonnes montées et ne reconstruisent plus la grille pendant le geste horizontal ;
+- la vue Mois devient une bande détaillée de trois mois glissants, centrée sur le mois sélectionné, avec le mois précédent à gauche et le suivant à droite ;
 - recette navigateur en plein écran et mode normal jusqu’aux dates terminales, avec 12 déplacements continus en 337 ms, suite complète 343/343, lint et build verts.
 
 ## 0.5.0-rc4 — 2026-08-24

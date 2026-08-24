@@ -85,7 +85,7 @@ function planningDatesFor(viewValue,anchorValue){
     return out;
   }
   const year=anchorDate.getUTCFullYear(),month=anchorDate.getUTCMonth();
-  if(viewValue==='quarter'){
+  if(viewValue==='month'||viewValue==='quarter'){
     const start=new Date(Date.UTC(year,month-1,1,12)),end=new Date(Date.UTC(year,month+2,1,12));
     pushDays(start,Math.round((end-start)/86400000));
     return out;

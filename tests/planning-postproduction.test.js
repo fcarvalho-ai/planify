@@ -62,9 +62,10 @@ test('les cinq vues temporelles conservent la date de référence dans une plage
   assert.equal(sixWeeks[0], '2026-07-27');
   assert.ok(sixWeeks.includes('2026-08-19'));
   const month = planningDatesFor('month', '2026-08-19');
-  assert.equal(month.length, 31);
-  assert.equal(month[0], '2026-08-01');
-  assert.equal(month.at(-1), '2026-08-31');
+  assert.equal(month.length, 92);
+  assert.equal(month[0], '2026-07-01');
+  assert.equal(month.at(-1), '2026-09-30');
+  assert.ok(month.includes('2026-08-19'));
   const quarter = planningDatesFor('quarter', '2026-08-19');
   assert.equal(quarter.length, 92);
   assert.equal(quarter[0], '2026-07-01');
