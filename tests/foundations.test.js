@@ -42,6 +42,17 @@ test('le bouton de création de ressource reste branché après composition des 
   assert.match(css, /\.sidebar\{overflow-y:auto/);
 });
 
+test('le shell authentifié reste entièrement masqué hors session', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  const shell = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8');
+  assert.match(shell, /class="app-shell" id="appShell" hidden aria-hidden="true"/);
+  assert.match(source, /shell\.hidden=!authenticated/);
+  assert.match(source, /shell\.setAttribute\('aria-hidden',String\(!authenticated\)\)/);
+  assert.match(source, /shell\.inert=!authenticated/);
+  assert.match(css, /\.app-shell\[hidden\]\{display:none!important\}/);
+});
+
 test('les sept rôles V1 sont fermés et le scope masque un autre tenant ou site', () => {
   assert.deepEqual(ROLES, ['ADMIN', 'PLANNING_MANAGER', 'PLANNER', 'SALES', 'PROJECT_MANAGER', 'FINANCE', 'READ_ONLY']);
   assert.equal(standardRoleDefinitions('c1').length, 7);
