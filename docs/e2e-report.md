@@ -1,3 +1,31 @@
+# Rapport E2E G8 — Dashboards, exports et surfaces authentifiées
+
+Date : 2026-08-24
+Environnement : macOS arm64, Node.js v26.6.0, navigateur intégré
+Candidat applicatif : `68489b1fc0575706ecbf13c191ab033dc1981d63`
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+| Scénario | Résultat observé |
+|---|---|
+| Démarrage hors session | Écran de connexion seul ; shell et overlays privés masqués et `inert`. |
+| Connexion administrateur | Shell visible ; page Pilotage opérationnelle ; aucune erreur console. |
+| Six dashboards | Direction 9 KPI, Finance 15, Planning 6, Commercial 8, Exploitation 7, Chef de projet 10. |
+| Filtre et partage | Projet `Horizons — Saison 2` conservé dans `pilotage.projectId=project_1`. |
+| Drill-down | Détail réconcilié contenant `reservation_1`. |
+| Export | Téléchargement Excel déclenché depuis l’interface. |
+| Déconnexion / expiration | Shell caché et `inert`, trois overlays fermés et `inert`, contenu principal purgé, focus e-mail restauré. |
+| Reconnexion | Shell réactivé et contenu spécialisé reconstruit sans réouvrir les overlays. |
+| Rôle lecteur | Uniquement Planning et Exploitation ; aucun coût, aucune marge ni contrôle financier. |
+
+La QA indépendante a également exercé 24 routes composées et le cycle HTTP `200 → 200 → 204 → 401 → 200 → 200`. Les preuves terminales sont : ciblés jusqu’à 106/106, suite complète 339/339, lint/build/diff-check PASS, quatre gates indépendants à 0 P0/P1. Les limites P2 restantes concernent uniquement une preuve navigateur de profilage plus fine et la rémanence locale de contenu interne d’overlays cachés, sans réexposition ni autorité serveur.
+
+Le serveur et les onglets de test ont été arrêtés proprement. G8 est validé E2E et peut passer au gate RELEASE local.
+
+---
+
 # Rapport E2E S7-C — Backlog signé & Forecast
 
 Date : 2026-08-23

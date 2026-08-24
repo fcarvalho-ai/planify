@@ -1,3 +1,23 @@
+# Rapport d’intégration G8 — Dashboards, exports et sécurité finale
+
+Date : 2026-08-24
+Environnement : macOS arm64, Node.js v26.6.0, navigateur intégré
+Candidat applicatif : `68489b1fc0575706ecbf13c191ab033dc1981d63`
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+Le frontend, l’API, la persistance locale et les permissions ont été rejoués ensemble sur une base temporaire isolée. Le démarrage hors session présente uniquement la connexion. Après authentification administrateur, les six dashboards Direction, Finance, Planning, Commercial, Exploitation et Chef de projet sont accessibles, leurs filtres restent dans l’URL, le drill-down réconcilié restitue la Réservation attendue et l’export Excel est déclenché. Le profil lecteur ne voit que Planning et Exploitation et ne reçoit aucun coût ni marge.
+
+Le correctif final de composition synchronise le shell et les trois overlays avant toute route spécialisée. Le cycle startup → login → logout → `401` → reconnexion masque et rend `inert` les surfaces privées, purge le contenu métier, restitue le focus au champ e-mail, puis reconstruit l’interface après reconnexion. Les 24 routes composées contrôlées réactivent correctement le shell. La console est restée sans erreur ni avertissement.
+
+Preuves fraîches du candidat : Foundations 16/16, ciblés QA 106/106, suite complète 339/339, lint/build/diff-check PASS. REVIEW, QA, SECURITY et PERFORMANCE approuvent le même contenu à 0 P0/P1. Le serveur et les onglets temporaires ont été arrêtés proprement ; aucune donnée utilisateur ni ressource réseau externe n’a été utilisée.
+
+G8 franchit le gate INTEGRATION et peut passer au gate E2E final.
+
+---
+
 # Rapport d’intégration S7-C — Backlog signé & Forecast
 
 Date : 2026-08-23
