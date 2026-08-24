@@ -66,6 +66,7 @@ test('les alias du design system utilisés par les modules métier sont définis
     assert.match(css, new RegExp(`--${token}:var\\(--`), `variable --${token} manquante`);
   }
   assert.match(planningCss, /\.pilotage-tabs button:focus-visible,.pilotage-kpi button:focus-visible\{outline:3px solid var\(--primary\)/);
+  assert.match(planningCss, /\.planning-matrix-scroll \.matrix-day\{z-index:8\}\.planning-matrix-scroll \.matrix-corner\{z-index:10\}/);
 });
 
 test('les sept rôles V1 sont fermés et le scope masque un autre tenant ou site', () => {
