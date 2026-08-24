@@ -987,6 +987,62 @@ scripts/benchmark-finance.js        087702c7b9bf7d19c4f2a1042bd5318a234332f4863f
 
 ---
 
+# Revalidation finale SECURITY — hiérarchie sticky Planning RC2
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `56b9f456734de9389c1f4ab6623a378448fe2b67`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 P2 existant, 0 P3.**
+
+La hiérarchie finale est cohérente : réservation normale `1`, wrapper horaire `4`, réservation focalisée `9`, dates `10`, colonne fixe `11`, coin Ressources `12`. Elle reste très inférieure aux surfaces globales de sécurité et d'action — modale `50`, tiroir Stock `80`, connexion `100`, menu contextuel Planning `1200` — et ne permet à aucun contenu Planning de franchir ces overlays.
+
+## Contrôles
+
+- Les trois sélecteurs ciblent uniquement des classes locales constantes ; aucune entrée, interpolation, URL, HTML ou donnée utilisateur.
+- Le coin est maintenant ciblé par son véritable parent `.planning-fixed-column`, contrairement au sélecteur précédent sans correspondance.
+- La colonne fixe forme déjà un contexte positionné ; augmenter son niveau ne modifie ni pointer events, ni focus, ni autorité.
+- Le focus clavier d'une réservation reste visible dans la grille mais passe correctement sous le header sticky lorsqu'il est scrollé.
+- Auth, RBAC, scopes, XSS, session, backend et données sont bit-identiques.
+- `SEC-G8-05` demeure le seul P2 non bloquant, sans impact de ce correctif CSS.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `56b9f456734de9389c1f4ab6623a378448fe2b67` |
+| diff depuis `d4c7fcf` | trois niveaux CSS corrigés + assertion ; aucun JS/backend |
+| Foundations + Planning post-production | **PASS, 60/60**, 0 échec/skip/todo, durée `316,68 ms` |
+| `npm test` | **PASS, 340/340**, 0 échec/skip/todo, durée `8 487,34 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+Le navigateur intégré reste indisponible ; aucun screenshot ou test de tabulation visuel n'est affirmé. La conclusion repose sur la structure DOM, les contextes d'empilement et les tests contractuels.
+
+```text
+planning.css                        48a8ad5bec9e86c56d3444812632506a022be837eef82418f6db1b962d9bec36
+styles.css                          8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+tests/foundations.test.js           81af03baa607a81fc66e210c3cda032f240b7e37abbe47c08606a3816db96abf
+tests/planning-postproduction.test.js 9c5721e024c6e25161916c1a256202f1a289a80a86ae62e6b967764a714e061f
+```
+
+## Handoff
+
+- Gate SECURITY Planning scroll final : **APPROVED** sur `56b9f45`, 0 P0/0 P1/1 P2 existant/0 P3.
+- Aucun nouveau constat Sécurité.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation SECURITY indépendante — correctif scroll Planning RC2
 
 Date : 2026-08-24

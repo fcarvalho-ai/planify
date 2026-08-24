@@ -1146,6 +1146,64 @@ docs/api/openapi-v1.yaml            7395603efc38905461287d6c517d61653729869a7623
 
 ---
 
+# Revalidation finale PERFORMANCE — hiérarchie sticky Planning RC2
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `56b9f456734de9389c1f4ab6623a378448fe2b67`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 0 nouveau P2, 1 P3.**
+
+`PERF-G8-08` est fermé. Le header dates `10` domine désormais toutes les réservations, y compris le focus `9`; la colonne fixe `11` et son coin `12` dominent la timeline lors des raccords. Les niveaux ne changent aucune dimension, position sticky, overflow, grille ou fenêtre virtualisée.
+
+## Paint, layout, axes et virtualisation
+
+- Les éléments concernés étaient déjà positionnés avec `z-index` non automatique : aucun nouveau contexte d'empilement ni nouvelle géométrie n'est créé.
+- Aucun reflow structurel : seules trois valeurs numériques de paint order changent.
+- Axe horizontal : `.planning-matrix-scroll` conserve `overflow:auto`, le header dates reste sticky en haut et le contenu virtuel garde ses paddings gauche/droite.
+- Axe vertical : la timeline et `.planning-fixed-column` conservent leur synchronisation `scrollTop`; les spacers haut/bas et hauteurs de lignes sont inchangés.
+- Les recalculs de fenêtre `requestAnimationFrame`, `scrollLeft`, `scrollTop`, viewport et seuils ne changent pas.
+- Les niveaux `10/11/12` restent sous les overlays globaux et ne génèrent pas de compositing massif dépendant des 10 000 réservations ; seules les dates rendues dans la fenêtre sont présentes.
+
+## P3 — limite navigateur
+
+Le navigateur intégré est indisponible : aucune trace FPS, paint/compositing ou vérification visuelle des deux axes n'a été capturée. Les tests prouvent les contrats de scroll/virtualisation et l'analyse du diff exclut un coût layout, mais une recette visuelle reste souhaitable.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `56b9f456734de9389c1f4ab6623a378448fe2b67` |
+| diff depuis `d4c7fcf` | trois niveaux CSS corrigés + assertion ; aucun JS/backend |
+| Foundations + Planning post-production | **PASS, 60/60**, durée `316,68 ms` |
+| `npm test` | **PASS, 340/340**, durée `8 487,34 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+```text
+planning.css                        48a8ad5bec9e86c56d3444812632506a022be837eef82418f6db1b962d9bec36
+styles.css                          8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+tests/foundations.test.js           81af03baa607a81fc66e210c3cda032f240b7e37abbe47c08606a3816db96abf
+tests/planning-postproduction.test.js 9c5721e024c6e25161916c1a256202f1a289a80a86ae62e6b967764a714e061f
+```
+
+## Handoff
+
+- Gate PERFORMANCE Planning scroll final : **APPROVED** sur `56b9f45`, 0 P0/0 P1/0 nouveau P2/1 P3.
+- `PERF-G8-08` est fermé.
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation PERFORMANCE indépendante — correctif scroll Planning RC2
 
 Date : 2026-08-24
