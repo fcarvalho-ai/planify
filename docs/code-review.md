@@ -5464,3 +5464,72 @@ Environnement : macOS arm64, Node `v26.6.0`.
 Aucun E2E navigateur ni benchmark n'a été exécuté dans cette REVIEW ; ces preuves restent aux gates aval. Aucun serveur ou artefact temporaire n'est laissé actif. Les tests verts ne couvrent pas le scénario temporel qui démontre le P1.
 
 Seul `docs/code-review.md` est modifié. L'intégrateur doit maintenir G8 en **BLOQUÉ — retour DEV** et mettre à jour `docs/project-status.md`. Toute correction invalidera ce verdict et exigera une nouvelle REVIEW indépendante sur le nouveau hash exact.
+
+---
+
+## re-REVIEW ultime G8 — versions de Réservation et cache Finance
+
+Date : 2026-08-24
+Reviewer : agent indépendant `g8_review_final`
+Périmètre : commit exact `b56d13f0cf576dbb5726f567d1c98a2081d2ca61`, fermeture du P1 Projet, cache du drill-down Finance et recontrôle des anciens P1 G8.
+Indépendance : aucun code, test ou autre document modifié ; ownership limité à ce rapport.
+
+### Candidat exact et empreintes
+
+- commit : `b56d13f0cf576dbb5726f567d1c98a2081d2ca61` ;
+- `server.js` : `8bf91bc83c49ac42821ea07d3e9128a9bfa9bee3a673ee01807a966c936959ca` ;
+- `app.js` : `8897086486d372cf94b87c0b6c4a5fb5e0d5a6d10d2c67b4489e282af95aa0e5` ;
+- `docs/api/openapi-v1.yaml` : `7395603efc38905461287d6c517d61653729869a76230a020ea3b3e6877a860c` ;
+- test Dashboard : `aa416fc59090bbaf9ba987cf7fc9df877aefc664b7d12ed1a184157a96a955b1` ;
+- tests Exports / BI / Sécurité : `7570ca69…`, `a0c8dbf3…`, `9c08bff3…` ;
+- benchmark Finance : `087702c7b9bf7d19c4f2a1042bd5318a234332f4863f7c3e571f34857d73e08e`.
+
+### Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 1 P1 ouvert, 2 P2.**
+
+Le candidat corrige la sélection par période, `asOf` et révision courante, et réconcilie bien le nombre distinct de Réservations réalisées pour l'avancement. Le cache Finance est calculé sous le même acteur, reste non énumérable et ne fuit pas dans JSON. Cependant, le réalisé d'une ancienne **version de Réservation** reste accepté comme réalisé de la version actuellement visible. Ce cas est un état métier valide après modification d'une Réservation déjà confirmée et maintient G8 bloqué.
+
+### P1 — un réalisé d'une ancienne version couvre encore la Réservation courante
+
+`dashboardActualRows` exige que la Réservation soit visible, que la révision courante intersecte la période et que `confirmedAt <= asOf`, mais ne vérifie pas `record.sourceReservationVersion === reservation.version` (`server.js:3982-3987`). Or le domaine autorise plusieurs réalisations successives pour les versions successives d'une même Réservation (`server.js:1407`) et la lecture canonique `/reservations/:id/actual` ne considère réalisée que la version courante (`server.js:2820`).
+
+Deux probes frais reproduisent l'écart :
+
+1. Réservation visible en version 2, uniquement un réalisé de source version 1 : la carte Projet retourne `actuals=1`, `actualCompletion=10000`, `actualGap=0` et le détail écart retourne `0`, alors que la version 2 est encore à confirmer.
+2. Même Réservation version 2 avec réalisations version 1 et version 2 : la carte et le détail `actuals` retournent `2`. L'avancement utilise bien un identifiant de Réservation distinct et reste à 100 %, mais le KPI « Réalisés confirmés » double-compte une seule Réservation visible.
+
+Ce résultat contredit la sémantique de `pendingActualItems`, qui indexe les confirmations par couple `reservationId:sourceReservationVersion`, et la route canonique qui recherche précisément la version courante. Une modification post-confirmation peut donc masquer un réalisé à reconfirmer et fausser le compteur Projet.
+
+Correction attendue : ajouter l'égalité de version dans `dashboardActualRows`, puis étendre le test G8 avec une Réservation version 2 et un réalisé version 1. Sans réalisé version 2, exiger `actuals=0`, `actualCompletion=0`, `actualGap=1` et détail écart `1`; avec les deux versions, exiger un seul réalisé courant.
+
+### Cache Finance — contrôle satisfaisant
+
+- Le résultat `financeUnbilledOverages` est demandé avec `internalAllItems`, page 1 et capacité 10 000, puis réutilisé uniquement dans le même appel `dashboardDrilldownReadModel` (`server.js:4013-4014`, `server.js:4075`). Il n'existe pas de cache global ni de réutilisation entre acteurs.
+- `_dashboardCache` est ajouté avec `Object.defineProperty(..., enumerable: false)` (`server.js:4053`). Probe frais : la clé est absente de `Object.keys`, de `JSON.stringify` et des identifiants internes sérialisés ; l'enveloppe HTTP ne peut donc pas la divulguer.
+- La pagination publique s'applique après constitution des lignes autorisées et retourne `items`, `total`, `page` et `pageCount` cohérents (`server.js:4060-4080`). Le cache complet évite la troncature historique à 100 lignes et le chemin d'export conserve le refus explicite au-delà de 10 000.
+- La réutilisation est sûre par construction parce que le cache est créé après les permissions/scopes du même `auth` et n'est jamais persisté. Aucun P0/P1 n'est constaté sur ce point.
+
+### Anciens P1 G8
+
+Tous les autres P1 historiques restent fermés : filtres d'occupation Projet/Client/commercial, granularité journalière carte/détail, sections Forecast/Pipeline UI et XLSX, pagination et URL partageable, poids de remise, refus `> 10 000`, borne de 366 jours inclusifs, matrice HTTP réelle 7 × 6 × 3, `maintenance.read`, `kpiId` obligatoire, OpenAPI, exports structurés et absence de second SSE au replay exact.
+
+### P2 — tests et accessibilité
+
+1. Le nouveau test Projet couvre un réalisé ancien hors période et un réalisé confirmé après `asOf`, mais assigne toujours `sourceReservationVersion` depuis la version courante (`tests/sprint8-dashboards.test.js:60-68`). Il ne couvre donc pas le cas de version obsolète qui révèle le P1.
+2. Le P2 accessibilité antérieur demeure : les onglets `role=tab` n'implémentent pas encore complètement le pattern ARIA Tabs et le focus n'est pas explicitement restauré après pagination. Ce point reste non bloquant pour REVIEW mais doit être suivi avant validation UX finale.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- tests ciblés `node --test tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` : **68 réussis, 0 échec, 0 ignoré**, 3 461,43 ms ;
+- `npm test` : **338 réussis, 0 échec, 0 ignoré**, 9 271,56 ms ;
+- `npm run lint` : **PASS** ;
+- `npm run build` : **PASS**, cinq actifs runtime vérifiés ;
+- `git diff --check` avant rapport : **PASS** ;
+- probes mémoire version obsolète, double version, non-énumérabilité/sérialisation du cache et pagination Finance : exécutés sans modifier les données du dépôt.
+
+### Handoff
+
+Seul `docs/code-review.md` est modifié. L'intégrateur doit maintenir G8 en **BLOQUÉ — retour DEV très ciblé** et mettre à jour `docs/project-status.md`. Après ajout du filtre de version et du négatif correspondant, une nouvelle REVIEW indépendante sur le nouveau hash exact reste obligatoire.

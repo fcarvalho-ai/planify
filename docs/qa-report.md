@@ -3548,3 +3548,93 @@ Correction attendue : dériver les réalisés depuis les Réservations visibles 
 ## Verdict terminal
 
 La re-QA terminale G8 du candidat `33ec24b2632729dd5faa45f47ca162b84c0df1d4` est **REJECTED** avec **0 P0 et 1 P1**. Tous les contrôles explicitement demandés passent, y compris les deux anciens probes, les bornes, l'OpenAPI et la matrice HTTP `126`. Toutefois, les KPI Réalisés/Avancement/Écart du Dashboard Chef de projet ignorent la période et peuvent produire un avancement fictif. Retour DEV ciblé requis, puis nouvelle re-QA et gates aval impactés sur un nouveau hash exact.
+
+---
+
+# Re-QA ultime G8 — période des réalisés et détail Finance
+
+Date : 2026-08-24 12:22 CEST
+
+Verdict : **REJECTED — 1 P1 QA ouvert**
+
+Périmètre : candidat applicatif exact `b56d13f0cf576dbb5726f567d1c98a2081d2ca61`, fermeture du P1 Réalisés Projet, pagination et cache du détail `billableRevenue`, anciens probes d'occupation, contrats HTTP/export, matrice de rôles, replay SSE et non-régression.
+
+Indépendance : aucun code, test, contrat, statut ou autre rapport modifié ; seul `docs/qa-report.md` est actualisé. Pour éviter qu'un commit documentaire concurrent ne déplace l'état courant, les commandes contractuelles ont été rejouées dans une archive Git isolée du hash exact demandé. Le fichier `docs/code-review.md` était modifié par son owner pendant la campagne et n'a pas été touché.
+
+## Empreintes du candidat testé
+
+```text
+server.js                         8bf91bc83c49ac42821ea07d3e9128a9bfa9bee3a673ee01807a966c936959ca
+app.js                            8897086486d372cf94b87c0b6c4a5fb5e0d5a6d10d2c67b4489e282af95aa0e5
+tests/sprint8-dashboards.test.js  aa416fc59090bbaf9ba987cf7fc9df877aefc664b7d12ed1a184157a96a955b1
+tests/sprint8-exports.test.js     7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-security.test.js    9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+docs/api/openapi-v1.yaml          7395603efc38905461287d6c517d61653729869a76230a020ea3b3e6877a860c
+scripts/benchmark-finance.js      087702c7b9bf7d19c4f2a1042bd5318a234332f4863f7c3e571f34857d73e08e
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64.
+
+## Preuves fraîches sur le hash exact
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| `node --test tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **68/68**, 0 échec/annulé/ignoré/TODO, 3 312,70 ms dans l'archive isolée |
+| `npm test` | PASS, **338/338**, 0 échec/annulé/ignoré/TODO, 9 068,09 ms dans l'archive isolée |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check b56d13f0cf576dbb5726f567d1c98a2081d2ca61^ b56d13f0cf576dbb5726f567d1c98a2081d2ca61` | PASS, code 0 |
+| validation Ruby/Psych OpenAPI | PASS, OpenAPI `3.1.0`, **71 chemins / 85 opérations / 355 références**, aucun `$ref`, `operationId` ou paramètre de chemin manquant ; `kpiId` requis et réponse export `401` documentée |
+| probe ancien/futur hors fenêtre | PASS : `planning=1`, `actuals=0`, `actualCompletion=0`, `actualGap=1`; les trois drill-downs donnent respectivement `0`, `0`, `1` source |
+| probe ancienne version de la même Réservation | **ÉCHEC métier** : Réservation courante `version=2`, réalisé `sourceReservationVersion=1`; carte `actuals=1`, `actualCompletion=10000`, `actualGap=0`, et les détails exposent le réalisé obsolète |
+| probe `billableRevenue` pagination/cache | PASS : `205` sources, pages `100/100/5`, `205` identifiants uniques, somme détail `205000` égale à la carte ; cache `205` éléments non énumérable et absent du JSON |
+| probes occupation historiques | PASS : Projet carte/détail `417 bps` avec compteur Réservation `1`; Direction carte `2000 bps`, dix lignes `[10000,10000,0…]`, moyenne `2000 bps` |
+
+## Fermetures confirmées
+
+### Période et date de situation des réalisés
+
+Une Réservation visible le 10 août, un réalisé ancien du 1er juillet et un réalisé confirmé le 11 août sont correctement bornés pour `asOf/from/to=2026-08-10`. La carte Chef de projet publie exactement `planning=1`, `actuals=0`, `actualCompletion=0` et `actualGap=1`. Les trois drill-downs utilisent le même ensemble : aucun réalisé ni avancement, et la seule Réservation visible dans l'écart.
+
+Statut : **cas ancien/futur fermé**.
+
+### Détail Finance au-delà de la première page
+
+Une sonde de `205` lignes facturables confirme que la carte Finance agrège toutes les sources (`205000` minor, `sourceCount=205`) et que le drill-down restitue trois pages `100/100/5`, sans doublon ni omission. Le cache interne contient les `205` éléments, n'est pas énumérable et n'est pas sérialisé dans la réponse Dashboard. `scripts/benchmark-finance.js` inclut désormais le drill-down facturable dans son chemin mesuré.
+
+Statut : **conforme sur pagination, réconciliation et non-exposition du cache**.
+
+### Probes et négatifs historiques
+
+Les deux régressions d'occupation restent fermées (`417 bps` Projet et `2000 bps` Direction). Les tests ciblés rejouent aussi : matrice HTTP réelle `7 rôles × 6 Dashboards × 3 formats = 126`, permission Maintenance, scopes/coûts, drill-down sans KPI `422`, export `10001` sans troncature, période Planning de 367 jours refusée, replay SSE exact sans réémission, et structure XLSX/PDF avec neutralisation des formules.
+
+Statut : **conforme sur les cas couverts**.
+
+## P1 résiduel — un réalisé d'une ancienne version est compté comme courant
+
+`dashboardActualRows()` exige maintenant une Réservation visible et une révision courante dans la période, mais ne compare pas `actualRecord.sourceReservationVersion` avec `reservation.version`.
+
+Reproduction déterministe : une Réservation visible le 10 août est en `version=2`; son seul réalisé référence `sourceReservationVersion=1`, avec une révision confirmée dans la fenêtre. Résultat observé :
+
+```text
+planning           1
+actuals             1
+actualCompletion    10000 bps
+actualGap           0
+```
+
+Les drill-downs `actuals` et `actualCompletion` exposent `actual_old_version`; `actualGap` est vide. Le résultat attendu pour la version courante est `actuals=0`, `actualCompletion=0` et `actualGap=1`.
+
+Impact : après modification d'une Réservation, un réalisé rattaché au planning antérieur peut masquer l'écart de la version courante et annoncer un avancement complet fictif. Cela contredit explicitement la correction attendue lors de la QA précédente : dériver les réalisés des Réservations visibles **et de leur version source**.
+
+Correction attendue : exclure dans l'ensemble Dashboard tout record dont `sourceReservationVersion !== reservation.version`, employer cet ensemble unique pour cartes et drill-downs, puis ajouter un test négatif dédié à l'ancienne version.
+
+## Limites
+
+- aucune recette navigateur E2E ni mesure de seuil Performance n'est revendiquée par cette QA ; les routes HTTP, formats et permissions sont toutefois réellement exercés par les suites ciblées ;
+- la sonde de cache vérifie pagination, réconciliation et absence de sérialisation ; elle ne mesure pas directement un compteur d'appels interne, le benchmark Finance constituant la preuve dédiée de chemin ;
+- toutes les suites automatisées restent vertes car elles couvrent ancien/futur, mais pas encore le négatif `sourceReservationVersion` obsolète reproduit ci-dessus.
+
+## Verdict terminal
+
+La re-QA ultime G8 du candidat exact `b56d13f0cf576dbb5726f567d1c98a2081d2ca61` est **REJECTED** avec **0 P0 et 1 P1**. Les **338/338** tests, lint, build, OpenAPI, exports, matrice réelle `126`, pagination/cache Finance, probes d'occupation et bornage ancien/futur passent. Toutefois, une ancienne version de réalisé est encore comptée comme courante et fausse carte et drill-down Chef de projet. Retour DEV ciblé requis, puis nouvelle re-QA sur un nouveau hash exact et gates aval impactés.
