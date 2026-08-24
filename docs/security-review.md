@@ -987,6 +987,65 @@ scripts/benchmark-finance.js        087702c7b9bf7d19c4f2a1042bd5318a234332f4863f
 
 ---
 
+# Revalidation ultime SECURITY — RC2 focus Pilotage
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `34a9d7883dcf22cad517bf45393848eaa60d48d8`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal RC2
+
+**APPROVED — 0 P0, 0 P1, 1 P2 ouvert, 0 P3.**
+
+`A11Y-G8-01` est fermé. La règle finale, de même spécificité et placée après l'ancienne déclaration, remplace effectivement `color-mix(...35%, transparent)` par `outline:3px solid var(--primary)`. Avec `--primary → #6c5ce7`, l'anneau opaque atteint environ **4,86:1** sur blanc, supérieur au seuil non-textuel **3:1**. L'offset de `2px` crée une séparation blanche visible autour de l'onglet sélectionné même lorsque son fond est le même violet.
+
+## Contrôles
+
+- Le sélecteur reste limité aux boutons Pilotage focalisés au clavier (`:focus-visible`) ; aucun état hover, sélection ou navigation n'est altéré.
+- L'indicateur conserve une épaisseur de `3px` et un offset de `2px`, sans dépendre seulement du changement de couleur du composant.
+- La règle ne contient aucune donnée dynamique, URL, contenu ou interpolation contrôlable ; aucun vecteur XSS/CSS injection n'est introduit.
+- `styles.css`, `app.js`, `server.js`, `index.html`, auth, RBAC, scopes et données sont inchangés.
+- Le test Foundations verrouille la règle opaque finale.
+
+## P2 résiduel
+
+**SEC-G8-05** demeure seul ouvert : les valeurs internes de certains overlays masqués/inertes ne sont pas intégralement purgées à la fin de session. Ce correctif de focus est sans impact sur ce durcissement local non bloquant.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `34a9d7883dcf22cad517bf45393848eaa60d48d8` |
+| diff depuis `fce2929` | une règle CSS finale + une assertion ; aucun JS/backend |
+| Foundations + dashboards G8 | **PASS, 29/29**, 0 échec/skip/todo, durée `1 463,49 ms` |
+| `npm test` | **PASS, 340/340**, 0 échec/skip/todo, durée `8 785,32 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+| contraste sRGB primary/blanc | **4,86:1**, cible non-textuelle `3:1` dépassée |
+
+Le navigateur intégré demeure indisponible ; aucun screenshot ni parcours clavier visuel n'est affirmé. La conclusion accessibilité repose sur la cascade exacte, les dimensions déclarées et le ratio sRGB.
+
+```text
+styles.css                          8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+planning.css                        2c4bea06db6d29e0fa6ad8febdd78cb24e553e02ecfeb33f8cd4db666145897b
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+tests/foundations.test.js           aaa49dde1f59c94bf7b4fc292e25852f52a638745f3adc932d7d43b71ce185e3
+```
+
+## Handoff
+
+- Gate SECURITY RC2 : **APPROVED** sur `34a9d78`, 0 P0/0 P1/1 P2 (`SEC-G8-05`)/0 P3.
+- `A11Y-G8-01` est fermé.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation SECURITY indépendante — aliases CSS post-release G8
 
 Date : 2026-08-24

@@ -1146,6 +1146,60 @@ docs/api/openapi-v1.yaml            7395603efc38905461287d6c517d61653729869a7623
 
 ---
 
+# Revalidation ultime PERFORMANCE — RC2 focus Pilotage
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `34a9d7883dcf22cad517bf45393848eaa60d48d8`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal RC2
+
+**APPROVED — 0 P0, 0 P1, 0 nouveau P2, 1 P3.**
+
+Le correctif ajoute une règle de même sélecteur à la fin de `planning.css`. La cascade remplace uniquement la couleur d'outline lors de `:focus-visible`. Une couleur CSS directe est au moins aussi simple à résoudre que le `color-mix()` remplacé ; elle n'affecte ni géométrie, ni DOM, ni réseau, ni calcul de données. Les seuls effets possibles sont un style/paint ponctuel au changement de focus.
+
+## Analyse de rendu
+
+- Aucun reflow structurel : épaisseur `3px` et offset `2px` sont identiques à la règle antérieure.
+- Le navigateur évalue deux règles de même sélecteur puis conserve la dernière valeur ; ce coût de cascade constant sur les quelques boutons Pilotage est négligeable.
+- Aucun changement `app.js`, backend, virtualisation, dashboards, drill-downs, exports ou persistance ; les benchmarks fonctionnels G8 ne sont pas invalidés.
+- Suites ciblée et complète vertes sur le candidat exact.
+
+## P3 — PERF-G8-07 maintenu
+
+Le navigateur intégré reste indisponible ; aucune trace style/paint fraîche n'est disponible. La duplication de l'ancien sélecteur pourra être nettoyée mécaniquement ultérieurement, mais n'a aucun impact matériel sur RC2.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `34a9d7883dcf22cad517bf45393848eaa60d48d8` |
+| diff depuis `fce2929` | une règle CSS finale + une assertion ; aucun JS/backend |
+| Foundations + dashboards G8 | **PASS, 29/29**, durée `1 463,49 ms` |
+| `npm test` | **PASS, 340/340**, durée `8 785,32 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+```text
+styles.css                          8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+planning.css                        2c4bea06db6d29e0fa6ad8febdd78cb24e553e02ecfeb33f8cd4db666145897b
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+tests/foundations.test.js           aaa49dde1f59c94bf7b4fc292e25852f52a638745f3adc932d7d43b71ce185e3
+```
+
+## Handoff
+
+- Gate PERFORMANCE RC2 : **APPROVED** sur `34a9d78`, 0 P0/0 P1/0 nouveau P2/1 P3 (`PERF-G8-07`).
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation PERFORMANCE indépendante — aliases CSS post-release G8
 
 Date : 2026-08-24
