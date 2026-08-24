@@ -3285,6 +3285,22 @@ function filterReservations(items, url) { const q = url.searchParams; if (q.get(
 function reservationFrom(input, auth, existing = {}) { const times = canonicalTimes(input), planningMode = input.planningMode ?? existing.planningMode ?? 'continuous', timeGranularity = input.timeGranularity ?? existing.timeGranularity ?? 'day', defaultSnap = timeGranularity === 'hour' ? 60 : timeGranularity === 'halfDay' ? 240 : 1440, timePolicyVersion = input.timeGranularity !== undefined || input.snapMinutes !== undefined ? 'sprint3-v1' : existing.timePolicyVersion, cellOverrides = input.cellOverrides === undefined ? (existing.cellOverrides || []) : (Array.isArray(input.cellOverrides) ? input.cellOverrides.slice(0, 5000).map(value => ({ sourceDate: cleanString(value.sourceDate, 10), sourceResourceId: cleanString(value.sourceResourceId), targetDate: cleanString(value.targetDate, 10), targetResourceId: cleanString(value.targetResourceId) })) : []); return { ...existing, title: cleanString(input.title ?? existing.title), siteId: input.siteId ?? existing.siteId, projectId: input.projectId === null ? null : (input.projectId ?? existing.projectId ?? null), status: input.status ?? existing.status ?? 'confirmed', startsAt: times.startsAt ?? existing.startsAt, endsAt: times.endsAt ?? existing.endsAt, notes: cleanString(input.notes ?? existing.notes, 4000), resources: canonicalReservationAllocations(input, existing.resources), optionGroupId: cleanString(input.optionGroupId ?? existing.optionGroupId) || undefined, optionPriority: input.optionPriority === undefined ? existing.optionPriority : Number(input.optionPriority), optionExpiresAt: cleanString(input.optionExpiresAt ?? existing.optionExpiresAt) || undefined, includeWeekends: input.includeWeekends === undefined ? existing.includeWeekends !== false : input.includeWeekends === true, timeGranularity, snapMinutes: Number(input.snapMinutes ?? existing.snapMinutes ?? defaultSnap), ...(timePolicyVersion ? { timePolicyVersion } : {}), holidayCalendarId: cleanString(input.holidayCalendarId ?? existing.holidayCalendarId, 120) || undefined, sourceQuoteId: cleanString(input.sourceQuoteId ?? existing.sourceQuoteId) || undefined, sourceQuoteVersionId: cleanString(input.sourceQuoteVersionId ?? existing.sourceQuoteVersionId) || undefined, sourceQuoteLineId: cleanString(input.sourceQuoteLineId ?? existing.sourceQuoteLineId) || undefined, planningQuantityMilli: cleanString(input.planningQuantityMilli ?? existing.planningQuantityMilli) || undefined, planningUnit: cleanString(input.planningUnit ?? existing.planningUnit, 40) || undefined, planningMode, cellOverrides } }
 function shiftedPlanningDate(value, days) { const date = new Date(`${value}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10); }
 function validateReservationQuoteSource(db, auth, reservation) { if (!reservation.sourceQuoteId && !reservation.sourceQuoteLineId) return null; const quote = db.quotes.find(value => value.id === reservation.sourceQuoteId && value.companyId === auth.user.companyId && value.status === 'accepted' && value.projectId === reservation.projectId && (!value.siteId || value.siteId === reservation.siteId)); if (!quote || quote.currentVersionId !== reservation.sourceQuoteVersionId) throw apiError(409, 'QUOTE_PLANNING_SOURCE_INVALID', 'Le devis validé ou sa version ne correspond pas à cette réservation.'); const line = quote.lines.find(value => value.id === reservation.sourceQuoteLineId); if (!line || !quoteLinePlanifiable(line)) throw apiError(422, 'QUOTE_LINE_NOT_PLANIFIABLE', 'La ligne de devis choisie ne peut pas être planifiée.'); return { quote, line }; }
+function planningConflictOverride(auth, input, conflicts, message, details = {}) {
+  if (!conflicts.length) return null;
+  if (input.conflictPolicy !== 'override') throw apiError(409, 'PLANNING_CONFLICT', message, { ...details, conflicts });
+  if (!has(auth, 'planning.override_conflict')) throw apiError(403, 'PLANNING_OVERRIDE_FORBIDDEN', 'La dérogation de conflit n’est pas autorisée pour ce profil.');
+  const overrideReason = cleanString(input.overrideReason, 500);
+  if (overrideReason.length < 3) throw apiError(422, 'PLANNING_OVERRIDE_REASON_REQUIRED', 'Le motif de dérogation doit contenir au moins 3 caractères.', { ...details, fields: ['overrideReason'], minimumLength: 3 });
+  return { overrideReason, conflicts };
+}
+function applyPlanningConflictOverride(candidate, override) {
+  if (!override) return;
+  candidate.conflictOverride = true;
+  candidate.overrideReason = override.overrideReason;
+}
+function assertPlanningOverrideReplay(auth, reservation) {
+  if (reservation?.conflictOverride === true && !has(auth, 'planning.override_conflict')) throw apiError(403, 'PLANNING_OVERRIDE_FORBIDDEN', 'La dérogation de conflit n’est plus autorisée pour ce profil.');
+}
 function createReservationCommand(db, input, auth, idempotencyKey) {
   const key = cleanString(idempotencyKey, 200);
   const payloadHash = digestPayload(input), candidate = reservationFrom(input, auth);
@@ -3297,15 +3313,17 @@ function createReservationCommand(db, input, auth, idempotencyKey) {
     if (prior.payloadHash !== payloadHash) throw apiError(409, 'IDEMPOTENCY_CONFLICT', 'Cette clé a déjà été utilisée avec une autre réservation.');
     const replay = db.reservations.find(value => value.id === prior.reservationId && value.companyId === auth.user.companyId && siteAllowed(auth, value.siteId) && reservationAllowed(auth, value));
     if (!replay) throw apiError(404, 'NOT_FOUND', 'Réservation rejouée introuvable.');
+    assertPlanningOverrideReplay(auth, replay);
     validateReservationQuoteSource(db, auth, replay);
     return { item: replay, replay: true };
   }
   const source = validateReservationQuoteSource(db, auth, candidate), checked = validateReservation(db, auth, candidate);
   if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Données invalides.', { fields: checked.errors });
-  if (checked.conflicts.length && !(input.conflictPolicy === 'override' && has(auth, 'planning.override_conflict') && cleanString(input.overrideReason))) throw apiError(409, 'PLANNING_CONFLICT', 'La ressource n’est pas disponible sur cette période.', { conflicts: checked.conflicts });
+  const conflictOverride = planningConflictOverride(auth, input, checked.conflicts, 'La ressource n’est pas disponible sur cette période.');
+  applyPlanningConflictOverride(candidate, conflictOverride);
   db.reservations.push(candidate);
   db.reservationCommands.push({ companyId: auth.user.companyId, actorUserId: auth.user.id, command: 'reservation.create', key, payloadHash, reservationId: candidate.id, createdAt: now() });
-  audit(db, auth, source ? 'reservation.createdFromAcceptedQuote' : 'reservation.created', 'reservation', candidate.id, { versionAfter: 1, after: candidate, ...(source ? { quoteId: source.quote.id, quoteVersionId: source.quote.currentVersionId, quoteLineId: source.line.id, projectId: candidate.projectId } : {}), ...(checked.conflicts.length ? { overrideReason: cleanString(input.overrideReason), conflicts: checked.conflicts } : {}) });
+  audit(db, auth, source ? 'reservation.createdFromAcceptedQuote' : 'reservation.created', 'reservation', candidate.id, { versionAfter: 1, before: null, after: candidate, ...(source ? { quoteId: source.quote.id, quoteVersionId: source.quote.currentVersionId, quoteLineId: source.line.id, projectId: candidate.projectId } : {}), ...(conflictOverride || {}) });
   if (source) syncPlanningComplementaryQuote(db, auth, source.quote);
   return { item: candidate, replay: false };
 }
@@ -3316,7 +3334,43 @@ async function createReservation(input, auth, res, requestId, idempotencyKey) {
     send(res, result.replay ? 200 : 201, result.item);
   }).catch(e => sendApiError(res, e, requestId));
 }
-async function duplicateReservation(rid, input, auth, res, requestId, idempotencyKey) { return mutate(db => { const source = db.reservations.find(value => value.id === rid && value.companyId === auth.user.companyId && value.status !== 'cancelled' && siteAllowed(auth, value.siteId) && reservationAllowed(auth, value)); if (!source) throw apiError(404, 'NOT_FOUND', 'Réservation source introuvable.'); const key = cleanString(idempotencyKey, 200); if (!key) throw apiError(400, 'IDEMPOTENCY_KEY_REQUIRED', 'La clé d’idempotence est requise.'); db.reservationCommands ||= []; const payloadHash = digestText(JSON.stringify(input)), prior = db.reservationCommands.find(value => value.companyId === auth.user.companyId && value.actorUserId === auth.user.id && value.command === `reservation.duplicate:${rid}` && value.key === key); if (prior) { if (prior.payloadHash !== payloadHash) throw apiError(409, 'IDEMPOTENCY_CONFLICT', 'Cette duplication a déjà été demandée avec un autre contenu.'); const replay = db.reservations.find(value => value.id === prior.reservationId && value.companyId === auth.user.companyId); if (!replay) throw apiError(404, 'NOT_FOUND', 'Réservation dupliquée introuvable.'); return { item: replay, replay: true }; } const targetDate = cleanString(input.targetDate, 10), targetResourceId = cleanString(input.targetResourceId); if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) throw apiError(422, 'VALIDATION_ERROR', 'La date cible est invalide.', { fields: ['targetDate'] }); const daySpan = Math.round((Date.parse(`${source.endsAt.slice(0, 10)}T12:00:00Z`) - Date.parse(`${source.startsAt.slice(0, 10)}T12:00:00Z`)) / 86400000), resources = targetResourceId ? (source.resources || []).map((allocation, index) => index === 0 ? { ...allocation, resourceId: targetResourceId } : allocation) : source.resources, candidate = reservationFrom({ startsAt: `${targetDate}${source.startsAt.slice(10)}`, endsAt: `${shiftedPlanningDate(targetDate, daySpan)}${source.endsAt.slice(10)}`, resources, includeWeekends: input.includeWeekends === undefined ? source.includeWeekends !== false : input.includeWeekends, cellOverrides: [] }, auth, source); Object.assign(candidate, { id: id('reservation'), companyId: source.companyId, createdBy: auth.user.id, version: 1, createdAt: now(), updatedAt: now() }); const quoteSource = validateReservationQuoteSource(db, auth, candidate); const checked = validateReservation(db, auth, candidate); if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Duplication invalide.', { fields: checked.errors }); if (checked.conflicts.length && !(input.conflictPolicy === 'override' && has(auth, 'planning.override_conflict') && cleanString(input.overrideReason))) throw apiError(409, 'PLANNING_CONFLICT', 'La ressource cible n’est pas disponible.', { conflicts: checked.conflicts }); db.reservations.push(candidate); db.reservationCommands.push({ companyId: auth.user.companyId, actorUserId: auth.user.id, command: `reservation.duplicate:${rid}`, key, payloadHash, reservationId: candidate.id, createdAt: now() }); audit(db, auth, 'reservation.duplicated', 'reservation', candidate.id, { sourceReservationId: source.id, projectId: candidate.projectId, quoteId: candidate.sourceQuoteId, quoteLineId: candidate.sourceQuoteLineId, before: { startsAt: source.startsAt, endsAt: source.endsAt, resources: source.resources, includeWeekends: source.includeWeekends !== false }, after: { startsAt: candidate.startsAt, endsAt: candidate.endsAt, resources: candidate.resources, includeWeekends: candidate.includeWeekends } }); if (quoteSource) syncPlanningComplementaryQuote(db, auth, quoteSource.quote); return { item: candidate, replay: false }; }).then(result => { if (!result.replay) emit('reservation.duplicated.v1', result.item); if (result.item.sourceQuoteId) emit('quote.planningProgress.v1', { id: result.item.sourceQuoteId, companyId: result.item.companyId, siteId: result.item.siteId, version: result.item.version }); send(res, result.replay ? 200 : 201, result.item); }).catch(error => sendApiError(res, error, requestId)); }
+async function duplicateReservation(rid, input, auth, res, requestId, idempotencyKey) {
+  return mutate(db => {
+    const source = db.reservations.find(value => value.id === rid && value.companyId === auth.user.companyId && value.status !== 'cancelled' && siteAllowed(auth, value.siteId) && reservationAllowed(auth, value));
+    if (!source) throw apiError(404, 'NOT_FOUND', 'Réservation source introuvable.');
+    const key = cleanString(idempotencyKey, 200);
+    if (!key) throw apiError(400, 'IDEMPOTENCY_KEY_REQUIRED', 'La clé d’idempotence est requise.');
+    db.reservationCommands ||= [];
+    const payloadHash = digestText(JSON.stringify(input)), command = `reservation.duplicate:${rid}`;
+    const prior = db.reservationCommands.find(value => value.companyId === auth.user.companyId && value.actorUserId === auth.user.id && value.command === command && value.key === key);
+    if (prior) {
+      if (prior.payloadHash !== payloadHash) throw apiError(409, 'IDEMPOTENCY_CONFLICT', 'Cette duplication a déjà été demandée avec un autre contenu.');
+      const replay = db.reservations.find(value => value.id === prior.reservationId && value.companyId === auth.user.companyId && reservationSnapshotAllowed(db, auth, value));
+      if (!replay) throw apiError(404, 'NOT_FOUND', 'Réservation dupliquée introuvable.');
+      assertPlanningOverrideReplay(auth, replay);
+      return { item: replay, replay: true };
+    }
+    const targetDate = cleanString(input.targetDate, 10), targetResourceId = cleanString(input.targetResourceId);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) throw apiError(422, 'VALIDATION_ERROR', 'La date cible est invalide.', { fields: ['targetDate'] });
+    const daySpan = Math.round((Date.parse(`${source.endsAt.slice(0, 10)}T12:00:00Z`) - Date.parse(`${source.startsAt.slice(0, 10)}T12:00:00Z`)) / 86400000);
+    const resources = targetResourceId ? (source.resources || []).map((allocation, index) => index === 0 ? { ...allocation, resourceId: targetResourceId } : allocation) : source.resources;
+    const candidate = reservationFrom({ startsAt: `${targetDate}${source.startsAt.slice(10)}`, endsAt: `${shiftedPlanningDate(targetDate, daySpan)}${source.endsAt.slice(10)}`, resources, includeWeekends: input.includeWeekends === undefined ? source.includeWeekends !== false : input.includeWeekends, cellOverrides: [] }, auth, source);
+    Object.assign(candidate, { id: id('reservation'), companyId: source.companyId, createdBy: auth.user.id, version: 1, createdAt: now(), updatedAt: now() });
+    const quoteSource = validateReservationQuoteSource(db, auth, candidate), checked = validateReservation(db, auth, candidate);
+    if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Duplication invalide.', { fields: checked.errors });
+    const conflictOverride = planningConflictOverride(auth, input, checked.conflicts, 'La ressource cible n’est pas disponible.');
+    applyPlanningConflictOverride(candidate, conflictOverride);
+    db.reservations.push(candidate);
+    db.reservationCommands.push({ companyId: auth.user.companyId, actorUserId: auth.user.id, command, key, payloadHash, reservationId: candidate.id, createdAt: now() });
+    audit(db, auth, 'reservation.duplicated', 'reservation', candidate.id, { sourceReservationId: source.id, projectId: candidate.projectId, quoteId: candidate.sourceQuoteId, quoteLineId: candidate.sourceQuoteLineId, versionAfter: 1, before: { startsAt: source.startsAt, endsAt: source.endsAt, resources: source.resources, includeWeekends: source.includeWeekends !== false }, after: { startsAt: candidate.startsAt, endsAt: candidate.endsAt, resources: candidate.resources, includeWeekends: candidate.includeWeekends }, ...(conflictOverride || {}) });
+    if (quoteSource) syncPlanningComplementaryQuote(db, auth, quoteSource.quote);
+    return { item: candidate, replay: false };
+  }).then(result => {
+    if (!result.replay) emit('reservation.duplicated.v1', result.item);
+    if (!result.replay && result.item.sourceQuoteId) emit('quote.planningProgress.v1', { id: result.item.sourceQuoteId, companyId: result.item.companyId, siteId: result.item.siteId, version: result.item.version });
+    send(res, result.replay ? 200 : 201, result.item);
+  }).catch(error => sendApiError(res, error, requestId));
+}
 async function duplicateReservationCell(rid, input, auth, res, requestId, idempotencyKey) {
   return mutate(db => {
     const source = db.reservations.find(value => value.id === rid && value.companyId === auth.user.companyId && value.status !== 'cancelled' && siteAllowed(auth, value.siteId) && reservationAllowed(auth, value));
@@ -3332,6 +3386,8 @@ async function duplicateReservationCell(rid, input, auth, res, requestId, idempo
       if (prior.payloadHash !== payloadHash) throw apiError(409, 'IDEMPOTENCY_CONFLICT', 'Cette copie a déjà été demandée avec un autre contenu.');
       const replay = db.reservations.find(value => value.id === prior.reservationId && value.companyId === auth.user.companyId);
       if (!replay) throw apiError(404, 'NOT_FOUND', 'Cellule copiée introuvable.');
+      if (!reservationSnapshotAllowed(db, auth, replay)) throw apiError(404, 'NOT_FOUND', 'Cellule copiée introuvable.');
+      assertPlanningOverrideReplay(auth, replay);
       return { item: replay, replay: true };
     }
     const startClock = source.startsAt.slice(10), endClock = source.endsAt.slice(10), overnight = source.endsAt.slice(11, 19) <= source.startsAt.slice(11, 19), endDate = overnight ? shiftedPlanningDate(targetDate, 1) : targetDate, resourceId = targetResourceId || sourceCell.resourceId;
@@ -3339,10 +3395,11 @@ async function duplicateReservationCell(rid, input, auth, res, requestId, idempo
     Object.assign(candidate, { id: id('reservation'), companyId: source.companyId, createdBy: auth.user.id, version: 1, createdAt: now(), updatedAt: now() });
     const quoteSource = validateReservationQuoteSource(db, auth, candidate), checked = validateReservation(db, auth, candidate);
     if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Copie de cellule invalide.', { fields: checked.errors });
-    if (checked.conflicts.length && !(input.conflictPolicy === 'override' && has(auth, 'planning.override_conflict') && cleanString(input.overrideReason))) throw apiError(409, 'PLANNING_CONFLICT', 'La cellule cible n’est pas disponible.', { conflicts: checked.conflicts });
+    const conflictOverride = planningConflictOverride(auth, input, checked.conflicts, 'La cellule cible n’est pas disponible.');
+    applyPlanningConflictOverride(candidate, conflictOverride);
     db.reservations.push(candidate);
     db.reservationCommands.push({ companyId: auth.user.companyId, actorUserId: auth.user.id, command, key, payloadHash, reservationId: candidate.id, createdAt: now() });
-    audit(db, auth, 'reservation.cellDuplicated', 'reservation', candidate.id, { sourceReservationId: source.id, sourceDate, sourceResourceId, targetDate, targetResourceId: resourceId, projectId: candidate.projectId, quoteId: candidate.sourceQuoteId, quoteLineId: candidate.sourceQuoteLineId });
+    audit(db, auth, 'reservation.cellDuplicated', 'reservation', candidate.id, { sourceReservationId: source.id, sourceDate, sourceResourceId, targetDate, targetResourceId: resourceId, projectId: candidate.projectId, quoteId: candidate.sourceQuoteId, quoteLineId: candidate.sourceQuoteLineId, before: null, after: candidate, versionAfter: 1, ...(conflictOverride || {}) });
     if (quoteSource) syncPlanningComplementaryQuote(db, auth, quoteSource.quote);
     return { item: candidate, replay: false };
   }).then(result => {
@@ -3361,6 +3418,7 @@ async function batchReservations(input, auth, res, requestId, idempotencyKey) {
       for (const historical of marker.result.items || []) {
         const current = db.reservations.find(value => value.id === historical.id);
         if (!reservationSnapshotAllowed(db, auth, current) || !reservationSnapshotAllowed(db, auth, historical)) throw apiError(404, 'NOT_FOUND', 'Résultat du lot introuvable dans le périmètre courant.');
+        assertPlanningOverrideReplay(auth, historical);
       }
       return { ...marker.result, replay: true };
     }
@@ -3386,9 +3444,10 @@ async function batchReservations(input, auth, res, requestId, idempotencyKey) {
         Object.assign(candidate, { id: id('reservation'), companyId: auth.user.companyId, createdBy: auth.user.id, version: 1, createdAt: now(), updatedAt: now() });
         const quoteSource = validateReservationQuoteSource(db, auth, candidate), checked = validateReservation(db, auth, candidate, null, conflictIndex);
         if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Création de cellule invalide.', { index, fields: checked.errors });
-        if (checked.conflicts.length && !(action.conflictPolicy === 'override' && has(auth, 'planning.override_conflict') && cleanString(action.overrideReason))) throw apiError(409, 'PLANNING_CONFLICT', 'Une cellule peinte du lot n’est pas disponible.', { index, conflicts: checked.conflicts });
+        const conflictOverride = planningConflictOverride(auth, action, checked.conflicts, 'Une cellule peinte du lot n’est pas disponible.', { index });
+        applyPlanningConflictOverride(candidate, conflictOverride);
         db.reservations.push(candidate); indexReservation(candidate);
-        audit(db, auth, quoteSource ? 'reservation.createdFromAcceptedQuote' : 'reservation.created', 'reservation', candidate.id, { batchIndex: index, versionAfter: 1, after: candidate, ...(quoteSource ? { quoteId: quoteSource.quote.id, quoteVersionId: quoteSource.quote.currentVersionId, quoteLineId: quoteSource.line.id, projectId: candidate.projectId } : {}) });
+        audit(db, auth, quoteSource ? 'reservation.createdFromAcceptedQuote' : 'reservation.created', 'reservation', candidate.id, { batchIndex: index, versionAfter: 1, before: null, after: candidate, ...(quoteSource ? { quoteId: quoteSource.quote.id, quoteVersionId: quoteSource.quote.currentVersionId, quoteLineId: quoteSource.line.id, projectId: candidate.projectId } : {}), ...(conflictOverride || {}) });
         if (quoteSource) quoteIds.add(quoteSource.quote.id);
         items.push(candidate); eventTypes.push('reservation.created.v1');
         continue;
@@ -3401,10 +3460,11 @@ async function batchReservations(input, auth, res, requestId, idempotencyKey) {
         if (item.status !== 'cancelled' || !['draft', 'option', 'confirmed', 'unavailable', 'maintenance'].includes(restoredStatus)) throw apiError(409, 'RESERVATION_RESTORE_INVALID', 'Cette annulation ne peut plus être rétablie.', { index });
         const candidate = { ...item, status: restoredStatus, version: item.version + 1, updatedAt: now() }, quoteSource = validateReservationQuoteSource(db, auth, candidate), checked = validateReservation(db, auth, candidate, item.id, conflictIndex);
         if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Rétablissement invalide.', { index, fields: checked.errors });
-        if (checked.conflicts.length && !(action.conflictPolicy === 'override' && has(auth, 'planning.override_conflict') && cleanString(action.overrideReason))) throw apiError(409, 'PLANNING_CONFLICT', 'La réservation ne peut pas être rétablie car la capacité est occupée.', { index, conflicts: checked.conflicts });
+        const conflictOverride = planningConflictOverride(auth, action, checked.conflicts, 'La réservation ne peut pas être rétablie car la capacité est occupée.', { index });
+        applyPlanningConflictOverride(candidate, conflictOverride);
         const versionBefore = item.version, before = { status: item.status, version: item.version };
         Object.assign(item, candidate); delete item.cancelledFromStatus; indexReservation(item);
-        audit(db, auth, 'reservation.restored', 'reservation', item.id, { batchIndex: index, versionBefore, versionAfter: item.version, before, after: { status: item.status, version: item.version }, ...(item.sourceQuoteId ? { quoteId: item.sourceQuoteId, quoteLineId: item.sourceQuoteLineId } : {}) });
+        audit(db, auth, 'reservation.restored', 'reservation', item.id, { batchIndex: index, versionBefore, versionAfter: item.version, before, after: { status: item.status, version: item.version }, ...(item.sourceQuoteId ? { quoteId: item.sourceQuoteId, quoteLineId: item.sourceQuoteLineId } : {}), ...(conflictOverride || {}) });
         if (quoteSource) quoteIds.add(quoteSource.quote.id);
         items.push(item); eventTypes.push('reservation.restored.v1');
         continue;
@@ -3433,10 +3493,11 @@ async function batchReservations(input, auth, res, requestId, idempotencyKey) {
         unindexReservation(item);
         const quoteSource = validateReservationQuoteSource(db, auth, candidate), checked = validateReservation(db, auth, candidate, item.id, conflictIndex);
         if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Déplacement de lot invalide.', { index, fields: checked.errors });
-        if (checked.conflicts.length && !(action.conflictPolicy === 'override' && has(auth, 'planning.override_conflict') && cleanString(action.overrideReason))) throw apiError(409, 'PLANNING_CONFLICT', 'Une réservation du lot ne peut pas être déplacée sur la cible.', { index, conflicts: checked.conflicts });
+        const conflictOverride = planningConflictOverride(auth, action, checked.conflicts, 'Une réservation du lot ne peut pas être déplacée sur la cible.', { index });
+        applyPlanningConflictOverride(candidate, conflictOverride);
         const versionBefore = item.version, before = { startsAt: item.startsAt, endsAt: item.endsAt, resources: structuredClone(item.resources || []), cellOverrides: structuredClone(item.cellOverrides || []) };
         Object.assign(item, candidate); indexReservation(item);
-        audit(db, auth, 'reservation.moved', 'reservation', item.id, { batchIndex: index, versionBefore, versionAfter: item.version, before, after: { startsAt: item.startsAt, endsAt: item.endsAt, resources: structuredClone(item.resources || []), cellOverrides: structuredClone(item.cellOverrides || []) }, ...(item.sourceQuoteId ? { quoteId: item.sourceQuoteId, quoteLineId: item.sourceQuoteLineId } : {}), ...(checked.conflicts.length ? { overrideReason: cleanString(action.overrideReason), conflicts: checked.conflicts } : {}) });
+        audit(db, auth, 'reservation.moved', 'reservation', item.id, { batchIndex: index, versionBefore, versionAfter: item.version, before, after: { startsAt: item.startsAt, endsAt: item.endsAt, resources: structuredClone(item.resources || []), cellOverrides: structuredClone(item.cellOverrides || []) }, ...(item.sourceQuoteId ? { quoteId: item.sourceQuoteId, quoteLineId: item.sourceQuoteLineId } : {}), ...(conflictOverride || {}) });
         if (quoteSource) quoteIds.add(quoteSource.quote.id);
         items.push(item); eventTypes.push('reservation.updated.v1');
         continue;
@@ -3451,10 +3512,11 @@ async function batchReservations(input, auth, res, requestId, idempotencyKey) {
         unindexReservation(item);
         const quoteSource = validateReservationQuoteSource(db, auth, candidate), checked = validateReservation(db, auth, candidate, item.id, conflictIndex);
         if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Redimensionnement de lot invalide.', { index, fields: checked.errors });
-        if (checked.conflicts.length && !(action.conflictPolicy === 'override' && has(auth, 'planning.override_conflict') && cleanString(action.overrideReason))) throw apiError(409, 'PLANNING_CONFLICT', 'Une réservation du lot ne peut pas être redimensionnée.', { index, conflicts: checked.conflicts });
+        const conflictOverride = planningConflictOverride(auth, action, checked.conflicts, 'Une réservation du lot ne peut pas être redimensionnée.', { index });
+        applyPlanningConflictOverride(candidate, conflictOverride);
         const versionBefore = item.version, before = { startsAt: item.startsAt, endsAt: item.endsAt };
         Object.assign(item, candidate); indexReservation(item);
-        audit(db, auth, 'reservation.resized', 'reservation', item.id, { batchIndex: index, versionBefore, versionAfter: item.version, before, after: { startsAt: item.startsAt, endsAt: item.endsAt }, ...(item.sourceQuoteId ? { quoteId: item.sourceQuoteId, quoteLineId: item.sourceQuoteLineId } : {}), ...(checked.conflicts.length ? { overrideReason: cleanString(action.overrideReason), conflicts: checked.conflicts } : {}) });
+        audit(db, auth, 'reservation.resized', 'reservation', item.id, { batchIndex: index, versionBefore, versionAfter: item.version, before, after: { startsAt: item.startsAt, endsAt: item.endsAt }, ...(item.sourceQuoteId ? { quoteId: item.sourceQuoteId, quoteLineId: item.sourceQuoteLineId } : {}), ...(conflictOverride || {}) });
         if (quoteSource) quoteIds.add(quoteSource.quote.id);
         items.push(item); eventTypes.push('reservation.updated.v1');
         continue;
@@ -3484,9 +3546,10 @@ async function batchReservations(input, auth, res, requestId, idempotencyKey) {
       Object.assign(candidate, { id: id('reservation'), companyId: source.companyId, createdBy: auth.user.id, version: 1, createdAt: now(), updatedAt: now() });
       const quoteSource = validateReservationQuoteSource(db, auth, candidate), checked = validateReservation(db, auth, candidate, null, conflictIndex);
       if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Copie de cellule invalide.', { index, fields: checked.errors });
-      if (checked.conflicts.length && !(action.conflictPolicy === 'override' && has(auth, 'planning.override_conflict') && cleanString(action.overrideReason))) throw apiError(409, 'PLANNING_CONFLICT', 'Une cellule cible du lot n’est pas disponible.', { index, conflicts: checked.conflicts });
+      const conflictOverride = planningConflictOverride(auth, action, checked.conflicts, 'Une cellule cible du lot n’est pas disponible.', { index });
+      applyPlanningConflictOverride(candidate, conflictOverride);
       db.reservations.push(candidate); indexReservation(candidate);
-      audit(db, auth, 'reservation.cellDuplicated', 'reservation', candidate.id, { batchIndex: index, sourceReservationId: source.id, sourceDate, sourceResourceId, targetDate, targetResourceId: resourceId, projectId: candidate.projectId, quoteId: candidate.sourceQuoteId, quoteLineId: candidate.sourceQuoteLineId });
+      audit(db, auth, 'reservation.cellDuplicated', 'reservation', candidate.id, { batchIndex: index, sourceReservationId: source.id, sourceDate, sourceResourceId, targetDate, targetResourceId: resourceId, projectId: candidate.projectId, quoteId: candidate.sourceQuoteId, quoteLineId: candidate.sourceQuoteLineId, before: null, after: candidate, versionAfter: 1, ...(conflictOverride || {}) });
       if (quoteSource) quoteIds.add(quoteSource.quote.id);
       items.push(candidate); eventTypes.push('reservation.cellDuplicated.v1');
     }
@@ -3513,7 +3576,7 @@ async function patchReservation(rid, input, auth, res, requestId, idempotencyKey
     const item = db.reservations.find(r => r.id === rid && r.companyId === auth.user.companyId && siteAllowed(auth, r.siteId) && reservationAllowed(auth, r));
     if (!item) throw apiError(404, 'NOT_FOUND', 'Réservation introuvable.');
     const marker = foundationCommandMarker(db, auth, 'reservation.update', rid, idempotencyKey, input);
-    if (marker.replay) return { item: marker.result, replay: true };
+    if (marker.replay) { assertPlanningOverrideReplay(auth, marker.result); return { item: marker.result, replay: true }; }
     if (item.status === 'cancelled') throw apiError(409, 'RESERVATION_CANCELLED', 'Une réservation annulée ne peut plus être modifiée.');
     if (item.status === 'completed') throw apiError(409, 'RESERVATION_TERMINAL', 'Une réservation réalisée ne peut plus être modifiée.');
     if (!Number.isInteger(input.version) || input.version !== item.version) throw apiError(409, 'VERSION_CONFLICT', 'La réservation a été modifiée.', { current: item });
@@ -3532,7 +3595,8 @@ async function patchReservation(rid, input, auth, res, requestId, idempotencyKey
     const source = validateReservationQuoteSource(db, auth, candidate), checked = validateReservation(db, auth, candidate, item.id);
     for (const contender of optionContenders) contender.status = 'option';
     if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Données invalides.', { fields: checked.errors });
-    if (checked.conflicts.length && !(input.conflictPolicy === 'override' && has(auth, 'planning.override_conflict') && cleanString(input.overrideReason))) throw apiError(409, 'PLANNING_CONFLICT', 'La ressource n’est pas disponible sur cette période.', { conflicts: checked.conflicts });
+    const conflictOverride = planningConflictOverride(auth, input, checked.conflicts, 'La ressource n’est pas disponible sur cette période.');
+    applyPlanningConflictOverride(candidate, conflictOverride);
     Object.assign(item, candidate);
     if (confirmingGroupedOption) {
       delete item.optionGroupId; delete item.optionPriority; delete item.optionExpiresAt;
@@ -3543,7 +3607,7 @@ async function patchReservation(rid, input, auth, res, requestId, idempotencyKey
       }
     }
     const after = { status: item.status, startsAt: item.startsAt, endsAt: item.endsAt, resources: structuredClone(item.resources || []), includeWeekends: item.includeWeekends };
-    audit(db, auth, 'reservation.updated', 'reservation', item.id, { versionBefore, versionAfter: item.version, before, after, ...(item.sourceQuoteId ? { quoteId: item.sourceQuoteId, quoteLineId: item.sourceQuoteLineId } : {}), ...(checked.conflicts.length ? { overrideReason: cleanString(input.overrideReason), conflicts: checked.conflicts } : {}) });
+    audit(db, auth, 'reservation.updated', 'reservation', item.id, { versionBefore, versionAfter: item.version, before, after, ...(item.sourceQuoteId ? { quoteId: item.sourceQuoteId, quoteLineId: item.sourceQuoteLineId } : {}), ...(conflictOverride || {}) });
     if (source) syncPlanningComplementaryQuote(db, auth, source.quote);
     rememberFoundationCommand(db, marker, item);
     return { item, replay: false };
@@ -3566,7 +3630,42 @@ async function assignGenericReservation(rid, input, auth, res, requestId, idempo
     Object.assign(item, candidate); audit(db, auth, 'reservation.genericAssigned', 'reservation', item.id, { versionBefore: before.version, versionAfter: item.version, genericAllocationId, resourceCategoryId: allocation.resourceCategoryId, resourceId, before, after: item }); rememberFoundationCommand(db, marker, item); return { item, replay: false };
   }).then(result => { if (!result.replay) emit('reservation.updated.v1', result.item); send(res, 200, result.item); }).catch(error => sendApiError(res, error, requestId));
 }
-async function moveReservationCell(rid, sourceDate, sourceResourceId, input, auth, res, requestId, idempotencyKey) { return mutate(db => { const item = db.reservations.find(value => value.id === rid && value.companyId === auth.user.companyId && siteAllowed(auth, value.siteId) && reservationAllowed(auth, value)); if (!item) throw apiError(404, 'NOT_FOUND', 'Réservation introuvable.'); const marker = foundationCommandMarker(db, auth, 'reservation.cellMove', `${rid}:${sourceDate}:${sourceResourceId}`, idempotencyKey, input); if (marker.replay) return { item: marker.result, replay: true }; if (item.status === 'cancelled') throw apiError(409, 'RESERVATION_CANCELLED', 'Une réservation annulée ne peut plus être modifiée.'); if (item.status === 'completed') throw apiError(409, 'RESERVATION_TERMINAL', 'Une réservation réalisée ne peut plus être déplacée.'); if (!Number.isInteger(input.version) || input.version !== item.version) throw apiError(409, 'VERSION_CONFLICT', 'La réservation a été modifiée.', { current: item }); const targetDate = cleanString(input.targetDate, 10), targetResourceId = cleanString(input.targetResourceId); if (targetDate !== sourceDate) throw apiError(422, 'CELL_DATE_LOCKED', 'Une cellule doit rester sur le même jour lors d’un changement de salle.'); if (!planningDateRange(item).includes(sourceDate) || !item.resources.some(value => value.resourceId === sourceResourceId)) throw apiError(404, 'CELL_NOT_FOUND', 'Cellule de réservation introuvable.'); const target = db.resources.find(value => value.id === targetResourceId && value.companyId === item.companyId && value.siteId === item.siteId && value.active && ['room', 'suite'].includes(value.type) && resourceAllowed(auth, value)); if (!target) throw apiError(404, 'NOT_FOUND', 'Salle cible introuvable.'); const key = value => value.sourceDate === sourceDate && value.sourceResourceId === sourceResourceId, overrides = (item.cellOverrides || []).filter(value => !key(value)); if (targetResourceId !== sourceResourceId) overrides.push({ sourceDate, sourceResourceId, targetDate, targetResourceId }); const candidate = { ...item, planningMode: 'dailyCells', cellOverrides: overrides, version: item.version + 1, updatedAt: now() }, checked = validateReservation(db, auth, candidate, item.id); if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Déplacement de cellule invalide.', { fields: checked.errors }); if (checked.conflicts.length && !(input.conflictPolicy === 'override' && has(auth, 'planning.override_conflict') && cleanString(input.overrideReason))) throw apiError(409, 'PLANNING_CONFLICT', 'La salle cible n’est pas disponible ce jour.', { conflicts: checked.conflicts }); const versionBefore = item.version; Object.assign(item, candidate); audit(db, auth, 'reservation.cellMoved', 'reservation', item.id, { sourceDate, sourceResourceId, targetDate, targetResourceId, versionBefore, versionAfter: item.version }); if (item.sourceQuoteId) syncPlanningComplementaryQuote(db, auth, db.quotes.find(value => value.id === item.sourceQuoteId)); rememberFoundationCommand(db, marker, item); return { item, replay: false }; }).then(result => { if (!result.replay) { emit('reservation.cellMoved.v1', result.item); if (result.item.sourceQuoteId) emit('quote.planningProgress.v1', { id: result.item.sourceQuoteId, companyId: result.item.companyId, siteId: result.item.siteId, version: result.item.version }); } send(res, 200, result.item); }).catch(error => sendApiError(res, error, requestId)); }
+async function moveReservationCell(rid, sourceDate, sourceResourceId, input, auth, res, requestId, idempotencyKey) {
+  return mutate(db => {
+    const item = db.reservations.find(value => value.id === rid && value.companyId === auth.user.companyId && siteAllowed(auth, value.siteId) && reservationAllowed(auth, value));
+    if (!item) throw apiError(404, 'NOT_FOUND', 'Réservation introuvable.');
+    const marker = foundationCommandMarker(db, auth, 'reservation.cellMove', `${rid}:${sourceDate}:${sourceResourceId}`, idempotencyKey, input);
+    if (marker.replay) { assertPlanningOverrideReplay(auth, marker.result); return { item: marker.result, replay: true }; }
+    if (item.status === 'cancelled') throw apiError(409, 'RESERVATION_CANCELLED', 'Une réservation annulée ne peut plus être modifiée.');
+    if (item.status === 'completed') throw apiError(409, 'RESERVATION_TERMINAL', 'Une réservation réalisée ne peut plus être déplacée.');
+    if (!Number.isInteger(input.version) || input.version !== item.version) throw apiError(409, 'VERSION_CONFLICT', 'La réservation a été modifiée.', { current: item });
+    const targetDate = cleanString(input.targetDate, 10), targetResourceId = cleanString(input.targetResourceId);
+    if (targetDate !== sourceDate) throw apiError(422, 'CELL_DATE_LOCKED', 'Une cellule doit rester sur le même jour lors d’un changement de salle.');
+    if (!planningDateRange(item).includes(sourceDate) || !item.resources.some(value => value.resourceId === sourceResourceId)) throw apiError(404, 'CELL_NOT_FOUND', 'Cellule de réservation introuvable.');
+    const target = db.resources.find(value => value.id === targetResourceId && value.companyId === item.companyId && value.siteId === item.siteId && value.active && ['room', 'suite'].includes(value.type) && resourceAllowed(auth, value));
+    if (!target) throw apiError(404, 'NOT_FOUND', 'Salle cible introuvable.');
+    const key = value => value.sourceDate === sourceDate && value.sourceResourceId === sourceResourceId;
+    const overrides = (item.cellOverrides || []).filter(value => !key(value));
+    if (targetResourceId !== sourceResourceId) overrides.push({ sourceDate, sourceResourceId, targetDate, targetResourceId });
+    const candidate = { ...item, planningMode: 'dailyCells', cellOverrides: overrides, version: item.version + 1, updatedAt: now() };
+    const checked = validateReservation(db, auth, candidate, item.id);
+    if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Déplacement de cellule invalide.', { fields: checked.errors });
+    const conflictOverride = planningConflictOverride(auth, input, checked.conflicts, 'La salle cible n’est pas disponible ce jour.');
+    applyPlanningConflictOverride(candidate, conflictOverride);
+    const versionBefore = item.version, before = structuredClone(item);
+    Object.assign(item, candidate);
+    audit(db, auth, 'reservation.cellMoved', 'reservation', item.id, { sourceDate, sourceResourceId, targetDate, targetResourceId, versionBefore, versionAfter: item.version, before, after: item, ...(conflictOverride || {}) });
+    if (item.sourceQuoteId) syncPlanningComplementaryQuote(db, auth, db.quotes.find(value => value.id === item.sourceQuoteId));
+    rememberFoundationCommand(db, marker, item);
+    return { item, replay: false };
+  }).then(result => {
+    if (!result.replay) {
+      emit('reservation.cellMoved.v1', result.item);
+      if (result.item.sourceQuoteId) emit('quote.planningProgress.v1', { id: result.item.sourceQuoteId, companyId: result.item.companyId, siteId: result.item.siteId, version: result.item.version });
+    }
+    send(res, 200, result.item);
+  }).catch(error => sendApiError(res, error, requestId));
+}
 async function cancelReservation(rid, input, auth, res, requestId, idempotencyKey) {
   return mutate(db => {
     const item = db.reservations.find(r => r.id === rid && r.companyId === auth.user.companyId && siteAllowed(auth, r.siteId) && reservationAllowed(auth, r));
