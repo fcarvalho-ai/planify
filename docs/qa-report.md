@@ -1,3 +1,80 @@
+# QA indépendante G8 — Dashboards, exports et sécurité finale
+
+Date : 2026-08-24
+
+Commit applicatif exact : `0732150a9816cb3139282fabbd9bd6e3c3fe2a0a` (`feat(security): finalize sprint 8 conflict overrides`)
+
+Environnement : Node `v26.6.0`, Darwin `25.5.0` arm64
+
+Verdict : **CHANGES REQUIRED — 0 P0 / 4 P1**
+
+Ce gate couvre les douze stories Sprint 8 (`US-094` à `US-099`, `US-101` à `US-104`, `US-107`, `US-109`) sur le candidat exact ci-dessus. Aucun code, test, statut projet ni autre rapport n'a été modifié par cette QA.
+
+## Constats bloquants
+
+### P1 — Les six dashboards ne couvrent pas leurs indicateurs et alertes obligatoires
+
+La sonde directe des read-models sur le seed déterministe confirme que les vues exposées restent des synthèses partielles :
+
+- Direction ne construit que CA signé, Devis acceptés, CA produit, backlog, marges et occupation ; son code ne produit pas les alertes obligatoires de dépassement non facturé, conflits actifs et coûts/marges à risque ;
+- Finance ne publie ni montant facturable, ni coûts planifiés/réels séparés, ni écarts/compléments actionnables ;
+- Planning ne publie ni saturation ni sous-utilisation, seulement une occupation moyenne, les options, conflits et Projets sans réservation ;
+- Commercial ne ventile pas Budgets/Devis par statut et ne calcule pas la conversion Budget confirmé vers Devis ;
+- Exploitation ne publie pas la charge, l'occupation réelle ni l'écart planifié/réalisé par Site/catégorie ;
+- Chef de projet ne calcule ni complétude Planning, ni écarts, ni alertes Projet.
+
+Les tests S8-A vérifient essentiellement la présence d'au moins trois KPI, l'indisponibilité de Facturé/Encaissé, les scopes et la confidentialité ; ils ne prouvent pas ces critères métier. `US-094` à `US-099` ne peuvent donc pas être considérées terminées.
+
+### P1 — Les exports Excel Planning et KPI n'ont pas la structure contractuelle
+
+Les deux routes appellent le générateur mono-feuille `exportXlsxBuffer`. La sonde du classeur observe exactement **une** balise `<sheet>` et aucune feuille `Filtres` ou `Définitions`.
+
+- l'export Planning doit contenir `Planning`, `Filtres` et `Définitions` ;
+- l'export KPI doit contenir `Synthèse`, `Détail` et `Définitions`, avec le drill-down complet réconcilié.
+
+L'implémentation KPI exporte uniquement les cartes visibles dans une feuille `KPI <dashboard>` et n'exporte aucune ligne de détail. Les tests existants ne contrôlent que la signature ZIP et quelques chaînes. `US-101` et `US-103` restent bloquées.
+
+### P1 — L'export PDF Planning accepte plus de 62 jours et reste toujours en A4 paysage
+
+`planningExportRows` accepte une période allant jusqu'à 366 jours pour les deux formats. Une sonde du `2026-01-01` au `2026-03-05` est acceptée, alors que le PDF doit refuser toute fenêtre supérieure à 62 jours. Le générateur émet systématiquement `/MediaBox [0 0 842 595]` (A4 paysage) et ne choisit jamais l'A3 selon la densité. `US-102` et sa borne avant travail coûteux ne sont pas satisfaites.
+
+### P1 — Le dashboard Exploitation divulgue les données Maintenance sans `maintenance.read`
+
+Le contrat exige `dashboard.read`, `planning.read`, `resource.read` et `maintenance.read`. Or `DASHBOARD_PERMISSIONS.operations` ne contient que `planning.read` et `resource.read`, puis le read-model compte directement les maintenances ouvertes. La matrice directe montre `200` et un KPI `maintenance` pour `PLANNING_MANAGER`, `PLANNER` et `READ_ONLY`, alors que leurs rôles standards ne portent pas `maintenance.read`. Le test S8-D attend même explicitement `200` pour le Planificateur et ne confronte pas les sept rôles aux six dashboards par appels réels. Cette divergence RBAC bloque la matrice G8.
+
+## Preuves fraîches réussies
+
+- `node --test tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` hors sandbox : **61/61 réussis**, 0 échec, 0 annulé, 0 ignoré, durée `1,366 s`.
+- `npm test` hors sandbox : **331/331 réussis**, 0 échec, 0 annulé, 0 ignoré, durée `8,080 s`.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, `5 actifs runtime` vérifiés, code 0.
+- `git diff --check 0732150^ 0732150` : **PASS**, code 0.
+- validation sémantique Ruby/Psych de `docs/api/openapi-v1.yaml` : **PASS** — OpenAPI `3.1.0`, 70 chemins, 88 schémas, 346 références locales (93 distinctes) toutes résolues, 84 `operationId` uniques et tous les paramètres de chemin déclarés.
+- sonde des sept rôles standards × six read-models : résultats reproductibles ; seuls `ADMIN` et `FINANCE` possèdent `finance.read`, mais l'accès Exploitation non conforme est confirmé pour trois rôles sans `maintenance.read`.
+- sondes d'artefacts : classeur mono-feuille confirmé ; PDF A4 fixe confirmé ; fenêtre PDF de 63 jours acceptée.
+
+Les premières campagnes HTTP lancées dans le sandbox ont reçu `listen EPERM` et ne sont pas comptées comme résultat produit. Les mêmes commandes ont ensuite été rejouées hors sandbox et sont intégralement vertes.
+
+## Critères correctement couverts
+
+- API BI : catalogue fermé de dix datasets, JSON/CSV, pagination, limite 10 000, scopes, erreurs stables et neutralisation de formules ;
+- confidentialité : coûts/marges absents du dashboard Commercial, des datasets et exports Planning sans `finance.read`; datasets Finance et audit refusés au Planificateur ; SSE de réservation limité aux métadonnées ;
+- override : refus sans droit, motif de moins de trois caractères, version obsolète et batch atomique sans Réservation/audit/événement ; succès motivé persisté et audité ; replay exact sans second effet ; divergence `409` ;
+- bornes Excel 10 000 lignes, en-tête figé, filtre et neutralisation de cellules ;
+- scopes Site/Projet appliqués avant les read-models testés ; Facturé et Encaissé restent `unavailable`, jamais à zéro.
+
+## Limites
+
+1. Aucun smoke navigateur n'est revendiqué : l'outil de contrôle requis par le navigateur intégré n'était pas exposé dans cette session. Les contrôles UI disponibles restent statiques (`app.js`, `index.html`) et le parcours visuel appartient au gate E2E après correction.
+2. Cette QA n'a pas lancé les benchmarks contractuels G8 ; ils relèvent du gate Performance indépendant.
+3. La réconciliation écran → export → BI ne peut pas être approuvée tant que l'export KPI n'a ni feuille Détail ni Définitions.
+
+## Conclusion
+
+La non-régression automatisée, l'API BI, la confidentialité et l'override sont verts, mais neuf stories fonctionnelles restent incomplètes et la matrice Exploitation est trop permissive. G8 est **CHANGES REQUIRED — 0 P0 / 4 P1**. Le lot doit revenir en DEV, puis repasser QA et tous les gates aval impactés. L'intégrateur doit reporter ce verdict dans `docs/project-status.md`.
+
+---
+
 # Re-QA indépendante S7-C — réconciliation des sources Finance
 
 Date : 2026-08-23

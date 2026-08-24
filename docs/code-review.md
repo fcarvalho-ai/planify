@@ -5188,3 +5188,98 @@ Environnement : macOS arm64, Node `v26.6.0`.
 ### Limites et handoff
 
 Cette approbation REVIEW porte uniquement sur les empreintes ci-dessus. Toute modification de code, tests ou OpenAPI invalide le verdict et exige une nouvelle relecture. `docs/project-status.md` reste à mettre à jour par l'intégrateur conformément à l'exception de tâche mono-fichier.
+
+---
+
+## REVIEW G8 indépendante — Dashboards, exports, BI et sécurité finale
+
+Date : 2026-08-24
+Reviewer : agent indépendant `g8_review`
+Périmètre : S8-A/B/C/D, consommateurs API/UI, confidentialité coût/marge, RBAC/scopes, exports, BI, override de conflit, idempotence, audit/SSE, OpenAPI et rollback.
+Indépendance : aucun code ni test authored ou corrigé ; seul le présent rapport est modifié. `docs/project-status.md` reste sous ownership de l'intégrateur.
+
+### Candidat exact contrôlé
+
+- commit : `0732150a9816cb3139282fabbd9bd6e3c3fe2a0a` ;
+- `server.js` : `1e07f1f3c0a68df3c3a990f29b185275dd70e0053056da12a115569fb3cd0883` ;
+- `app.js` : `2325f2f5b568954b435d5b4f2255803bb22022d01f9cdf227eca5f4687bc3e1c` ;
+- `index.html` : `d78c8c8a68cec49d7c2a73d694129099fd09415be41b422eb4abcf4f498e2a89` ;
+- `planning.css` : `51b38d7ed0eef30e085725777bc293c6e2c435dc87e07056913dbc116608197d` ;
+- `docs/api/openapi-v1.yaml` : `19d82f82b1956fdd6a47422dcc8841e0b75345fb5d84da844e16c7905c654caa` ;
+- tests S8-A/B/C/D : `64f3fe9f…`, `e5a80094…`, `a0c8dbf3…`, `b1b84d9c…`.
+
+### Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 4 P1 ouverts.**
+
+Les contrôles existants confirment plusieurs fondations saines : les dix datasets BI forment un catalogue fermé et borné, JSON/CSV appliquent les scopes, les formules CSV/XLSX sont neutralisées, les coûts/marges ne sont pas apparus dans les surfaces sans `finance.read` effectivement testées, et le chemin principal d'override exige permission et motif puis audite l'opération. Toutefois, quatre écarts fonctionnels ou d'autorisation empêchent G8 d'atteindre ses critères de sortie, indépendamment des 331 tests verts.
+
+### P1 — bloquants
+
+#### P1-1 — Les dashboards ne sont ni complètement filtrables, ni drillables, ni réconciliables
+
+`dashboardReadModel` ne reconnaît que `siteId`, `projectId`, `clientId` et `salesOwnerId` (`server.js:3955-3958`). Les filtres Ressource et Catégorie exigés pour Planning/Exploitation sont absents. L'UI n'envoie que `asOf` et le Site (`app.js:1039`) : elle ne fournit ni période, Projet, Client, commercial, catégorie ou ressource.
+
+Les valeurs `drilldown` sont des URL génériques sans la période ni les filtres du dashboard (`server.js:3970-3993`). Elles ne constituent pas la route paginée du contrat ; plusieurs ne sont même pas accessibles au rôle qui voit le KPI. Exemple : un Planificateur voit l'occupation Planning, mais `/api/v1/analytics/occupancy` exige globalement `finance.read` (`server.js:2785`). Dans l'interface, « Voir le détail » ignore entièrement `kpi.drilldown` et change seulement le hash vers une page générique (`app.js:1041`), perdant le périmètre et la fraîcheur.
+
+Enfin, plusieurs contenus obligatoires manquent : Planning n'expose pas explicitement sous-utilisation/saturation ; Commercial ne fournit pas montants par statut, conversion Budget confirmé vers Devis ni répartition Client/commercial ; Exploitation ne fournit pas occupation réelle ni écarts ; Chef de projet ne fournit pas les écarts et alertes annoncés. Les tests S8-A se limitent essentiellement à l'existence de trois KPI et ne réconcilient aucun total jusqu'aux lignes.
+
+Impact : le critère central « chaque KPI drillable et réconciliable jusqu'aux sources autorisées » est faux ; écran, détail, export et BI ne peuvent pas être comparés sur le même `asOf` et les mêmes filtres.
+
+Correction attendue : implémenter un drill-down paginé par dashboard/KPI, propager et revalider exactement `asOf/from/to` et tous les filtres, rendre les datasets de détail accessibles avec les permissions métier adéquates, câbler l'UI sur ces liens avec conservation du contexte et couvrir chaque KPI par une égalité agrégat ↔ détail.
+
+#### P1-2 — Les trois exports ne respectent pas leurs contrats fonctionnels et leurs bornes
+
+Le générateur XLSX ne sait produire qu'une seule feuille (`server.js:3848-3859`). Le Planning exporte donc seulement `Planning`, sans `Filtres` ni `Définitions`, et le KPI exporte seulement une table de cartes, sans feuilles `Synthèse`, `Détail` et `Définitions` (`server.js:2792,2795`). Un probe frais confirme `sheet2: 0` et l'absence des chaînes `Synthèse`, `Détail`, `Définitions`.
+
+`planningExportRows` produit une ligne par allocation sur toute la réservation, pas une ligne par allocation/jour ; il omet Client et prestation et sérialise les dates comme texte (`server.js:3869-3875`). Il ne borne pas à 250 ressources. Le PDF réutilise ce modèle tabulaire, accepte jusqu'à 366 jours alors que sa borne est 62, reste toujours en A4 paysage `/MediaBox [0 0 842 595]`, et n'inclut ni fuseau, ni filtres détaillés, ni légende (`server.js:2793,3861-3867`).
+
+Impact : US-101 à US-103 ne sont pas livrées selon la spécification ; l'export KPI ne peut pas réconcilier le dashboard, et le PDF peut accepter un volume explicitement interdit tout en produisant un rendu non fidèle à la fenêtre temporelle.
+
+Correction attendue : générer les feuilles contractuelles, le détail complet et les définitions/filtres ; typer les dates et produire les lignes allocation/jour ; appliquer les limites 10 000/250/366 et PDF 62 avant génération ; rendre le PDF A4/A3 selon densité avec fuseau, légende, filtres et pagination ; tester le contenu structurel, pas seulement la signature ZIP/PDF.
+
+#### P1-3 — Le dashboard Exploitation révèle la maintenance sans `maintenance.read`
+
+La matrice serveur définit Exploitation avec seulement `planning.read` et `resource.read` (`server.js:3940`), puis agrège et renvoie les maintenances ouvertes (`server.js:3985-3988`). Un probe direct frais avec exactement `dashboard.read`, `planning.read` et `resource.read`, sans `maintenance.read`, a obtenu un KPI `maintenance` disponible de valeur `1`. La spécification exige explicitement `maintenance.read` pour cette section.
+
+Le test annoncé comme matrice « sept rôles × six dashboards × trois exports » ne teste en réalité les six dashboards et trois exports qu'avec le seul utilisateur Planificateur (`tests/sprint8-security.test.js:125-149`) ; il entérine même l'accès Exploitation à `200`. Il ne parcourt donc pas les 126 combinaisons attendues et ne détecte pas cette fuite d'autorisation.
+
+Impact : un rôle non habilité apprend le nombre de maintenances ouvertes et son compteur de sources. La section ne respecte pas la règle selon laquelle chaque source exige sa permission.
+
+Correction attendue : exiger `maintenance.read` pour le dashboard entier ou rendre la section `unavailable` sans compteur ; appliquer la même logique à chaque section optionnelle ; ajouter la vraie matrice dynamique des sept rôles, six dashboards et trois exports, avec révocation entre écran et export.
+
+#### P1-4 — Le replay exact d'une copie de cellule réémet un événement SSE
+
+`duplicateReservationCell` protège bien l'événement `reservation.cellDuplicated.v1` par `!result.replay`, mais émet toujours `quote.planningProgress.v1` lorsque la réservation est liée à un Devis (`server.js:3405-3408`). Un replay exact d'une copie de cellule liée et éventuellement overridée répond donc `200` tout en produisant une seconde invalidation SSE, sans nouveau commit métier.
+
+Impact : l'idempotence promise par US-109 est rompue sur un chemin de mutation ; les consommateurs temps réel observent un effet supplémentaire au replay. Le test S8-D ne rejoue que la création simple et ne couvre ni copie de cellule, ni duplication, ni move/resize/restore sur replay.
+
+Correction attendue : conditionner toutes les émissions dérivées au premier commit, puis tester création, duplication, copie cellule, batch, move, resize, restore et import avec replay exact/divergent, versions et compteurs Réservation/audit/domain-event/SSE inchangés au replay.
+
+### P2 — importants non bloquants isolément
+
+1. La documentation de rollback Sprint 8 est absente de `README.md` et aucun test ne démontre l'analyse « aucune migration requise » ou un rollback des permissions/champs ajoutés. Comme G8 exige explicitement OpenAPI, migration et rollback validés, l'intégrateur doit documenter la stratégie de retour applicatif/données ou ajouter la migration/rollback prévu si les permissions persistées changent.
+2. OpenAPI documente les nouvelles routes et ses 289 références/27 paramètres de chemin sont résolus, mais il ne documente pas la route paginée de drill-down annoncée ; les exports omettent aussi la réponse `401` et les schémas structurels des classeurs ne permettent pas de vérifier les trois feuilles.
+3. Les onglets utilisent `role=tab` sans gestion des flèches, `aria-controls` ni panneau `tabpanel`. Les téléchargements sont de simples liens et ne fournissent ni progression ni erreur actionnable. La conformité accessibilité/interface de §10 n'est pas couverte par un test navigateur.
+4. La confidentialité négative est prometteuse mais la « matrice » actuelle ne vérifie pas les sept rôles, et l'absence audit/SSE repose en partie sur une recherche statique du source. Ajouter des assertions dynamiques JSON, CSV, XLSX, PDF, audit, SSE et UI pour chaque rôle sans `finance.read`, ainsi qu'une révocation entre lecture et export.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` : `0732150a9816cb3139282fabbd9bd6e3c3fe2a0a` avant et après les contrôles ;
+- `node --test tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` : **61 réussis, 0 échec, 0 ignoré**, 1 321,66 ms ;
+- `npm test` : **331 réussis, 0 échec, 0 ignoré**, 8 097,84 ms ;
+- `npm run lint` : succès ;
+- `npm run build` : succès, 5 actifs runtime contrôlés ;
+- `git diff --check` : succès avant rédaction du rapport ;
+- contrôle OpenAPI local : 289 `$ref`, 27 chemins paramétrés, aucun composant ni paramètre de chemin manquant ;
+- probe XLSX en mémoire : une seule feuille, aucune feuille `Synthèse`, `Détail` ou `Définitions` ;
+- probe RBAC direct : dashboard Exploitation accepté et KPI maintenance disponible sans `maintenance.read` ;
+- inspection des consommateurs UI : filtres dashboard réduits à `asOf/siteId`, drill-down remplacé par un changement de hash générique.
+
+### Limites et handoff
+
+Aucun E2E navigateur ni benchmark du dataset contractuel n'a été exécuté dans ce gate REVIEW ; ils appartiennent aux gates correspondants, mais ne pourraient pas fermer les quatre P1 fonctionnels ci-dessus. Aucun fichier exporté n'a été conservé et aucun serveur n'est resté actif.
+
+Seul `docs/code-review.md` est modifié. L'intégrateur doit placer G8 en **Bloqué / retour DEV** dans `docs/project-status.md`. Toute correction invalidera cette revue et exigera une re-REVIEW indépendante sur le nouveau commit et les nouvelles empreintes.

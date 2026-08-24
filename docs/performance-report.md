@@ -748,3 +748,111 @@ scripts/benchmark-finance.js        f8b72c6c3b69feb01387cb69a3478a34449a313d9c47
 
 - Gate PERFORMANCE S7-D : **APPROVED** sur `7051fe4`, 0 P0/0 P1.
 - Fichier modifié : `docs/performance-report.md` uniquement ; consolidation du statut par l'intégrateur.
+
+---
+
+# Gate PERFORMANCE indépendant — G8 Dashboards, BI et exports
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `0732150a9816cb3139282fabbd9bd6e3c3fe2a0a`
+
+Reviewer : agent indépendant `g8_security_performance`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts.**
+
+Les six dashboards, les dix datasets/drill-downs et les exports maximaux respectent les seuils G8 sur le dataset contractuel de **250 ressources, 10 000 Réservations, 2 000 documents commerciaux, 2 000 Réalisés et 2 000 coûts Projet**. Le pire dashboard est Direction à `123,67 ms` p95, le pire dataset est Backlog à `70,98 ms` p95, l'Excel Planning 10 000 lignes termine à `153,40 ms` p95 et le PDF 10 000 lignes sur 62 jours à `370,38 ms` p95.
+
+## Dashboards représentatifs
+
+Harness direct frais, huit itérations chaudes par vue, filtres Site/période appliqués et toutes les sources dans le périmètre :
+
+| Dashboard | p50 | p95 | max | Seuil |
+|---|---:|---:|---:|---:|
+| Direction | `113,55 ms` | `123,67 ms` | `123,67 ms` | `<300 ms` |
+| Finance | `108,30 ms` | `120,17 ms` | `120,17 ms` | `<300 ms` |
+| Planning | `17,17 ms` | `17,53 ms` | `17,53 ms` | `<300 ms` |
+| Commercial | `13,46 ms` | `14,17 ms` | `14,17 ms` | `<300 ms` |
+| Exploitation | `4,02 ms` | `4,33 ms` | `4,33 ms` | `<300 ms` |
+| Chef de projet | `12,18 ms` | `13,65 ms` | `13,65 ms` | `<300 ms` |
+
+Direction et Finance combinent Backlog, Forecast, Marges et Occupation dans une même lecture ; leurs résultats restent donc la preuve la plus contraignante du lot dashboard.
+
+## Datasets BI et drill-down
+
+Chaque mesure calcule le dataset, applique les scopes et construit une page de 500 lignes au maximum.
+
+| Dataset | p95 | Seuil |
+|---|---:|---:|
+| signed-revenue | `1,70 ms` | `<300 ms` |
+| backlog | `70,98 ms` | `<300 ms` |
+| forecast | `61,60 ms` | `<300 ms` |
+| margins | `10,55 ms` | `<300 ms` |
+| occupancy | `32,46 ms` | `<300 ms` |
+| profitability | `10,81 ms` | `<300 ms` |
+| unbilled-overages | `59,13 ms` | `<300 ms` |
+| rate-discounts | `2,36 ms` | `<300 ms` |
+| planning-reservations | `6,60 ms` | `<300 ms` |
+| actuals | `1,68 ms` | `<300 ms` |
+
+Les limites `pageSize <= 500` et dataset `<= 10 000` sont vérifiées avant sérialisation finale ; une partition est exigée au-delà. Les sections de dashboard restent bornées à 100/200 lignes selon le read-model.
+
+## Exports maximaux
+
+Mesures end-to-end directes incluant construction/tri du modèle Planning, mapping des cellules et génération du buffer local :
+
+| Export | Volume | p50 | p95 | max | Seuil |
+|---|---:|---:|---:|---:|---:|
+| Modèle Planning sérialisé | 10 000 lignes | `11,30 ms` | `14,95 ms` | `14,95 ms` | information |
+| Planning XLSX | 10 000 lignes | `150,63 ms` | `153,40 ms` | `153,40 ms` | `<2 s` |
+| Planning PDF | 10 000 lignes, fenêtre exacte 62 jours | `342,15 ms` | `370,38 ms` | `370,38 ms` | `<2 s` |
+
+Les générateurs refusent plus de 10 000 lignes avant de construire l'artefact. Le PDF découpe par groupes de 22 lignes et l'Excel produit un unique worksheet borné ; aucun fichier persistant ni accès réseau n'est créé.
+
+## Confirmation des moteurs G7 consommés
+
+Deux exécutions fraîches de `npm run benchmark:finance` sur le même volume contractuel donnent les pires p95 suivants : Marges `27,62 ms`, Backlog `76,45 ms`, Forecast `55,94 ms`, Occupation journalière `23,57 ms`, Occupation annuelle `30,27 ms`, Rentabilité `28,55 ms`, Non-facturé `48,51 ms`, Remises `7,39 ms`. Les deux passages sortent avec code `0` et réconcilient 2 000 lignes financières.
+
+## UI et boucle événementielle
+
+`loadPilotage()` lance une seule lecture dashboard. Le rendu transforme uniquement les KPI, alertes et compteurs déjà bornés ; il ne reconstruit pas localement les 10 000 sources. Les valeurs sont calculées côté serveur, un jeton de requête ignore les réponses obsolètes et le DOM du Planning reste virtualisé. Avec un pire calcul direct à `123,67 ms`, la marge théorique avant le seuil d'écran `<2 s` est importante.
+
+Aucun profil navigateur frais scripting/paint/heap n'a toutefois été exécuté dans ce gate ; la preuve UI est donc une analyse d'impact, à confirmer dans le gate E2E G8.
+
+## P2 non bloquants
+
+1. Les mesures dashboards/datasets sont directes moteur : elles excluent auth, lecture JSON, sérialisation HTTP et contention multi-session. La marge au seuil est large (pire p95 `123,67 ms` contre `300 ms`), mais un benchmark HTTP G8 permanent rendrait la preuve plus proche de la production locale.
+2. L'interface Pilotage est structurellement bornée et son backend reste très inférieur à 2 s, mais aucun profil navigateur frais ne mesure encore First Contentful Paint, scripting, layout, heap ou une rafale SSE. Le gate E2E doit conserver un contrôle visuel et une mesure navigateur sur la machine de référence.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / mesure | Résultat |
+|---|---|
+| `npm run benchmark:finance` — deux passages | **PASS**, 250/10 000/2 000/2 000/2 000 |
+| harness G8 direct dashboards + datasets, huit itérations | **PASS**, pires p95 `123,67 / 70,98 ms` |
+| harness export end-to-end 10 000 lignes | **PASS**, XLSX `153,40 ms`, PDF 62 jours `370,38 ms` |
+| `node --test tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js` | **PASS, 19/19** |
+| `npm test` | **PASS, 331/331** |
+| `npm run lint` | **PASS** |
+| inspection UI/limites/pagination | rendu Pilotage borné ; exports et datasets refusent les dépassements |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           1e07f1f3c0a68df3c3a990f29b185275dd70e0053056da12a115569fb3cd0883
+app.js                              2325f2f5b568954b435d5b4f2255803bb22022d01f9cdf227eca5f4687bc3e1c
+tests/sprint8-dashboards.test.js    64f3fe9f10a0c8ce8f236dfe6155ede400b60f2452b0dd12b591d0b9b067f4a4
+tests/sprint8-exports.test.js       e5a80094531912e2c3b80a28bf6706599736e2d3a0fff77b99a580b00f7dc397
+tests/sprint8-bi.test.js            a0c8dbf3ecb64974559d52a5bc6b0ac2c14b87467ad670ec6b7d77004b591f32
+scripts/benchmark-finance.js        f8b72c6c3b69feb01387cb69a3478a34449a313d9c4722de4ea7622957ecc596
+```
+
+## Handoff
+
+- Gate PERFORMANCE G8 : **APPROVED** sur `0732150`, 0 P0/0 P1, 2 P2 suivis.
+- Fichier modifié par ce gate : `docs/performance-report.md` uniquement.
+- `docs/project-status.md` reste à consolider par l'intégrateur.

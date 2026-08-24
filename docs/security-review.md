@@ -688,3 +688,98 @@ docs/api/openapi-v1.yaml            9d2410c871f59d7f77aca5b902f1bd77e911c5ad333a
 
 - Gate SECURITY S7-D : **APPROVED** sur `7051fe4`, 0 P0/0 P1.
 - Fichier modifié : `docs/security-review.md` uniquement ; consolidation du statut par l'intégrateur.
+
+---
+
+# Gate SECURITY indépendant — G8 Dashboards, exports & sécurité finale
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `0732150a9816cb3139282fabbd9bd6e3c3fe2a0a`
+
+Reviewer : agent indépendant `g8_security_performance`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts.**
+
+Les coûts et marges internes restent absents des surfaces JSON, CSV, XLSX, PDF, audit, SSE et UI lorsque l'acteur ne possède pas `finance.read`. La matrice indépendante des sept rôles standards sur les six dashboards et les trois familles d'export ne révèle aucune valeur financière hors droit. Les scopes Société/Site/Projet/entité sont appliqués avant agrégation et avant export ; une révocation est réévaluée par les routes et par le flux SSE.
+
+L'override de conflit est fail-closed : permission dédiée, motif de 3 à 500 caractères, version sur les mutations d'une réservation existante, idempotence, audit canonique et SSE après commit. Les refus permission/motif/version et le rollback d'un batch laissent les comptages Réservations/audits/événements inchangés. Le replay exact ne produit pas de second effet, le replay divergent retourne `409`, et la permission est revérifiée au replay.
+
+## Matrice rôle × dashboard × export
+
+Contrôle indépendant direct sur les rôles migrés, complété par les tests HTTP ciblés. `200` signifie autorisé ; `403` signifie refusé. Aucun buffer autorisé d'un rôle non Finance ne contient les clés internes recherchées.
+
+| Rôle | Direction | Finance | Planning | Commercial | Exploitation | Projet | Planning XLSX/PDF | KPI XLSX | `finance.read` |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| ADMIN | 200 | 200 | 200 | 200 | 200 | 200 | 200/200 | 200 | oui |
+| PLANNING_MANAGER | 403 | 403 | 200 | 403 | 200 | 200 | 200/200 | 200 | non |
+| PLANNER | 403 | 403 | 200 | 403 | 200 | 200 | 200/200 | 200 | non |
+| SALES | 403 | 403 | 403 | 200 | 403 | 403 | 403/403 | 200 | non |
+| PROJECT_MANAGER | 403 | 403 | 403 | 200 | 403 | 200 | 200/200 | 200 | non |
+| FINANCE | 403 | 200 | 403 | 200 | 403 | 403 | 403/403 | 200 | oui |
+| READ_ONLY | 403 | 403 | 200 | 200 | 200 | 200 | 200/200 | 200 | non |
+
+Le `200` KPI désigne au moins un dashboard autorisé et son export correspondant ; l'export réutilise le read-model calculé avec les permissions courantes. La route Planning réimpose `planning.read`. La matrice HTTP ciblée du dépôt confirme les statuts Planner, les en-têtes `no-store`/`nosniff` et l'absence de valeurs internes dans les trois buffers.
+
+## Contrôles de confidentialité
+
+- **API JSON et BI :** les datasets Finance exigent `finance.read`; le catalogue les omet sinon. `actuals` supprime les snapshots de coût et `planning-reservations` ne contient aucune valeur financière.
+- **CSV/XLSX :** projection avant sérialisation, limites fermées, cellules commençant par `=`, `+`, `-` ou `@` neutralisées. Les noms de fichiers sont construits depuis des identifiants/date filtrés, pas depuis un chemin utilisateur.
+- **PDF :** le Planning n'embarque que période, Site, Projet, statut, ressource, quantité et libellé autorisés ; aucune clé coût/marge.
+- **Audit :** `auditEventDto()` retire `before`, `after` et les détails financiers aux lecteurs `audit.read` sans `finance.read`; le test S7 Finance est rejoué avec succès.
+- **SSE :** invalidation compacte limitée à type, tenant, Site, entité et version. Les familles coût/dépense/seuil exigent `finance.read`, les scopes sont réévalués et une famille inconnue échoue fermé.
+- **UI :** l'entrée Pilotage et les onglets sont dérivés des permissions ; les KPI dynamiques passent par `esc()`. Les formulaires de coûts n'existent que sous `finance.cost.manage`.
+
+## Override et absence d'effet secondaire
+
+`planningConflictOverride()` est l'unique validation de conflit pour création, duplication, copie de cellule, batch create/restore/move/resize/cellDuplicate, PATCH et déplacement de cellule. `applyPlanningConflictOverride()` persiste le motif et le marqueur ; chaque audit affecté conserve `before/after`, conflits, `operationId` et origine. `createReservationCommand()` protège aussi le chemin PlanyBot. La conversion d'un planning client/import refuse tout conflit et ne propose pas de bypass d'override.
+
+Les tests HTTP frais démontrent :
+
+- permission absente : `403 PLANNING_OVERRIDE_FORBIDDEN` ;
+- motif absent ou d'un caractère : `422 PLANNING_OVERRIDE_REASON_REQUIRED` ;
+- version obsolète : `409 VERSION_CONFLICT` ;
+- batch avec une seconde action invalide : rollback intégral ;
+- succès motivé : une Réservation, un audit et un événement exactement ;
+- replay exact : `200`, aucun second effet ; divergence : `409 IDEMPOTENCY_CONFLICT`.
+
+## P2 non bloquants
+
+1. Le test automatisé S8-D du dépôt matérialise les sept rôles mais exécute les routes HTTP complètes principalement avec Planner. Le harness indépendant couvre toute la matrice au niveau des read-models/buffers ; conserver cette matrice exhaustive comme test de non-régression HTTP permanent réduirait le risque d'une future divergence de routage.
+2. La création et le batch disposent de cas négatifs HTTP complets. Les chemins duplication, déplacement et redimensionnement partagent la même validation centrale et ont été inspectés, mais chacun ne possède pas encore son propre scénario HTTP « permission révoquée au replay + aucun audit/SSE ».
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `0732150a9816cb3139282fabbd9bd6e3c3fe2a0a` |
+| `node --test tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js` | **PASS, 19/19** |
+| `node --test tests/api.test.js` | **PASS, 42/42** |
+| `node --test tests/sprint7-finance.test.js tests/sprint8-security.test.js` | **PASS**, 16 tests ciblés, 0 échec |
+| `npm test` | **PASS, 331/331**, 0 échec/skip/todo |
+| `npm run lint` | **PASS** |
+| matrice indépendante sept rôles × six dashboards × trois exports | **PASS**, aucune fuite détectée |
+| inspection auth/scopes/audit/SSE/override/import | contrôles fail-closed confirmés |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           1e07f1f3c0a68df3c3a990f29b185275dd70e0053056da12a115569fb3cd0883
+app.js                              2325f2f5b568954b435d5b4f2255803bb22022d01f9cdf227eca5f4687bc3e1c
+index.html                          d78c8c8a68cec49d7c2a73d694129099fd09415be41b422eb4abcf4f498e2a89
+tests/sprint8-security.test.js      b1b84d9c813fb3669f5eb40de4dbd8c0f9f47e2b0c35b174618a4d6f46ebbcc6
+tests/sprint8-dashboards.test.js    64f3fe9f10a0c8ce8f236dfe6155ede400b60f2452b0dd12b591d0b9b067f4a4
+tests/sprint8-exports.test.js       e5a80094531912e2c3b80a28bf6706599736e2d3a0fff77b99a580b00f7dc397
+tests/sprint8-bi.test.js            a0c8dbf3ecb64974559d52a5bc6b0ac2c14b87467ad670ec6b7d77004b591f32
+docs/api/openapi-v1.yaml            19d82f82b1956fdd6a47422dcc8841e0b75345fb5d84da844e16c7905c654caa
+```
+
+## Handoff
+
+- Gate SECURITY G8 : **APPROVED** sur `0732150`, 0 P0/0 P1, 2 P2 suivis.
+- Fichier modifié par ce gate : `docs/security-review.md` uniquement.
+- `docs/project-status.md` reste à consolider par l'intégrateur.
