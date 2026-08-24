@@ -26,6 +26,8 @@ const {
   snapPlanningTime,
   planningVirtualSlice,
   planningVirtualWindowNeedsRender,
+  planningMaxCellStack,
+  planningRowHeight,
 } = require('../app.js');
 const { eliotePostProductionResources, migrateEliotePostProductionResources } = require('../server.js');
 
@@ -380,6 +382,14 @@ test('la fenêtre virtuelle borne lignes et dates tout en conservant les dimensi
   assert.deepEqual(planningVirtualSlice(2, 0, 800, 92, 4), {
     start: 0, end: 2, before: 0, after: 0, count: 2, total: 2,
   });
+});
+
+test('une vue Projet agrandit uniformément les lignes qui empilent plusieurs réservations', () => {
+  const second = { ...period, id: 'booking_period_2', title: 'Deuxième session' };
+  const slots = [{ date: '2026-08-17' }];
+  assert.equal(planningMaxCellStack([period, second], [room], slots), 2);
+  assert.equal(planningRowHeight(92, 1), 92);
+  assert.equal(planningRowHeight(92, 2), 132);
 });
 
 test('le planning rend des fenêtres virtualisées et restaure les deux axes de défilement', () => {
