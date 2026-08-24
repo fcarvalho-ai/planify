@@ -1,3 +1,83 @@
+# Gate re-REVIEW indépendante G7-D — correctifs occupation et rentabilité
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g7d_review`
+
+Candidat Git exact : `57014500241b512eda1c202475f6793a9be213eb` (`fix(finance): reconcile g7 d analytics`)
+
+Diff correctif contrôlé : `5f61fd4..5701450`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 2 P1 ouverts, 3 P2.**
+
+Les corrections ferment cinq des sept P1 initiaux et une partie des deux autres. Le candidat reste cependant bloqué : l’occupation des doubles options est encore fausse après décision et en scope restreint, et une dépense Projet explicitement liée à une prestation reste perdue dans l’axe de rentabilité Prestation.
+
+## P1 encore ouverts
+
+### REV-S7D-01 — double option : perdant décidé et scope courant restent mal réconciliés
+
+La nouvelle sélection canonique choisit une option par `optionGroupId` et priorité, mais elle est construite sur toutes les options de la société avant `reservationSnapshotAllowed()` (`server.js:3706-3710`). Deux erreurs en résultent :
+
+1. Après confirmation du gagnant, celui-ci devient `confirmed` et perd ses métadonnées de groupe, tandis que le perdant reste `option` avec `optionDecision.state='lost'`. Le code choisit alors ce perdant comme seule option canonique et additionne gagnant et perdant. Sonde fraîche : deux créneaux de 8 h produisent `plannedCapacityMs=57 600 000` (16 h), au lieu de `28 800 000`.
+2. Une option de priorité supérieure située hors Site/scope peut être choisie comme canonique, puis être rejetée lors du parcours autorisé ; l’option visible de priorité inférieure est néanmoins supprimée. Sonde fraîche : l’acteur limité au Site visible reçoit `plannedCapacityMs=0` au lieu de 8 h.
+
+La canonicalisation doit ignorer les décisions perdues et s’exécuter sur le sous-ensemble autorisé avant agrégation. Des tests doivent couvrir le couple gagnant confirmé/perdant conservé et un groupe traversant deux scopes.
+
+### REV-S7D-03 — la dimension Prestation ignore encore le rattachement des dépenses Projet
+
+Les `ProjectCost` sont désormais ajoutés aux lignes de rentabilité, ce qui ferme les axes Projet, Client et Site. Cependant, leur projection force `serviceOfferingId:null` (`server.js:1552`) même lorsque le modèle persistant porte `cost.serviceOfferingId` et que `projectCostAllowed()` a validé cette prestation.
+
+Sonde fraîche : une dépense de `1200` liée à `serviceOfferingId='offering_occ'` apparaît uniquement sous `dimensionId='unmapped'` dans `financeProfitability(..., dimension:'serviceOfferingId')`. L’axe obligatoire « prestation » de `US-091` reste donc incorrect.
+
+## P1 initiaux fermés
+
+- **REV-S7D-02 — FERMÉ.** `financeMargins()` exclut les révisions dont la fin est postérieure à `asOf`; le test avant/après confirme coût réel `0`, puis `5200` après réalisé et dépense.
+- **REV-S7D-04 — FERMÉ.** Le seuil Société exige désormais `organizationScope`; le replay global revalide la même autorité. Le test HTTP confirme `403 ORGANIZATION_SCOPE_REQUIRED` avant seuil, marqueur idempotent ou audit.
+- **REV-S7D-05 — FERMÉ.** Le non-facturé expose `reservationIds`, `actualRecordIds` et `suggestedAction:'createComplementaryQuote'`; l’UI affiche les réservations et l’action sans inclure la valeur au CA signé/facturé.
+- **REV-S7D-06 — FERMÉ.** L’analyse tarifaire publie remise et marge pondérées. Une référence catalogue absente produit désormais `catalogueReferenceStatus:'unavailable'` et des valeurs catalogue/remise `null`, sans repli trompeur.
+- **REV-S7D-07 — FERMÉ pour les collections.** Les quatre read-models exposent `page`, `pageSize`, `pageCount` et `itemCount`; les limites sont documentées et le test récupère correctement une deuxième page de 50 éléments.
+
+## P2 — importants, non bloquants isolément
+
+1. Les collections sont paginées, mais `financeUnbilledOverages()` ne borne plus `actualRecordIds` ni `reservationIds` à l’intérieur d’un même item. Une ligne commerciale avec un grand nombre de réalisés peut donc produire une réponse volumineuse malgré `pageSize`; un `sourceCount` avec tranche bornée, comme pour la rentabilité, serait préférable.
+2. L’UI charge uniquement la première page des nouveaux read-models et n’offre aucun contrôle page suivante. L’API permet désormais de récupérer toute la collection, mais la surface de contrôle n’expose pas encore ce parcours.
+3. OpenAPI conserve un schéma générique `FinanceAnalyticsResponse` à propriétés libres pour quatre réponses métier différentes. Pagination et filtre Projet sont maintenant documentés, mais les unités, statuts, seuils, provenance et actions ne sont toujours pas validables sémantiquement.
+
+## P2 initial SSE — fermé
+
+`startEvents()` reconnaît maintenant `occupancyThreshold.*` et recharge Finance comme pour les tarifs de coût et dépenses Projet. La fraîcheur inter-session du seuil est donc raccordée au SSE existant.
+
+## Migration, rollback et compatibilité
+
+- Aucun changement de migration/rollback dans ce correctif ; la migration additive, son marqueur/digest, la sauvegarde privée et l’export obligatoire du rollback restent conformes à la revue initiale.
+- Le runtime reste local CommonJS/JSON, sans dépendance ni accès réseau ajouté.
+- Les règles `finance.read`, `finance.cost.manage`, CSRF, société/Site et SSE après commit restent centralisées.
+- La limite de couverture déjà notée demeure : aucun test S7-D dédié ne rejoue le rollback Occupation byte-exact ni un item non-facturé à très grand fan-out.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `node --test tests/sprint7-occupancy.test.js` : **7/7 réussis**, 0 échec, durée `90,91 ms`.
+- `npm test` hors sandbox : **311/311 réussis**, 0 échec, durée `8,247 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check 7fc17d5..5701450` : **PASS**.
+- Sonde option décidée : gagnant confirmé + perdant `optionDecision.state=lost` donnent 16 h au lieu de 8 h.
+- Sonde scope : option prioritaire hors Site + option secondaire visible donnent 0 h au lieu de 8 h dans le périmètre visible.
+- Sonde Prestation : dépense liée à `offering_occ` agrégée sous `unmapped`.
+- Empreintes : `server.js` `de8a479429e02a664ddcd24eaf06219c9c53cfb78e27fee8f4b84f433500da51`; `app.js` `bd6bfb8fdc7e468e09c37a2eef5fe92c82e4988355976ab35fddaaf29b8b5641`; OpenAPI `9d2410c871f59d7f77aca5b902f1bd77e911c5ad333aad340629e3987283f565`; test S7-D `4ad258132ac40e7d450a257882651341f9517515e7477be9cd4658a74c390c85`; test API `69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e`.
+
+## Handoff
+
+Seul `docs/code-review.md` a été modifié. Le candidat retourne en DEV pour les deux P1 ci-dessus, puis doit repasser une re-REVIEW indépendante et les gates aval impactés. L’intégrateur doit reporter ce verdict dans `docs/project-status.md`.
+
+---
+
 # Gate REVIEW indépendante G7-D — occupation et rentabilité
 
 Date : 2026-08-23
