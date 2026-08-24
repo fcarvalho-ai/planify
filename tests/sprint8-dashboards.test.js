@@ -53,6 +53,15 @@ test('S8-A ne fabrique pas de lignes d’occupation réelle sans réalisé', () 
   }
 });
 
+test('S8-A réconcilie la valeur de l’écart d’occupation sur les seules périodes réalisées', () => {
+  const db = makeSeed(), admin = authFor(db, ['planning.read', 'resource.read', 'actual.read', 'project.read', 'maintenance.read']), source = db.reservations[0], allocation = source.resources[0];
+  const reservation = (id, day, hours) => ({ ...structuredClone(source), id, startsAt: `${day}T00:00:00.000Z`, endsAt: `${day}T${String(hours).padStart(2, '0')}:00:00.000Z`, resources: [structuredClone(allocation)], version: 1, sourceQuoteId: undefined, sourceQuoteVersionId: undefined, sourceQuoteLineId: undefined });
+  const realized = reservation('reservation_gap_realized', '2026-08-10', 1), plannedOnly = reservation('reservation_gap_planned_only', '2026-08-11', 8), record = { id: 'actual_gap_realized', companyId: realized.companyId, reservationId: realized.id, projectId: realized.projectId, siteId: realized.siteId, sourceReservationVersion: 1, plannedSnapshot: { resources: [structuredClone(allocation)] }, currentRevisionId: 'actual_gap_realized_revision', version: 1 }, revision = { id: record.currentRevisionId, companyId: realized.companyId, actualRecordId: record.id, revisionNumber: 1, startsAt: realized.startsAt, endsAt: realized.endsAt, quantityMilli: '1000', unit: 'hour', confirmationKind: 'confirmed', sourceReservationVersion: 1, confirmedAt: '2026-08-10T02:00:00.000Z' };
+  db.reservations = [realized, plannedOnly]; db.actualRecords = [record]; db.actualRevisions = [revision];
+  const input = { asOf: '2026-08-23', from: '2026-08-10', to: '2026-08-11', resourceId: allocation.resourceId }, operations = dashboardReadModel(db, admin, 'operations', input), kpi = operations.kpis.find(value => value.id === 'occupancyGap'), detail = dashboardDrilldownReadModel(db, admin, 'operations', { ...input, kpiId: 'occupancyGap', pageSize: 100 }), detailAverage = Math.round(detail.items.reduce((sum, value) => sum + Number(value.value), 0) / detail.items.length);
+  assert.equal(kpi.sourceCount, 1); assert.equal(detail.total, 1); assert.equal(kpi.value, detailAverage); assert.equal(kpi.value, 0);
+});
+
 test('S8-A refuse Exploitation sans maintenance.read et ne divulgue aucun compteur', () => {
   const db = makeSeed(), withoutMaintenance = authFor(db, ['planning.read', 'resource.read']);
   assert.throws(() => dashboardReadModel(db, withoutMaintenance, 'operations', { asOf: '2026-08-23' }), error => error.status === 403 && error.code === 'DASHBOARD_FORBIDDEN' && error.details.missingPermissions.includes('maintenance.read'));
