@@ -1143,3 +1143,57 @@ docs/api/openapi-v1.yaml            7395603efc38905461287d6c517d61653729869a7623
 
 - Gate PERFORMANCE G8 : **APPROVED** sur `b56d13f0`, 0 P0/0 P1/3 P2/0 P3.
 - Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
+# Re-gate PERFORMANCE indépendant — correctif UI post-E2E G8
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `593d392cd1b29b7d6fe6e92db857f9922b4ee34a`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 0 nouveau P2, 1 P3.**
+
+Le correctif ajoute par rendu un accès DOM par identifiant, deux mutations d'attribut/propriété et une affectation `inert`. Le coût est constant, indépendant du nombre de réservations, sources de dashboard ou lignes de drill-down. Hors session, `display:none!important` retire immédiatement le shell du layout/paint et le rendu retourne avant de reconstruire le contenu applicatif. En session, la mutation précède le chemin de rendu existant sans ajouter d'appel API, calcul métier, écouteur ni sérialisation.
+
+## Analyse d'impact
+
+- `server.js`, moteurs Dashboard/Finance, drill-down, XLSX/PDF, persistance et SSE sont inchangés ; aucun benchmark backend précédent n'est invalidé par ce diff exclusivement frontend.
+- La règle CSS `.app-shell[hidden]` est un sélecteur simple, déclenché uniquement lors du changement d'état d'authentification.
+- L'affectation `inert` porte sur un unique conteneur. Lorsqu'elle passe à vrai, le navigateur retire le sous-arbre de l'interactivité au lieu d'en parcourir les éléments côté application.
+- Le test statique couvre la présence du contrat de masquage. La suite complète confirme l'absence de régression fonctionnelle ou serveur.
+
+## P3 — PERF-G8-07 — profil navigateur non rejoué
+
+Le navigateur intégré était indisponible (`browsers.list()` vide), donc aucune trace fraîche scripting/style/layout/paint ni mesure de transition connexion/déconnexion n'a pu être capturée. Le risque est faible au regard du diff O(1) et du retrait de layout hors session, mais une mesure navigateur reste souhaitable au prochain smoke E2E. Les trois P2 généraux déjà documentés pour G8 (borne export tardive, concurrence navigateur/export, sensibilité GC de la campagne Finance) restent inchangés et ne sont ni fermés ni aggravés par ce correctif.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `593d392cd1b29b7d6fe6e92db857f9922b4ee34a` |
+| diff applicatif `HEAD^..HEAD` | trois lignes frontend modifiées ; aucun changement backend/API/données |
+| ciblés Foundations + dashboards + sécurité G8 | **PASS, 32/32**, durée `2 008,85 ms` |
+| `npm test` | **PASS, 339/339**, durée `8 592,68 ms` |
+| `npm run lint` | **PASS** |
+| `node --check app.js` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+```text
+app.js                              cfc158f6d2d9cf8f0d5aa82a83810eb4ac4899f84785a3662ec03d39da48b738
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+styles.css                          b26952fc8f08d8c3798c0764a7da2286acb35a53f5abcd03114545c869d6b8a1
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+tests/foundations.test.js           6b47b94a2b09c3fd116a03a527fb6096265c8142716d3b39b4bdfb9c003578cc
+```
+
+## Handoff
+
+- Gate PERFORMANCE G8 post-E2E : **APPROVED** sur `593d392`, 0 P0/0 P1/0 nouveau P2/1 P3 (`PERF-G8-07`).
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; `docs/project-status.md` reste à consolider par l'intégrateur.

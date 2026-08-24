@@ -984,3 +984,73 @@ scripts/benchmark-finance.js        087702c7b9bf7d19c4f2a1042bd5318a234332f4863f
 
 - Gate SECURITY G8 : **APPROVED** sur `b56d13f0`, 0 P0/0 P1/1 P2/0 P3.
 - Fichier modifié par cet axe : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
+# Re-gate SECURITY indépendant — correctif UI post-E2E G8
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `593d392cd1b29b7d6fe6e92db857f9922b4ee34a`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 1 P1 ouvert, 1 P2 ouvert, 0 P3.**
+
+Le nouveau triplet `hidden` / `aria-hidden` / `inert` ferme correctement le conteneur `#appShell` avant initialisation JavaScript et à chaque rendu sans session. La règle `.app-shell[hidden]{display:none!important}` empêche la déclaration auteur `display:flex` de neutraliser l'attribut `hidden`. Pour ce sous-arbre, aucune donnée n'est visible, exposée à l'arbre d'accessibilité ou atteignable au clavier hors session.
+
+Le correctif n'englobe cependant pas toutes les surfaces authentifiées : les trois overlays `#modalBackdrop`, `#commandPalette` et `#stockDrawerBackdrop` sont des frères placés après `#appShell`. `endSession()` puis `render()` ne ferment que le shell et affichent l'écran de connexion. Un overlay ouvert au moment d'un `401` conserve donc son état `hidden=false`, son contenu déjà rendu et ses contrôles focalisables. La fermeture est incomplète et le gate reste bloqué.
+
+## Constats
+
+### P1 — SEC-G8-04 — overlays authentifiés hors du shell non neutralisés à la perte de session
+
+- `index.html` place `#modalBackdrop`, `#commandPalette` et `#stockDrawerBackdrop` après la fermeture de `#appShell`.
+- Ces surfaces peuvent contenir respectivement des informations de réservation/projet, des résultats de recherche autorisés, et des informations Stock/Maintenance.
+- La réponse `401` appelle bien `endSession()` de manière fail-closed, mais cette fonction ne masque, ne vide et ne rend inerte aucun de ces overlays. `render()` ne modifie que `#appShell` et `#loginScreen`.
+- Conséquence reproductible par le flux de code : si la session expire pendant qu'un overlay est ouvert, celui-ci peut rester visible et interactif au-dessus de la connexion ; le focus n'est pas garanti de quitter son contrôle actif.
+- Correction attendue : inclure toutes les surfaces authentifiées dans un conteneur commun neutralisé, ou fermer/vider explicitement chaque overlay et transférer le focus vers la connexion dans le chemin unique de fin de session. Ajouter un test de transition avec chaque overlay ouvert.
+
+### P2 — SEC-G8-05 — contenu authentifié conservé dans le DOM et en mémoire après déconnexion
+
+Le shell est désormais correctement soustrait à l'affichage, à l'accessibilité et au focus, mais `endSession()` et le logout ne purgent pas `app.innerHTML` ni tous les read-models chargés. Le contenu résiduel reste inspectable par un script exécuté dans l'origine ou via les outils développeur. Ce n'est pas une élévation de privilèges serveur — l'API reste l'autorité et refuse la session expirée — mais purger les données sensibles à la déconnexion réduirait l'exposition locale résiduelle.
+
+## Contrôles favorables
+
+- Le document initial est fail-closed : `#appShell` possède `hidden aria-hidden="true"` avant l'exécution de l'application.
+- Le rendu synchronise les trois états du shell : `hidden`, `aria-hidden` et `inert`.
+- Toute réponse API `401`, hors tentative de connexion, appelle `endSession()` ; SSE et jeton CSRF client sont neutralisés.
+- Le fallback prototype reste explicitement limité au mode statique/prototype et ne remplace pas silencieusement un refus HTTP.
+- Le backend, les scopes, RBAC, exports, projections financières, idempotence et SSE ne sont pas modifiés par `593d392`; `server.js` est identique au candidat G8 précédemment contrôlé.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `593d392cd1b29b7d6fe6e92db857f9922b4ee34a` |
+| diff applicatif `HEAD^..HEAD` | `app.js` 1/1, `index.html` 1/1, `styles.css` 1/0 ; aucun changement backend |
+| ciblés Foundations + dashboards + sécurité G8 | **PASS, 32/32**, 0 échec/skip/todo |
+| `npm test` | **PASS, 339/339**, 0 échec/skip/todo |
+| `npm run lint` | **PASS** |
+| `node --check app.js` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+Le navigateur intégré n'était pas disponible (`browsers.list()` vide). Aucun résultat visuel ou de navigation clavier n'est donc affirmé. Le P1 repose sur la structure DOM et les transitions d'état explicites ; un smoke navigateur overlay ouvert + invalidation de session reste requis après correction.
+
+```text
+app.js                              cfc158f6d2d9cf8f0d5aa82a83810eb4ac4899f84785a3662ec03d39da48b738
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+styles.css                          b26952fc8f08d8c3798c0764a7da2286acb35a53f5abcd03114545c869d6b8a1
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+tests/foundations.test.js           6b47b94a2b09c3fd116a03a527fb6096265c8142716d3b39b4bdfb9c003578cc
+```
+
+## Handoff
+
+- Gate SECURITY G8 post-E2E : **REJECTED** sur `593d392`, 0 P0/1 P1 (`SEC-G8-04`)/1 P2 (`SEC-G8-05`)/0 P3.
+- Retour DEV requis pour neutraliser toutes les surfaces hors shell lors de toute fin de session, puis re-gate Sécurité.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; `docs/project-status.md` reste à consolider par l'intégrateur.
