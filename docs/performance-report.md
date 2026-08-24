@@ -856,3 +856,107 @@ scripts/benchmark-finance.js        f8b72c6c3b69feb01387cb69a3478a34449a313d9c47
 - Gate PERFORMANCE G8 : **APPROVED** sur `0732150`, 0 P0/0 P1, 2 P2 suivis.
 - Fichier modifié par ce gate : `docs/performance-report.md` uniquement.
 - `docs/project-status.md` reste à consolider par l'intégrateur.
+
+---
+
+# Revalidation PERFORMANCE indépendante — G8 après corrections
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `1d4d97b3c43b6d91756b5c74207371dd879c760a`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 1 P1, 2 P2 ouverts.**
+
+Les six dashboards, chaque drill-down demandé avec un `kpiId`, le Planning ventilé à 10 000 lignes, le XLSX multi-feuilles et le PDF A3 restent sous leurs seuils. La route publique de drill-down documente toutefois `kpiId` comme facultatif. Sans ce paramètre, elle recalcule puis matérialise successivement le détail de tous les KPI : Direction atteint `559,92 ms` p95 et Finance `560,46 ms` p95 sur le dataset contractuel, au-dessus du seuil explicite `< 300 ms`.
+
+## P1 bloquant
+
+### PERF-G8-02 — le drill-down public sans KPI dépasse le seuil contractuel
+
+`GET /api/v1/dashboards/:kind/drilldown` accepte l'absence de `kpiId` dans le code et dans OpenAPI. `dashboardDrilldownReadModel()` sélectionne alors tous les KPI disponibles, reconstruit le dashboard, puis relance Backlog, Marges, Occupation ou Non-facturé pour plusieurs branches avant de paginer la liste finale. La pagination à 500 lignes ne borne donc pas le travail en amont.
+
+Mesures directes, cinq itérations chaudes, dataset contractuel 250/10 000/2 000/2 000/2 000 :
+
+| Route logique | p50 | p95 | Seuil |
+|---|---:|---:|---:|
+| Direction, tous KPI | `446,53 ms` | `559,92 ms` | `<300 ms` |
+| Finance, tous KPI | `545,49 ms` | `560,46 ms` | `<300 ms` |
+
+La variante interne utilisée pour le détail de l'export Finance atteint `616,40 ms` p95 pour 10 000 lignes ; elle reste sous le budget d'export de 2 s, mais confirme le recalcul multiple.
+
+Correction requise : rendre `kpiId` obligatoire sur la route publique et refuser son absence avant calcul, ou partager/indexer les calculs afin que la variante multi-KPI respecte `<300 ms`. Ajouter ensuite un benchmark permanent qui mesure la route publique dans ses deux formes documentées.
+
+## Mesures conformes
+
+### Dashboards
+
+Campagne stabilisée de vingt itérations chaudes sur Direction/Finance et huit sur les autres vues :
+
+| Dashboard | p95 | Seuil |
+|---|---:|---:|
+| Direction | `266,93 ms` | `<300 ms` |
+| Finance | `205,32 ms` | `<300 ms` |
+| Planning | `31,06 ms` | `<300 ms` |
+| Commercial | `40,64 ms` | `<300 ms` |
+| Exploitation | `34,64 ms` | `<300 ms` |
+| Chef de projet | `38,28 ms` | `<300 ms` |
+
+Une première série courte de huit mesures avait produit un maximum Direction à `427,74 ms`; la campagne de vingt mesures après warm-up donne p95 `266,93 ms` et max `270,74 ms`. Cette sensibilité au warm-up est conservée en P2.
+
+### Drill-down d'un KPI précis
+
+Huit itérations par KPI Direction, page de 500 lignes : pire p95 `264,50 ms` pour Backlog. CA signé `245,20 ms`, CA produit `263,59 ms`, marges `234,10/246,62 ms`, occupation/saturation/sous-utilisation `228,36/233,54/241,86 ms`. Ces parcours UI nominaux respectent `<300 ms`.
+
+### Exports Planning maximaux
+
+| Chemin | Volume | p95 | Seuil |
+|---|---:|---:|---:|
+| construction allocation/jour | 10 000 lignes | `30,98 ms` | information |
+| XLSX trois feuilles | 10 000 lignes + filtres/définitions | `195,09 ms` | `<2 s` |
+| PDF A3 | 10 000 lignes, contexte 62 jours | `362,70 ms` | `<2 s` |
+
+Les refus de plus de 10 000 lignes, 250 ressources et 62 jours surviennent avant la génération de l'artefact. La mémoire observée en fin de campagne est d'environ `310 MB` RSS / `76 MB` heap utilisé, processus incluant simultanément le dataset et les buffers de mesure.
+
+### Moteurs financiers consommés
+
+`npm run benchmark:finance` reste vert sur le même volume. Pires p95 : Marges `27,05 ms`, Backlog `96,74 ms`, Forecast `73,79 ms`, Occupation journalière `23,23 ms`, Occupation annuelle `30,08 ms`, Rentabilité `28,67 ms`, Non-facturé `51,18 ms`, Remises `7,32 ms`.
+
+## P2 non bloquants
+
+1. La première série courte Direction a observé `427,74 ms` maximum avant stabilisation. Le p95 contractuel sur vingt mesures passe, mais un benchmark HTTP permanent avec warm-up explicite et davantage d'itérations caractériserait mieux GC, parsing JSON et sérialisation.
+2. Aucun profil navigateur frais scripting/paint/heap n'a été exécuté. L'UI ne charge qu'un dashboard puis un KPI nominatif et borne son tableau, mais le critère « exploitable et interactif `<2 s` » doit encore être confirmé dans l'E2E navigateur après fermeture du P1.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / mesure | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `1d4d97b3c43b6d91756b5c74207371dd879c760a` |
+| `npm run benchmark:finance` | **PASS**, dataset 250/10 000/2 000/2 000/2 000 |
+| harness direct dashboards, 8 puis 20 itérations | dashboards stabilisés **PASS**, pire p95 `266,93 ms` |
+| harness drill-down, cinq à huit itérations | KPI nominatif **PASS** ; multi-KPI **FAIL** `560,46 ms` |
+| harness export Planning, cinq itérations | XLSX `195,09 ms`, PDF `362,70 ms`, **PASS** |
+| ciblés G8 + Finance | **PASS, 35/35** |
+| `npm test` | **PASS, 334/334** |
+| `npm run lint` | **PASS** |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           015388c5d033f7d43c0e9472d2c8146d7e151eaba053e9a56a4a01bde6172365
+app.js                              c40d6bb10cc5394b845131b49f7c06b7de90a878b1e54e97a635f1e42a50f480
+tests/sprint8-dashboards.test.js    2fe0fa87f0fe3e0c902a731b7184914abba75e2de9e139994067ec994dfc4c80
+tests/sprint8-exports.test.js       45b0eb8efe99e5770f9573e4219ee23a7affb75ba264ae5b235be3f7937d78e7
+scripts/benchmark-finance.js        f8b72c6c3b69feb01387cb69a3478a34449a313d9c4722de4ea7622957ecc596
+```
+
+## Handoff
+
+- Gate PERFORMANCE G8 : **REJECTED** sur `1d4d97b3`, 0 P0/1 P1 (`PERF-G8-02`).
+- Fichier modifié : `docs/performance-report.md` uniquement pour l'axe Performance.
+- Retour DEV requis avant INTEGRATION/E2E ; `docs/project-status.md` reste à consolider par l'intégrateur.

@@ -783,3 +783,67 @@ docs/api/openapi-v1.yaml            19d82f82b1956fdd6a47422dcc8841e0b75345fb5d84
 - Gate SECURITY G8 : **APPROVED** sur `0732150`, 0 P0/0 P1, 2 P2 suivis.
 - Fichier modifié par ce gate : `docs/security-review.md` uniquement.
 - `docs/project-status.md` reste à consolider par l'intégrateur.
+
+---
+
+# Revalidation SECURITY indépendante — G8 après corrections
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `1d4d97b3c43b6d91756b5c74207371dd879c760a`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts.**
+
+Les corrections ferment les deux surfaces de sécurité affectées par le retour G8 : le dashboard Exploitation exige désormais `maintenance.read`, y compris avant ses compteurs et son drill-down, et le rejeu exact de `duplicateReservationCell` ne réémet plus l'invalidation `quote.planningProgress.v1`. Les dashboards, drill-downs et exports recalculent leurs permissions et scopes depuis l'acteur courant ; aucune valeur de coût ou de marge n'est projetée pour un acteur sans `finance.read`.
+
+## Contrôles d'autorisation et de confidentialité
+
+- **RBAC dashboard/export :** `dashboard.read` ouvre la famille de routes, puis `dashboardReadModel()` exige les permissions propres à chaque vue. Exploitation exige `planning.read`, `resource.read` et `maintenance.read`. Finance/Direction restent fermés sans `finance.read`; Commercial et Projet n'ajoutent les marges que lorsque ce droit est présent.
+- **Scopes :** Société de session, Site, Projet, Client, Devis, Réservation, Ressource et catégorie sont filtrés avant agrégation. Un Site, Projet ou Ressource explicitement demandé hors scope retourne `404`. Le drill-down reconstruit le dashboard avec l'acteur courant avant de produire ses lignes.
+- **Maintenance :** les actifs passent `siteAllowed()` et `entityAllowed()` avant que leurs maintenances ouvertes contribuent au KPI ou au détail. Sans `maintenance.read`, la vue entière retourne `403`, sans compteur latéral.
+- **Finance :** les KPI coût/marge ne sont construits qu'avec `finance.read`. Les exports KPI réutilisent ce read-model ; Planning XLSX/PDF ne contient aucun champ financier. Les tests Finance confirment aussi le masquage Audit et DTO commerciaux.
+- **Sorties :** cellules XLSX et CSV commençant par `=`, `+`, `-` ou `@` neutralisées ; XML et texte PDF échappés ; noms de fichiers construits depuis des dates/identifiants nettoyés. Les téléchargements portent `no-store` et `nosniff` et restent en mémoire.
+- **Bornes :** Planning refuse plus de 10 000 lignes ou 250 ressources, PDF refuse plus de 62 jours, les pages publiques de drill-down sont limitées à 500 lignes. L'absence de plafond sur le travail total pré-pagination du drill-down est suivie en P2 Performance/abus.
+
+## SSE et idempotence
+
+Le chemin `duplicateReservationCell` revalide au rejeu l'existence et le scope de la Réservation résultat, ainsi que le droit d'override si applicable. Un payload divergent retourne `409`. Sur un rejeu exact, `result.replay` bloque désormais les deux émissions `reservation.cellDuplicated.v1` et `quote.planningProgress.v1`; le test dynamique ouvre un flux SSE, observe les deux invalidations au premier appel puis aucune invalidation au rejeu.
+
+## P2 non bloquants
+
+1. La matrice automatisée matérialise bien les sept rôles × six dashboards × trois formats, mais sa partie exhaustive appelle directement les read-models et générateurs ; la preuve HTTP complète reste concentrée sur Planner et les cas Finance négatifs. Conserver une matrice HTTP exhaustive permanente réduirait le risque de divergence de routage future.
+2. Le drill-down construit toutes les lignes autorisées avant pagination. Les volumes d'export sont finalement bornés et aucun objet hors scope n'est ajouté, mais une volumétrie locale supérieure au dataset contractuel peut augmenter CPU/mémoire pour un utilisateur authentifié. Une borne pré-calcul ou un calcul par KPI doit être conservé comme durcissement anti-abus.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `1d4d97b3c43b6d91756b5c74207371dd879c760a` |
+| `node --test tests/sprint8-security.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint7-finance.test.js` | **PASS, 35/35**, 0 échec/skip/todo |
+| `npm test` | **PASS, 334/334**, 0 échec/skip/todo |
+| `npm run lint` | **PASS** |
+| matrice 7 rôles × 6 dashboards × 3 formats | **PASS** au niveau autorité/read-model ; Planner vérifié par HTTP |
+| inspection routes/scopes/projections/XLSX/PDF/SSE | contrôles fail-closed confirmés |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           015388c5d033f7d43c0e9472d2c8146d7e151eaba053e9a56a4a01bde6172365
+app.js                              c40d6bb10cc5394b845131b49f7c06b7de90a878b1e54e97a635f1e42a50f480
+tests/sprint8-security.test.js      4258f8e212b8be5ebced51a5b38be4e067efe9b2e361f2c12a805c57962dc7aa
+tests/sprint8-dashboards.test.js    2fe0fa87f0fe3e0c902a731b7184914abba75e2de9e139994067ec994dfc4c80
+tests/sprint8-exports.test.js       45b0eb8efe99e5770f9573e4219ee23a7affb75ba264ae5b235be3f7937d78e7
+docs/api/openapi-v1.yaml            c4adb3ef48d93d9996dd6de8a126a70be82f229b59fa4c68e99c1d9300d6c240
+```
+
+## Handoff
+
+- Gate SECURITY G8 : **APPROVED** sur `1d4d97b3`, 0 P0/0 P1.
+- Fichier modifié : `docs/security-review.md` uniquement pour l'axe Sécurité.
+- `docs/project-status.md` reste à consolider par l'intégrateur.
