@@ -3717,3 +3717,154 @@ La suite ciblée rejoue les cas ancien/futur hors fenêtre, filtres et réconcil
 ## Verdict terminal
 
 La re-QA finale G8 du candidat exact `5f2b7d13dc034735f26c9c54dcead2a51fc20d6f` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Les scénarios version obsolète et version courante produisent les cartes et détails attendus, et toutes les preuves contractuelles sont vertes : ciblés **68/68**, suite complète **338/338**, lint, build, OpenAPI et diff-check.
+
+---
+
+# Re-QA indépendante G8 — correctif UI de session post-E2E
+
+Date : 2026-08-24 12:42 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat exact `593d392cd1b29b7d6fe6e92db857f9922b4ee34a`, démarrage hors session, connexion, déconnexion, session expirée/rechargement, masquage visuel et retrait du focus du shell authentifié, droits et non-régression G8.
+
+Indépendance : aucun code, test, contrat, statut ou autre rapport modifié ; seul `docs/qa-report.md` est actualisé. `docs/security-review.md` et `docs/performance-report.md` étaient modifiés par leurs owners pendant la campagne et n'ont pas été touchés.
+
+## Empreintes du candidat testé
+
+```text
+app.js                            cfc158f6d2d9cf8f0d5aa82a83810eb4ac4899f84785a3662ec03d39da48b738
+index.html                        419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+styles.css                        b26952fc8f08d8c3798c0764a7da2286acb35a53f5abcd03114545c869d6b8a1
+tests/foundations.test.js         6b47b94a2b09c3fd116a03a527fb6096265c8142716d3b39b4bdfb9c003578cc
+tests/sprint8-dashboards.test.js  098b4f463bafb9c7ba5722c549415954a5aa92502f0b9abdd3918c7b013ee747
+tests/sprint8-exports.test.js     7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-security.test.js    9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+server.js                         b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+docs/api/openapi-v1.yaml          7395603efc38905461287d6c517d61653729869a76230a020ea3b3e6877a860c
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64.
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| `PLANIFY_DATA_FILE=/private/tmp/planify-g8-final-e2e.json PORT=8219 npm start` | PASS : démarrage autonome, `Planify disponible sur http://localhost:8219`; arrêt propre après les probes |
+| probe HTTP hors session `GET /` | `200`; shell initial exact `<div class="app-shell" id="appShell" hidden aria-hidden="true">`; écran de connexion présent |
+| probe HTTP connexion puis `GET /api/v1/auth/me` | `200/200`; `user_admin`, **45 permissions**, CSRF présent, cookie `HttpOnly; SameSite=Lax` |
+| probe HTTP déconnexion puis rejeu du cookie | `POST /auth/logout` → `204`; `GET /auth/me` → `401` |
+| `node --test tests/foundations.test.js tests/domain.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **106/106**, 0 échec/annulé/ignoré/TODO, 3 960,49 ms |
+| `npm test` | PASS, **339/339**, 0 échec/annulé/ignoré/TODO, 9 952,80 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check 593d392^ 593d392` | PASS, code 0 |
+
+## États de session vérifiés
+
+### Démarrage et rechargement hors session
+
+Le document servi masque le shell avant toute exécution JavaScript avec `hidden` et `aria-hidden="true"`. La règle `.app-shell[hidden]{display:none!important}` empêche tout affichage transitoire. L'état initial client est ramené à `unauthenticatedState`, puis `render()` conserve le shell masqué, lui applique `inert=true` et affiche l'écran de connexion.
+
+Résultat : aucune navigation, commande, bouton ou lien du shell authentifié n'est visible ni focusable pendant le démarrage ou après rechargement hors session.
+
+### Connexion
+
+La connexion locale retourne une session valide, les 45 permissions de l'administrateur et un CSRF. Après hydratation, `render()` inverse ensemble les trois protections du shell : `hidden=false`, `aria-hidden="false"`, `inert=false`; l'écran de connexion est masqué. Les droits restent appliqués côté serveur et côté interface.
+
+### Déconnexion et expiration
+
+La déconnexion détruit la session serveur : le cookie rejoué reçoit immédiatement `401`. Côté client, l'utilisateur, le CSRF et les flux temps réel sont vidés avant `render()`, qui rétablit `hidden`, `aria-hidden` et `inert`. La branche d'expiration est également couverte : `shouldEndSession()` termine toute session sur `401` hors route de connexion, `endSession()` réinitialise l'état et rappelle `render()`; le test Domaine confirme `401=true`, `login 401=false`, `403=false`.
+
+Statut : **conforme pour démarrage, connexion, déconnexion et expiration/rechargement**.
+
+## Droits et non-régression G8
+
+La campagne ciblée rejoue les contrats Auth/API, le shell hors session, la matrice réelle des sept rôles sur les six Dashboards et trois formats, les permissions Maintenance/Finance, les scopes, les exports XLSX/PDF, les bornes, le replay SSE exact et les réconciliations G8. Les **339/339** tests du dépôt restent verts.
+
+## Limites
+
+- aucun navigateur contrôlable n'était exposé à cette session (`agent.browsers.list()` vide) : aucun screenshot ni parcours de tabulation visuel supplémentaire n'est revendiqué ; la preuve UI repose sur le document réellement servi, le contrat DOM natif `hidden + inert + aria-hidden`, les transitions de `render()` et le test automatisé dédié ;
+- le parcours HTTP a utilisé uniquement le seed local de démonstration, sans donnée réelle ni accès réseau externe ; les fichiers temporaires contenant cookie/CSRF ont été supprimés et le serveur arrêté ;
+- l'approbation porte exclusivement sur le hash exact ci-dessus et devient caduque si les fichiers couverts changent.
+
+## Verdict terminal
+
+La re-QA indépendante du correctif UI post-E2E sur `593d392cd1b29b7d6fe6e92db857f9922b4ee34a` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Le shell authentifié est masqué et retiré de l'ordre de focus hors session, réactivé après connexion, puis de nouveau neutralisé après déconnexion ou expiration. Les preuves sont vertes : ciblés **106/106**, suite complète **339/339**, lint, build et diff-check.
+
+---
+
+# Re-QA terminale G8 — fermeture des overlays à la fin de session
+
+Date : 2026-08-24 12:52 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat exact `08595fc2e643490c416117210e1b8dd8ddf34ed2`, transitions démarrage/connexion/déconnexion/expiration `401`/rechargement/reconnexion, fermeture et neutralisation des trois overlays authentifiés, purge du DOM principal, focus de reprise sur l'adresse e-mail, droits et non-régression G8.
+
+Indépendance : aucun code, test, contrat, statut ou autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Empreintes du candidat testé
+
+```text
+app.js                            24a00f070b3677cf920a2d802a16721c7f25d4dd42d72d3fbea14b6fdd6cbddc
+index.html                        419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+styles.css                        b26952fc8f08d8c3798c0764a7da2286acb35a53f5abcd03114545c869d6b8a1
+tests/foundations.test.js         0a09c42af8028fa4676ec9f984c8aa01cb1a4854494b3f55a52674ed14288b80
+tests/sprint8-dashboards.test.js  098b4f463bafb9c7ba5722c549415954a5aa92502f0b9abdd3918c7b013ee747
+tests/sprint8-exports.test.js     7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-security.test.js    9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+server.js                         b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64.
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| probe comportemental indépendant des fonctions exactes `syncAuthenticatedSurfaces()` et `render()` | PASS sur les six transitions : startup, login, logout, expiration, reload et reconnexion |
+| `PLANIFY_DATA_FILE=/private/tmp/planify-g8-review-ui.json PORT=8221 npm start` | PASS : serveur autonome disponible sur `http://localhost:8221`, puis arrêté |
+| probe HTTP startup/login/logout/401 | `GET /` → `200`; login → `200`; logout → `204`; rejeu du cookie sur `/auth/me` → `401` |
+| `node --test tests/foundations.test.js tests/domain.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **106/106**, 0 échec/annulé/ignoré/TODO, 4 276,34 ms |
+| `npm test` | PASS, **339/339**, 0 échec/annulé/ignoré/TODO, 10 104,48 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check 08595fc^ 08595fc` | PASS, code 0 |
+
+## Résultats des transitions
+
+### Démarrage et rechargement hors session
+
+La sonde part avec les trois overlays artificiellement ouverts et du contenu dans la zone principale. Après `render()` non authentifié :
+
+- shell : `hidden=true`, `aria-hidden="true"`, `inert=true` ;
+- `modalBackdrop`, `commandPalette` et `stockDrawerBackdrop` : tous `hidden=true` et `inert=true` ;
+- `app.replaceChildren()` a purgé le DOM métier ;
+- écran de connexion visible et focus placé sur `loginForm.elements.email` avec `preventScroll:true`.
+
+Un contexte neuf rejoué comme un rechargement produit exactement le même état.
+
+### Connexion et reconnexion
+
+Après affectation d'un utilisateur puis `render()` : shell visible, `aria-hidden="false"`, `inert=false`; les trois overlays redeviennent utilisables (`inert=false`) tout en restant fermés; la page Planning est reconstruite et l'écran de connexion masqué. Une reconnexion après purge reproduit le même résultat.
+
+### Déconnexion et expiration `401`
+
+Après ouverture préalable des trois overlays, la transition non authentifiée les ferme et les rend inertes, purge le DOM principal et rend le focus au champ e-mail. La branche expiration affiche en plus « Votre session a expiré. » dans l'alerte de connexion. Le probe HTTP confirme la destruction serveur de la session : `204`, puis `401` avec le même cookie.
+
+Statut : **conforme sur les six transitions et les trois overlays**.
+
+## Droits et non-régression G8
+
+Les tests ciblés rejouent le contrat de session, le shell/overlays hors session, la matrice réelle des sept rôles sur six Dashboards et trois formats, les permissions et scopes, les exports, les bornes, les réconciliations et le replay SSE exact. La suite complète reste verte à **339/339**.
+
+## Limites
+
+- aucun navigateur contrôlable n'était exposé à cette session : aucun screenshot ni parcours de tabulation natif supplémentaire n'est revendiqué ; la preuve dynamique utilise les fonctions exactes extraites du candidat avec un DOM instrumenté, complétées par le serveur HTTP réel et le test contractuel dédié ;
+- la suppression finale des fichiers temporaires de probe a été interrompue par l'arrêt demandé ; ils ne contiennent que la session locale de démonstration, déjà invalidée par logout, et aucun secret ou donnée réelle ;
+- l'approbation porte exclusivement sur le hash exact ci-dessus et devient caduque si les fichiers couverts changent.
+
+## Verdict terminal
+
+La re-QA terminale du correctif overlays sur `08595fc2e643490c416117210e1b8dd8ddf34ed2` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Startup, login, logout, expiration `401`, reload et reconnexion sont cohérents ; les trois overlays sont fermés/inertes hors session, le DOM principal est purgé et le focus revient sur l'adresse e-mail. Les preuves sont vertes : ciblés **106/106**, suite complète **339/339**, lint, build et diff-check.

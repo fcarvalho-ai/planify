@@ -1,3 +1,156 @@
+# Re-REVIEW terminale G8 — fermeture des overlays à la fin de session
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `08595fc2e643490c416117210e1b8dd8ddf34ed2` (`fix(auth): close overlays when sessions end`)
+
+Correctif contrôlé : `593d392cd1b29b7d6fe6e92db857f9922b4ee34a..08595fc2e643490c416117210e1b8dd8ddf34ed2`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert ; 2 P2 suivis, non bloquants.**
+
+Le P1 `REV-G8-UI-01` est fermé. La transition hors session est maintenant centralisée dans `syncAuthenticatedSurfaces()` : shell, modal de réservation, palette de recherche et tiroir Stock sont neutralisés avant l'affichage de la connexion. Le contenu principal est purgé, le focus quitte une surface authentifiée et revient au formulaire de connexion, et une connexion réussie enlève correctement `inert` avant le rendu de l'espace autorisé.
+
+## Fermeture du P1 REV-G8-UI-01
+
+### Shell et overlays hors session
+
+- `#appShell` conserve son état initial fail-closed `hidden aria-hidden="true"` dans le document et sa règle CSS prioritaire.
+- À chaque `render()`, `syncAuthenticatedSurfaces(Boolean(state.user))` synchronise le shell avec `hidden`, `aria-hidden` et `inert`.
+- La même fonction parcourt explicitement `modalBackdrop`, `commandPalette` et `stockDrawerBackdrop`. Hors session, chaque overlay reçoit `inert=true` puis `hidden=true`, couvrant le logout explicite, toute réponse API `401` via `endSession()`, le démarrage et la synchronisation du prototype.
+- `app.replaceChildren()` supprime immédiatement la page métier rendue. Aucun tableau Dashboard/Finance, projet, devis ou planning ne subsiste dans `#app` après la fin de session.
+
+### Focus et accessibilité
+
+- Le login est rendu visible avant le transfert de focus.
+- Si le focus n'est pas déjà dans la connexion, l'adresse email reçoit le focus avec `preventScroll:true`. Un contrôle situé dans un overlay ou dans le shell caché n'est donc pas laissé actif.
+- `hidden` retire les quatre surfaces de l'affichage et de l'arbre d'accessibilité ; `inert` interdit en plus interaction et navigation clavier, y compris pendant les transitions.
+
+### Réactivation après connexion
+
+- Quand `state.user` redevient défini, `syncAuthenticatedSurfaces(true)` enlève `hidden`/`aria-hidden`/`inert` du shell et enlève `inert` des overlays, qui restent fermés grâce à leur `hidden=true` jusqu'à une action autorisée.
+- La modal de réservation réinitialise et repeuple son formulaire à l'ouverture ; le tiroir Stock reconstruit son corps depuis le contexte courant ; la recherche vide sa saisie et ses résultats avant de s'afficher. Aucune ancienne vue cachée n'est rouverte automatiquement après reconnexion.
+- Les wrappers Finance, Pilotage, Actuals, Clients, Commercial, Organisation et Stock continuent de déléguer au rendu de base sans utilisateur. Ils ne contournent donc pas la neutralisation centralisée.
+
+## P2 suivis, non bloquants
+
+1. `tests/foundations.test.js` reste un contrôle statique de chaînes. Il vérifie désormais shell, liste des trois overlays, `hidden`, `inert`, purge de `#app` et focus, mais ne simule pas réellement login → overlay → logout/401 → reconnexion. Un test DOM/E2E de ces transitions demeure souhaitable.
+2. La purge couvre `#app`, pas les sous-contenus des overlays ni tous les read-models JavaScript. Ils sont cachés et inertes hors session, puis chaque ouverture publique les réinitialise/reconstruit ; aucun chemin de réexposition automatique n'a été trouvé. Une purge mémoire/DOM plus large réduirait néanmoins la rémanence locale, notamment pour un import de fichier interrompu.
+
+## Absence de régression G8
+
+- Le correctif est limité à `app.js`, au contrôle Foundations et au statut ; serveur, OpenAPI, RBAC, Dashboard/Finance, exports XLSX/PDF, Actuals, idempotence et SSE ne changent pas.
+- Le rendu authentifié conserve son ordre : réactivation des surfaces, masquage du login, sélection de route puis composition/binding des modules.
+- Aucun nouvel appel API, écouteur, fallback, accès réseau ou dépendance n'est ajouté.
+- La suite complète reste verte sur le candidat exact.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` et `git rev-parse 08595fc` : `08595fc2e643490c416117210e1b8dd8ddf34ed2` au début de la revue.
+- Inspection du diff `593d392..08595fc`, des chemins `endSession()`, logout, login, démarrage, des wrappers de rendu, et des trois fonctions d'ouverture d'overlay : **conforme**.
+- `node --check app.js` : **PASS**.
+- `node --test tests/foundations.test.js` : **PASS, 16/16**, 0 échec/skip/todo, durée `329,76 ms`.
+- `npm test` : **PASS, 339/339**, 0 échec/skip/todo, durée `11,207 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check 593d392..08595fc` : **PASS**.
+- Limite : le navigateur contrôlable local n'était pas disponible pour ce re-gate ; aucun résultat visuel ou de navigation clavier n'est affirmé au-delà de l'analyse DOM/flux et des tests automatisés.
+
+Empreintes contrôlées :
+
+```text
+app.js                              24a00f070b3677cf920a2d802a16721c7f25d4dd42d72d3fbea14b6fdd6cbddc
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+styles.css                          b26952fc8f08d8c3798c0764a7da2286acb35a53f5abcd03114545c869d6b8a1
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+tests/foundations.test.js           0a09c42af8028fa4676ec9f984c8aa01cb1a4854494b3f55a52674ed14288b80
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW G8 post-E2E est **APPROVED** sur le candidat exact `08595fc2e643490c416117210e1b8dd8ddf34ed2` : 0 P0, 0 P1, 2 P2. L'intégrateur doit reporter ce verdict dans `docs/project-status.md` et rejouer les gates aval impactés sur ce même état applicatif.
+
+---
+
+# Re-REVIEW indépendante G8 — correctif UI post-E2E du shell authentifié
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `593d392cd1b29b7d6fe6e92db857f9922b4ee34a` (`fix(ui): hide authenticated shell outside sessions`)
+
+Diff applicatif contrôlé : `5f2b7d13dc034735f26c9c54dcead2a51fc20d6f..593d392cd1b29b7d6fe6e92db857f9922b4ee34a`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 1 P1 ouvert, 1 P2.**
+
+Le correctif ferme correctement le flash du shell principal hors session : le document livre `#appShell` avec `hidden` et `aria-hidden="true"`, la règle CSS garantit `display:none!important`, et le rendu synchronise `hidden`, `aria-hidden` et `inert` avant de retourner vers l'écran de connexion. La connexion réactive le shell ; le logout et un `401` passent bien par un nouveau rendu sans utilisateur.
+
+La fermeture reste toutefois incomplète. Trois surfaces authentifiées sont placées hors de `#appShell` et ne sont ni fermées ni neutralisées lors d'un logout ou d'une expiration. Le candidat ne satisfait donc pas encore le critère « interface authentifiée inaccessible hors session » et ne peut pas être approuvé.
+
+## P1 — REV-G8-UI-01 — les overlays authentifiés survivent à la fin de session
+
+`index.html:53`, `index.html:78` et `index.html:82` placent respectivement `#modalBackdrop`, `#commandPalette` et `#stockDrawerBackdrop` après la fermeture de `#appShell`. Ces surfaces peuvent contenir des données de réservation/projet, des résultats de recherche, ou des informations Stock/Maintenance.
+
+`endSession()` (`app.js:39`) invalide le jeton CSRF et le SSE puis appelle `render()`. Le logout (`app.js:172`) met également `state.user=null` puis appelle `render()`. Or le rendu hors session (`app.js:167`) ne modifie que `#appShell`, `#loginScreen` et le message d'expiration : aucun de ces deux chemins ne masque, ne vide ou ne rend inerte les trois overlays.
+
+Conséquence : si une fenêtre métier est ouverte lorsqu'une requête reçoit `401`, elle conserve `hidden=false`, son contenu déjà rendu et ses contrôles focalisables au-dessus de la connexion. Le shell latéral est bien caché, mais des données authentifiées et un dialogue `aria-modal` restent exposés hors session. Le même défaut peut se produire au logout si celui-ci est déclenché par un autre contexte pendant qu'un overlay est ouvert.
+
+Correction attendue : soit inclure toutes les surfaces authentifiées dans un conteneur commun neutralisé hors session, soit centraliser la fin de session pour fermer, rendre inertes et purger explicitement tous les overlays. Le chemin doit aussi restituer le focus à un contrôle de connexion. Ajouter un test de transition réel : connexion, ouverture de chacun des trois overlays, logout puis expiration `401`, vérification que shell et overlays sont cachés/inertes, que la connexion est visible et que le focus y est transféré.
+
+## P2 — REV-G8-UI-02 — le test ajouté est statique et ne couvre aucune transition
+
+`tests/foundations.test.js` vérifie uniquement la présence de chaînes dans HTML/CSS/JavaScript. Il ne démontre ni la transition connexion → application, ni logout/expiration → connexion, ni l'état des overlays, ni le focus et l'arbre d'accessibilité. Ce manque a permis au P1 ci-dessus de rester vert dans les 339 tests. Après correction, une preuve DOM ou E2E doit exercer les deux fins de session, dont un `401` reçu pendant une fenêtre ouverte.
+
+## Contrôles favorables et absence de régression G8
+
+- Le HTML initial masque le shell avant l'exécution JavaScript : aucune navigation authentifiée n'est peinte pendant l'initialisation.
+- `render()` réactive de façon cohérente le shell après une connexion valide et masque l'erreur de connexion précédente.
+- Les wrappers de rendu Finance, Pilotage, Actuals, Clients, Commercial, Organisation et Stock délèguent vers le rendu de base lorsqu'il n'y a pas d'utilisateur ; le correctif n'est pas court-circuité par ces consommateurs.
+- `server.js`, OpenAPI, moteurs Dashboard/Finance, exports XLSX/PDF, réconciliation Actuals, RBAC, idempotence et SSE sont inchangés depuis le candidat G8 approuvé ; la suite complète confirme leur non-régression automatisée.
+- Aucun nouveau fallback, accès réseau ou dépendance n'est introduit.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse 593d392` : `593d392cd1b29b7d6fe6e92db857f9922b4ee34a`.
+- Inspection du diff `5f2b7d13..593d392`, de `index.html:10-89`, `app.js:37-41`, `app.js:167-172` et des wrappers de rendu : P1 reproduit par le graphe d'état explicite ci-dessus.
+- `node --check app.js` : **PASS**.
+- `node --test tests/foundations.test.js` : **PASS, 16/16**, 0 échec/skip/todo, durée `319,44 ms`.
+- `npm test` : **PASS, 339/339**, 0 échec/skip/todo, durée `8,807 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check 593d392^..593d392` : **PASS**.
+- Limite : le navigateur contrôlable local n'était pas disponible ; aucune preuve visuelle ou de navigation clavier n'est revendiquée. Le P1 est déterministe dans la structure DOM et les chemins de fin de session, et doit recevoir un smoke navigateur après correction.
+
+Empreintes contrôlées :
+
+```text
+app.js                              cfc158f6d2d9cf8f0d5aa82a83810eb4ac4899f84785a3662ec03d39da48b738
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+styles.css                          b26952fc8f08d8c3798c0764a7da2286acb35a53f5abcd03114545c869d6b8a1
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+tests/foundations.test.js           6b47b94a2b09c3fd116a03a527fb6096265c8142716d3b39b4bdfb9c003578cc
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW G8 post-E2E est **CHANGES REQUIRED** sur le candidat exact `593d392cd1b29b7d6fe6e92db857f9922b4ee34a` : 0 P0, 1 P1 (`REV-G8-UI-01`) et 1 P2 (`REV-G8-UI-02`). Retour DEV requis, puis re-REVIEW indépendante et gates aval impactés. L'intégrateur doit reporter ce verdict dans `docs/project-status.md`.
+
+---
+
 # Gate re-REVIEW ultime indépendante G7-D — options et axe Prestation
 
 Date : 2026-08-24
