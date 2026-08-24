@@ -61,9 +61,11 @@ test('le shell authentifié reste entièrement masqué hors session', () => {
 
 test('les alias du design system utilisés par les modules métier sont définis', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8');
+  const planningCss = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8');
   for (const token of ['primary', 'surface', 'surface-soft', 'text', 'border']) {
     assert.match(css, new RegExp(`--${token}:var\\(--`), `variable --${token} manquante`);
   }
+  assert.match(planningCss, /\.pilotage-tabs button:focus-visible,.pilotage-kpi button:focus-visible\{outline:3px solid var\(--primary\)/);
 });
 
 test('les sept rôles V1 sont fermés et le scope masque un autre tenant ou site', () => {
