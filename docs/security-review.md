@@ -786,6 +786,74 @@ docs/api/openapi-v1.yaml            19d82f82b1956fdd6a47422dcc8841e0b75345fb5d84
 
 ---
 
+# Re-gate SECURITY indépendant — G8 terminal
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `33ec24b2632729dd5faa45f47ca162b84c0df1d4`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 P2 ouvert, 0 P3.**
+
+La revalidation terminale confirme que les dashboards, leurs drill-downs et leurs exports sont fermés par défaut, recalculés avec les droits et scopes courants et dépourvus de coûts/marges pour tout acteur sans `finance.read`. La matrice est désormais réellement exercée par HTTP sur les sept rôles standards, les six dashboards et les trois surfaces écran/drill-down/XLSX, soit **126 requêtes dashboard**, auxquelles s'ajoutent les exports Planning XLSX/PDF de chaque rôle. Les tests ciblés sont verts, ainsi que la suite complète de 337 tests.
+
+## RBAC, scopes et confidentialité
+
+- **Dashboards :** chaque vue exige `dashboard.read` puis sa combinaison fonctionnelle. Direction et Finance exigent `finance.read`; Exploitation exige notamment `maintenance.read`. Les refus surviennent avant toute réponse contenant des compteurs.
+- **Scopes :** l'autorité Société provient de la session. Site, Projet et scopes d'entités sont appliqués avant agrégation et reconstruits pour le drill-down et l'export. Une entité explicitement demandée hors scope reste indistinguable via `404`.
+- **Matrice HTTP :** les sept rôles migrés sont appliqués successivement à une session fraîche puis testés sur écran, drill-down KPI explicite et export KPI XLSX. Les statuts attendus `200/403` sont vérifiés pour chaque combinaison. Les sorties autorisées sans `finance.read` sont inspectées contre les clés de coût et marge internes. Les exports Planning exigent `planning.read`.
+- **Données financières :** les datasets BI Finance restent absents du catalogue et refusés sans `finance.read`; Commercial, Planning et Projet ne projettent aucun snapshot de coût. Audit et SSE conservent leurs projections restreintes.
+- **Maintenance :** le dashboard Exploitation et ses consommateurs exigent `maintenance.read`, puis filtrent les actifs par Site et scope d'entité avant de compter les maintenances ouvertes.
+- **Entrées/sorties :** `kpiId` est obligatoire dans OpenAPI et son absence retourne `422 DASHBOARD_KPI_REQUIRED`. Pages publiques bornées à 500 lignes, exports Planning à 10 000 lignes/250 ressources et PDF à 62 jours. Les cellules tableur à préfixe de formule sont neutralisées, le XML et le PDF sont échappés, les téléchargements sont `no-store`/`nosniff`.
+
+## SSE, rejeu et idempotence
+
+Le scénario dynamique de duplication de cellule ouvre réellement le SSE : le premier appel produit les invalidations attendues, le rejeu exact ne produit aucun nouvel événement et un payload divergent retourne `409`. Les permissions, le tenant et les scopes sont revérifiés avant de restituer un résultat idempotent. Aucun audit ni événement supplémentaire n'est produit au rejeu exact.
+
+## P2 non bloquant
+
+### SEC-G8-03 — la borne d'export KPI est appliquée après matérialisation du détail
+
+L'export interne refuse correctement un détail supérieur à 10 000 sources avec `422 EXPORT_TOO_LARGE` et ne livre aucun fichier tronqué. En revanche, `dashboardDrilldownReadModel()` construit encore les lignes de tous les KPI avant de vérifier le total. Sur le dataset contractuel, le refus Direction porte sur 16 004 lignes et coûte `518,81 ms` p95. Pour un utilisateur authentifié autorisé, une volumétrie locale supérieure peut donc consommer inutilement CPU et mémoire. Recommandation : compter/borner pendant la construction ou calculer/exporter KPI par KPI avec arrêt anticipé.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `33ec24b2632729dd5faa45f47ca162b84c0df1d4` |
+| ciblés G8 Dashboards/Exports/BI/Sécurité + Finance | **PASS, 38/38**, 0 échec/skip/todo |
+| matrice HTTP 7 rôles × 6 dashboards × écran/drill-down/XLSX | **PASS, 126/126 statuts conformes**, sans fuite financière détectée |
+| Planning XLSX/PDF pour chacun des 7 rôles | **PASS**, droits `planning.read` respectés |
+| scénario SSE de rejeu exact | **PASS**, aucune seconde invalidation |
+| `npm test` | **PASS, 337/337**, 0 échec/skip/todo |
+| `npm run lint` | **PASS** |
+| inspection OpenAPI/routes/projections/scopes/bornes | contrôles fail-closed confirmés |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           9c76d64ff05850e41a91bddca4519f7870b231b8ff95aa3ad061a5b41bdb7e37
+app.js                              8897086486d372cf94b87c0b6c4a5fb5e0d5a6d10d2c67b4489e282af95aa0e5
+tests/sprint8-security.test.js      9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+tests/sprint8-dashboards.test.js    d864ebdeb5cadd76ee50d474e95af5bfba588dfccd7772a4e8f19ae7d40f1084
+tests/sprint8-exports.test.js       7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+docs/api/openapi-v1.yaml            7395603efc38905461287d6c517d61653729869a76230a020ea3b3e6877a860c
+```
+
+## Limites et handoff
+
+- Aucun navigateur frais n'était nécessaire pour le verdict Sécurité : les routes HTTP et buffers réels couvrent les surfaces d'autorité et de confidentialité; le visuel relève de QA/E2E.
+- `git diff --check` global est actuellement rouge sur des espaces de fin de ligne dans `docs/code-review.md`, fichier modifié en parallèle et hors ownership de ce gate. Aucun de ces écarts ne concerne `docs/security-review.md`.
+- Gate SECURITY G8 : **APPROVED** sur `33ec24b2`, 0 P0/0 P1.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement. Consolidation de `docs/project-status.md` laissée à l'intégrateur conformément à l'exception d'ownership.
+
+---
+
 # Revalidation SECURITY indépendante — G8 après corrections
 
 Date : 2026-08-24
@@ -847,3 +915,9 @@ docs/api/openapi-v1.yaml            c4adb3ef48d93d9996dd6de8a126a70be82f229b59fa
 - Gate SECURITY G8 : **APPROVED** sur `1d4d97b3`, 0 P0/0 P1.
 - Fichier modifié : `docs/security-review.md` uniquement pour l'axe Sécurité.
 - `docs/project-status.md` reste à consolider par l'intégrateur.
+
+---
+
+## Référence terminale du journal SECURITY
+
+La section **« Re-gate SECURITY indépendant — G8 terminal »** datée du 2026-08-24 et portant sur `33ec24b2632729dd5faa45f47ca162b84c0df1d4` est la preuve la plus récente et fait autorité : **APPROVED, 0 P0/0 P1/1 P2/0 P3**.

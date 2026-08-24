@@ -859,6 +859,103 @@ scripts/benchmark-finance.js        f8b72c6c3b69feb01387cb69a3478a34449a313d9c47
 
 ---
 
+# Re-gate PERFORMANCE indépendant — G8 terminal
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `33ec24b2632729dd5faa45f47ca162b84c0df1d4`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 1 P1, 2 P2 ouverts, 0 P3.**
+
+La correction rend bien `kpiId` obligatoire et le cas public sans KPI retourne systématiquement `422 DASHBOARD_KPI_REQUIRED` sous 300 ms : campagne de 20 mesures, p95 `193,33 ms`, max `203,23 ms`. Les six dashboards eux-mêmes respectent aussi le seuil. En revanche, le drill-down Finance avec KPI explicite `billableRevenue`, donc le parcours nominal corrigé, reste au-dessus du seuil contractuel de lecture API : p95 `331,53 ms` sur 20 itérations chaudes. Le gate Performance ne peut donc pas être approuvé.
+
+## P1 bloquant
+
+### PERF-G8-03 — le drill-down Finance explicite dépasse encore 300 ms
+
+Sur le dataset contractuel de **250 ressources, 10 000 Réservations, 2 000 documents commerciaux, 2 000 Réalisés et 2 000 coûts Projet**, `dashboardDrilldownReadModel(finance, kpiId=billableRevenue)` donne :
+
+| Campagne | Itérations chaudes | p50 | p95 | max | Seuil |
+|---|---:|---:|---:|---:|---:|
+| confirmation courte | 8 | `245,73 ms` | `321,84 ms` | `321,84 ms` | `<300 ms` |
+| confirmation stabilisée | 20 | `235,77 ms` | `331,53 ms` | `335,31 ms` | `<300 ms` |
+
+Le dépassement est reproductible sur deux campagnes indépendantes. Le drill-down reconstruit le read-model Finance complet avant d'extraire le KPI demandé; ce travail inclut plusieurs moteurs financiers non requis par `billableRevenue`. Correction attendue : valider le KPI avant calcul puis ne calculer que ses sources, ou mutualiser/cacher les calculs de la requête afin de conserver p95 `<300 ms`. Ajouter ce parcours explicite au benchmark permanent.
+
+## Correction no-KPI confirmée
+
+Le contrat OpenAPI exige désormais `kpiId`, le test HTTP vérifie le code d'erreur stable et 20/20 mesures observées retournent `422 DASHBOARD_KPI_REQUIRED` : p50 `181,83 ms`, p95 `193,33 ms`, max `203,23 ms`.
+
+La validation survient cependant après `dashboardReadModel()`, pas avant tout calcul. Elle respecte la cible actuelle mais conserve un travail inutile ; ce point est absorbé dans le durcissement demandé par `PERF-G8-03`.
+
+## Mesures des dashboards et drill-downs explicites
+
+Huit itérations chaudes par vue/KPI sur le même processus et le même dataset contractuel :
+
+| Vue | Dashboard p95 | KPI explicite | Drill-down p95 |
+|---|---:|---|---:|
+| Direction | `258,25 ms` | `signedRevenue` | `192,87 ms` |
+| Finance | `186,63 ms` | `billableRevenue` | `321,84 ms` **FAIL** |
+| Planning | `25,80 ms` | `occupancy` | `52,03 ms` |
+| Commercial | `37,14 ms` | `budgets` | `44,24 ms` |
+| Exploitation | `25,45 ms` | `resources` | `34,74 ms` |
+| Chef de projet | `51,19 ms` | `projects` | `40,22 ms` |
+
+Les moteurs financiers unitaires restent verts dans `npm run benchmark:finance`; pires p95 frais : Marges `27,08 ms`, Backlog `79,00 ms`, Forecast `70,51 ms`, Occupation journalière `22,33 ms`, Occupation annuelle `30,00 ms`, Rentabilité `27,09 ms`, Non-facturé `52,28 ms`, Remises `7,15 ms`.
+
+## Exports et bornes
+
+| Chemin | Volume | Résultat frais | Budget/lecture |
+|---|---:|---:|---:|
+| modèle Planning allocation/jour | 10 000 lignes | p95 `32,91 ms` | information |
+| Planning XLSX | 10 000 lignes | p95 `200,68 ms` | `<2 s`, PASS |
+| Planning PDF | 10 000 lignes, buffer `7 468 218` octets | p95 `717,66 ms` | `<2 s`, PASS |
+| refus export KPI Direction | 16 004 lignes calculées, `422` | p95 `518,81 ms` | borne correcte, calcul tardif |
+
+## P2 non bloquants
+
+1. **PERF-G8-04 — refus d'export tardif.** Le plafond de 10 000 sources empêche bien toute troncature ou livraison surdimensionnée, mais le détail complet est matérialisé avant le `422`. La campagne de cinq mesures donne p95 `518,81 ms`. Un arrêt anticipé réduirait CPU, mémoire et temps de blocage de la boucle Node.
+2. **PERF-G8-05 — profil UI absent.** L'analyse statique confirme une seule vue dashboard à la fois, un KPI explicite pour le détail et une pagination côté interface. Le PDF de 10 000 lignes reste sous 2 s, mais produit un buffer de 7,47 MB et monopolise le processus environ 0,7 s. Aucun profil navigateur frais scripting/paint/heap, ni test de concurrence export + dashboard, n'a été exécuté dans ce re-gate.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / mesure | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `33ec24b2632729dd5faa45f47ca162b84c0df1d4` |
+| `npm run benchmark:finance` | **PASS**, dataset 250/10 000/2 000/2 000/2 000 |
+| harness direct dashboards/drill-downs explicites | dashboards **PASS**; Finance explicite **FAIL**, p95 `331,53 ms` confirmé |
+| harness no-KPI, 20 mesures | **PASS 20/20**, `422`, p95 `193,33 ms` |
+| harness Planning/XLSX/PDF | **PASS** sous 2 s; p95 `32,91/200,68/717,66 ms` |
+| harness borne export KPI, 5 mesures | refus **PASS 5/5**, p95 `518,81 ms` |
+| ciblés G8 + Finance | **PASS, 38/38**, 0 échec/skip/todo |
+| `npm test` | **PASS, 337/337**, 0 échec/skip/todo |
+| `npm run lint` | **PASS** |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           9c76d64ff05850e41a91bddca4519f7870b231b8ff95aa3ad061a5b41bdb7e37
+app.js                              8897086486d372cf94b87c0b6c4a5fb5e0d5a6d10d2c67b4489e282af95aa0e5
+tests/sprint8-dashboards.test.js    d864ebdeb5cadd76ee50d474e95af5bfba588dfccd7772a4e8f19ae7d40f1084
+tests/sprint8-exports.test.js       7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+scripts/benchmark-finance.js        f8b72c6c3b69feb01387cb69a3478a34449a313d9c4722de4ea7622957ecc596
+```
+
+## Limites et handoff
+
+- Mesures moteur directes : elles incluent agrégation, scopes, pagination et génération des buffers, mais excluent login, lecture du fichier JSON, sérialisation HTTP et contention multi-session. Le dépassement Finance est donc conservateur pour la route HTTP, pas expliqué par le transport.
+- `git diff --check` global est rouge uniquement sur des espaces de fin de ligne dans `docs/code-review.md`, modifié en parallèle et hors ownership. Les deux rapports de ce lot sont propres.
+- Gate PERFORMANCE G8 : **REJECTED** sur `33ec24b2`, 0 P0/1 P1 (`PERF-G8-03`). Retour DEV requis, puis re-gate Performance et gates aval impactés.
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement. Consolidation de `docs/project-status.md` laissée à l'intégrateur.
+
+---
+
 # Revalidation PERFORMANCE indépendante — G8 après corrections
 
 Date : 2026-08-24
@@ -960,3 +1057,9 @@ scripts/benchmark-finance.js        f8b72c6c3b69feb01387cb69a3478a34449a313d9c47
 - Gate PERFORMANCE G8 : **REJECTED** sur `1d4d97b3`, 0 P0/1 P1 (`PERF-G8-02`).
 - Fichier modifié : `docs/performance-report.md` uniquement pour l'axe Performance.
 - Retour DEV requis avant INTEGRATION/E2E ; `docs/project-status.md` reste à consolider par l'intégrateur.
+
+---
+
+## Référence terminale du journal PERFORMANCE
+
+La section **« Re-gate PERFORMANCE indépendant — G8 terminal »** datée du 2026-08-24 et portant sur `33ec24b2632729dd5faa45f47ca162b84c0df1d4` est la preuve la plus récente et fait autorité : **REJECTED, 0 P0/1 P1 (`PERF-G8-03`)/2 P2/0 P3**.
