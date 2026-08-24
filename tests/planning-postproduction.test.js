@@ -402,6 +402,8 @@ test('une vue Projet agrandit uniformément les lignes qui empilent plusieurs r�
   assert.match(source, /event\(booking,cell,stacked\)/);
   assert.equal((source.match(/planningEventOperationsBase\(booking,cell,compact\)|commercialPlanningEventBase\(booking,cell,compact\)/g)||[]).length, 2);
   assert.match(css, /\.planning-cell\.is-stacked \.planning-event\.is-compact-stack\{[^}]*height:58px/);
+  assert.match(css, /\.planning-cell\.is-time-slot\.is-stacked\{overflow-x:hidden;overflow-y:auto/);
+  assert.match(css, /\.planning-cell\.is-time-slot\.is-stacked \.planning-timed-event\{width:calc\(var\(--planning-day-width\) - 8px\)\}/);
 });
 
 test('le planning rend des fenêtres virtualisées et restaure les deux axes de défilement', () => {
