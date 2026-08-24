@@ -4122,3 +4122,142 @@ La suite ciblée rejoue Design/Auth/Domaine, six Dashboards, sept rôles, trois 
 ## Verdict terminal
 
 La re-QA ultime RC2 sur `34a9d7883dcf22cad517bf45393848eaa60d48d8` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Tokens, onglets actifs, focus clavier opaque et bordures Réalisations/Finance sont conformes ; aucune régression n'est détectée. Preuves terminales : ciblés **107/107**, suite complète **340/340**, lint, build et diff-check verts.
+
+---
+
+# Re-QA indépendante — correctif Planning scroll
+
+Date : 2026-08-24 16:05 CEST
+
+Verdict : **REJECTED — 1 P1 QA ouvert**
+
+Périmètre : candidat exact `d4c7fcfbe423940ff57fbeca541ef0e873d12c15`, maintien de l'en-tête des dates au-dessus des cellules et réservations pendant le défilement vertical, puis non-régression des deux axes, de leur synchronisation et de la virtualisation lignes/colonnes.
+
+Indépendance : aucun code, test, statut ni autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Empreintes du candidat testé
+
+```text
+planning.css                           acde3c58dfde5cc7a2d5614594eb20bca82610ae4067369a69936614a514629c
+app.js                                 4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+tests/foundations.test.js              a9063cc60fd43b94784f3725b5682ac1d243819885fb2cd9468e6bb247dc7906
+tests/planning-postproduction.test.js  9c5721e024c6e25161916c1a256202f1a289a80a86ae62e6b967764a714e061f
+tests/domain.test.js                   4fc062d534da69e27d2b30106f8d6c805d520179a92d171d250824f70e22896f
+tests/sprint8-dashboards.test.js       098b4f463bafb9c7ba5722c549415954a5aa92502f0b9abdd3918c7b013ee747
+tests/sprint8-exports.test.js          7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-bi.test.js               a0c8dbf3ecb64974559d52a5bc6b0ac2c14b87467ad670ec6b7d77004b591f32
+tests/sprint8-security.test.js         9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+tests/api.test.js                      69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e
+server.js                              b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64, application `0.5.0-rc2`.
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| probe déterministe CSS/DOM/virtualisation | **FAIL stacking horizontal** : conteneur `overflow:auto` ; dates `sticky/top:0/z-index:8` devant les événements `z-index:4`, mais aussi devant le panneau fixe sibling `z-index:7` ; le sélecteur `.planning-matrix-scroll .matrix-corner` ne matche pas le coin placé dans `.planning-fixed-column` |
+| probe `planningVirtualSlice` sur 250 lignes et 126 colonnes | PASS : fenêtre lignes `[37,78)`, 41 rendues ; fenêtre colonnes `[35,55)`, 20 rendues ; espacements avant/après cohérents et bornés |
+| `node --test tests/foundations.test.js tests/planning-postproduction.test.js tests/domain.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **150/150**, 0 échec/annulé/ignoré/TODO, 3 427,22 ms |
+| `npm test` | PASS, **340/340**, 0 échec/annulé/ignoré/TODO, 9 272,43 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check d4c7fcf^ d4c7fcf` | PASS, code 0 |
+
+## En-tête des dates au-dessus des cellules
+
+Le bandeau de dates reste attaché au même conteneur de défilement que la matrice avec `position: sticky` et `top: 0`. La règle terminale, plus spécifique et placée après les styles de grille, fixe `.planning-matrix-scroll .matrix-day` à `z-index: 8`. Les réservations temporisées restent à `z-index: 4` et les cellules ordinaires ne créent pas de couche supérieure. Aux positions verticales sondées `0`, `300` et `1200`, le modèle CSS conserve donc l'en-tête au bord supérieur du viewport de la grille et le peint devant les réservations.
+
+La tenue verticale demandée est donc conforme. En revanche, la colonne Ressources reste dans un conteneur sibling à `z-index: 7`, inférieur au nouveau bandeau dates `z-index: 8`. En défilement horizontal, les dates peuvent ainsi être peintes devant la colonne fixe. Le sélecteur ajouté pour le coin, `.planning-matrix-scroll .matrix-corner`, ne corrige rien : le DOM place `.matrix-corner` dans `.planning-fixed-column`, hors de `.planning-matrix-scroll`.
+
+Statut vertical : **conforme**. Statut d'empilement horizontal : **P1 bloquant**.
+
+## Axes et virtualisation
+
+Le défilement natif demeure porté par `.planning-matrix-scroll` avec `overflow:auto`, hauteur contrainte et gouttière stable. Le binding restaure explicitement les deux axes après rendu, synchronise `timeline → colonne fixe` et `colonne fixe → timeline`, puis ne redessine qu'au franchissement d'une fenêtre virtuelle.
+
+Le probe représentatif confirme simultanément une fenêtre interne de 41 lignes sur 250 et de 20 colonnes sur 126, avec compensateurs avant/après cohérents. Le test Planning rejoue aussi les valeurs contractuelles de fenêtre, les deux restaurations, les deux sens de synchronisation et les barres natives.
+
+La mécanique d'axes et de virtualisation reste conforme, mais l'axe horizontal n'est pas visuellement non régressé à cause de la hiérarchie `dates 8 > panneau fixe 7` décrite ci-dessus.
+
+Statut : **P1 ouvert**.
+
+## Limites
+
+- aucun navigateur contrôlable n'était exposé directement à cette session QA : aucune nouvelle capture ni mesure de fluidité native n'est revendiquée ; le défaut d'empilement est néanmoins déterministe à partir du DOM exact et des niveaux de stacking applicables aux deux siblings ;
+- le probe CSS/virtualisation a d'abord utilisé une position verticale encore absorbée par l'overscan de 16 lignes ; cette hypothèse de sonde a été corrigée à une position interne représentative et n'indique aucun défaut produit ;
+- le verdict porte exclusivement sur le hash exact ci-dessus et devient caduc si `planning.css`, `app.js` ou les tests couverts changent.
+
+## Verdict terminal
+
+La re-QA indépendante du correctif Planning scroll sur `d4c7fcfbe423940ff57fbeca541ef0e873d12c15` est **REJECTED** avec **0 P0 et 1 P1 QA ouvert**. L'en-tête des dates reste bien sticky et devant les cellules/réservations durant le scroll vertical, et la virtualisation reste fonctionnelle ; toutefois son `z-index:8` dépasse le panneau Ressources fixe `z-index:7`, tandis que la règle de coin cible un descendant inexistant. Le candidat exact n'assure donc pas la non-régression visuelle de l'axe horizontal malgré les ciblés **150/150**, la suite complète **340/340**, lint, build et diff-check verts.
+
+---
+
+# Re-QA finale — hiérarchie sticky du Planning
+
+Date : 2026-08-24 16:09 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat exact `56b9f456734de9389c1f4ab6623a378448fe2b67`, correction du P1 d'empilement de `d4c7fcf` et contrôle du scroll vertical, du scroll horizontal, du focus des cartes et de la virtualisation.
+
+Indépendance : aucun code, test, statut ni autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Empreintes du candidat testé
+
+```text
+planning.css                           48a8ad5bec9e86c56d3444812632506a022be837eef82418f6db1b962d9bec36
+app.js                                 4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+tests/foundations.test.js              81af03baa607a81fc66e210c3cda032f240b7e37abbe47c08606a3816db96abf
+tests/planning-postproduction.test.js  9c5721e024c6e25161916c1a256202f1a289a80a86ae62e6b967764a714e061f
+tests/domain.test.js                   4fc062d534da69e27d2b30106f8d6c805d520179a92d171d250824f70e22896f
+tests/sprint8-dashboards.test.js       098b4f463bafb9c7ba5722c549415954a5aa92502f0b9abdd3918c7b013ee747
+tests/sprint8-exports.test.js          7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-bi.test.js               a0c8dbf3ecb64974559d52a5bc6b0ac2c14b87467ad670ec6b7d77004b591f32
+tests/sprint8-security.test.js         9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+tests/api.test.js                      69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e
+server.js                              b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64, application `0.5.0-rc2`.
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| probe déterministe DOM/CSS, scroll et focus | PASS : événements temporisés `z4`, carte focus `z9`, dates sticky `z10`, panneau Ressources `z11`, coin sticky réel `.planning-fixed-column .matrix-corner` `z12` |
+| simulations verticales `scrollTop=0/300/1200` | PASS : dates maintenues à `top:0`, devant cartes normales et focus |
+| simulations horizontales `scrollLeft=0/1200/4160` | PASS : panneau Ressources devant les dates ; coin devant toutes les couches |
+| `planningVirtualSlice` sur 250 lignes et 126 colonnes | PASS : fenêtres `[37,78)` et `[35,55)`, compensateurs avant/après cohérents ; restauration des deux axes et synchronisation verticale bidirectionnelle présentes |
+| `node --test tests/foundations.test.js tests/planning-postproduction.test.js tests/domain.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **150/150**, 0 échec/annulé/ignoré/TODO, 4 533,18 ms |
+| `npm test` | PASS, **340/340**, 0 échec/annulé/ignoré/TODO, 10 471,52 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check 56b9f45^ 56b9f45` | PASS, code 0 |
+
+## Preuve fonctionnelle de la hiérarchie
+
+Le DOM contient deux panneaux siblings : `.planning-fixed-column`, qui contient réellement `.matrix-corner`, et `.planning-matrix-scroll`, qui contient les dates et cellules. La cascade terminale établit maintenant l'ordre strict suivant :
+
+```text
+événement temporisé 4 < carte focus 9 < dates sticky 10 < colonne fixe 11 < coin 12
+```
+
+Le bandeau dates reste donc devant toute réservation, y compris une carte focusable à `z-index:9`, pendant le scroll vertical. Inversement, en scroll horizontal, la colonne Ressources `z-index:11` reste devant les dates `z-index:10`. Le coin est cette fois ciblé par son ascendance DOM réelle et domine les deux axes à `z-index:12`. Le P1 du candidat `d4c7fcf` est fermé.
+
+## Axes et virtualisation
+
+Le conteneur timeline conserve son scroll natif `overflow:auto`, la restauration de `scrollLeft` et `scrollTop`, ainsi que la synchronisation verticale bidirectionnelle avec le panneau fixe. Les fenêtres représentatives restent internes et bornées : 41 lignes rendues sur 250 et 20 colonnes sur 126, avec les compensateurs attendus. Aucun changement de logique JavaScript n'est introduit par ce correctif CSS/test/documentation.
+
+Statut : **conforme sans régression**.
+
+## Limites
+
+- aucun navigateur contrôlable n'était exposé directement à cette session QA : aucune capture pixel ni mesure subjective de fluidité n'est revendiquée ; la preuve indépendante repose sur le DOM livré, la cascade finale, les simulations d'axes et focus, les fonctions de virtualisation exécutées et les suites automatisées ;
+- le verdict porte exclusivement sur le hash exact ci-dessus et devient caduc si les styles, le DOM ou les tests couverts changent.
+
+## Verdict terminal
+
+La re-QA finale Planning scroll sur `56b9f456734de9389c1f4ab6623a378448fe2b67` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. La hiérarchie `4 < 9 < 10 < 11 < 12` garantit dates au-dessus des cartes, colonne fixe au-dessus des dates et coin au-dessus des deux axes ; scroll et virtualisation ne régressent pas. Preuves terminales : ciblés **150/150**, suite complète **340/340**, lint, build et diff-check verts.

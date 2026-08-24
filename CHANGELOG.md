@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0-rc3 — 2026-08-24
+
+- correction du scroll vertical du Planning : les réservations restent sous la ligne sticky des dates ;
+- hiérarchie d’empilement consolidée entre événements, focus clavier, dates, colonne Ressources et angle fixe ;
+- scroll vertical et horizontal, synchronisation des axes et virtualisation contrôlés sans régression ;
+- recette navigateur réelle à `scrollTop=70`, dates au premier plan et console sans erreur ;
+- REVIEW, QA, SECURITY et PERFORMANCE approuvés sans P0/P1 ; suite finale 340/340, lint et build verts.
+
 ## 0.5.0-rc2 — 2026-08-24
 
 - correction du design system : alias sémantiques partagés par Pilotage, Réalisations et Finance ;

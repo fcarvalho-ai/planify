@@ -1,5 +1,9 @@
 # Rapport E2E G8 — Dashboards, exports et surfaces authentifiées
 
+## Addendum scroll Planning `0.5.0-rc3` — 2026-08-24
+
+**APPROVED — 0 P0 / 0 P1** sur le candidat Planning `56b9f456734de9389c1f4ab6623a378448fe2b67`. La recette navigateur a reproduit le défaut à `scrollTop=70` : une réservation temporisée traversait la ligne sticky car les deux couches valaient `4`. La hiérarchie finale est désormais événement `4`, carte focalisée `9`, dates `10`, colonne Ressources `11`, angle fixe `12`. Le contrôle réel confirme que les cellules passent sous les dates ; les axes vertical et horizontal, la synchronisation et la virtualisation restent opérationnels, et la console ne contient aucune erreur. Preuves automatisées : Foundations + Planning 60/60, ciblés QA 150/150, suite complète 340/340, lint/build/diff-check PASS ; REVIEW, QA, SECURITY et PERFORMANCE à 0 P0/P1.
+
 ## Addendum visuel `0.5.0-rc2` — 2026-08-24
 
 **APPROVED — 0 P0 / 0 P1** sur le candidat visuel `34a9d7883dcf22cad517bf45393848eaa60d48d8`. La recette navigateur a reproduit l’onglet actif blanc sur fond clair de RC1, puis confirmé sa correction sur les six onglets Pilotage : fond primaire `#6c5ce7`, texte blanc, contraste `4,86:1`. La navigation clavier affiche un contour primaire opaque de 3 px avec un contraste minimal `4,16:1`. Les bordures Réalisations et Finance sont restaurées ; Planning demeure inchangé et la console ne contient aucune erreur ni avertissement. Preuves automatisées : Foundations 17/17, suite complète 340/340, lint/build/diff-check PASS ; REVIEW, QA, SECURITY et PERFORMANCE à 0 P0/P1.

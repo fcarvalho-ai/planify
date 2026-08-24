@@ -1,3 +1,154 @@
+# Re-REVIEW finale — hiérarchie sticky du Planning
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `56b9f456734de9389c1f4ab6623a378448fe2b67` (`fix(planning): complete sticky header hierarchy`)
+
+Correctif contrôlé : `d4c7fcfbe423940ff57fbeca541ef0e873d12c15..56b9f456734de9389c1f4ab6623a378448fe2b67`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert ; 1 P2 non bloquant.**
+
+Le P1 `REV-RC2-SCROLL-01` est fermé. Les trois sélecteurs finaux correspondent maintenant aux branches réelles du DOM et établissent une hiérarchie cohérente : dates `10`, colonne fixe `11`, angle `12`. Les en-têtes restent donc au-dessus des événements temporisés `4` et des cartes focalisées `9`, tandis que l'angle demeure au-dessus des ressources et du bandeau de dates.
+
+## Fermeture de REV-RC2-SCROLL-01
+
+- `.planning-matrix-scroll .matrix-day{z-index:10}` cible réellement les dates rendues dans `.postprod-matrix`, descendante du scroller de chronologie.
+- `.planning-fixed-column{z-index:11}` cible la branche sœur contenant l'angle et les libellés Ressources. Cette règle gagne sur la déclaration historique du même sélecteur à `7` par ordre source.
+- `.planning-fixed-column .matrix-corner{z-index:12}` cible réellement l'angle sticky. Sa spécificité supérieure et sa position finale remplacent l'ancien `z-index:6` de `.matrix-corner`.
+- La colonne fixe est déjà `position:relative` et l'angle `position:sticky;top:0` : leurs `z-index` sont opérants et créent les contextes attendus.
+- Les événements temporisés restent contenus dans `.planning-timed-event{position:relative;z-index:4}`. Leur enfant focalisé à `z-index:9` ne peut sortir de ce contexte `4`. Les événements non temporisés focalisés à `9` restent également sous les dates à `10`.
+- La hiérarchie effective est donc `angle 12` dans `colonne fixe 11` > `dates 10` > `événement focalisé 9` > `événement temporisé 4`.
+
+## Scroll, virtualisation et accessibilité
+
+- Le diff ne change aucune géométrie, dimension de ligne/colonne, règle d'overflow, scrollbar ou gestionnaire d'événement.
+- Le scroll vertical natif de la chronologie, sa synchronisation vers la colonne fixe, le scroll horizontal natif et le scrollbar horizontal dédié restent inchangés.
+- La restauration `scrollTop`/`scrollLeft`, le tampon d'overscan, les fenêtres lignes/colonnes et les spacers de virtualisation restent identiques ; les tests de découpage et de restauration des deux axes passent.
+- Les dates restent focalisables et activables au clavier ; la région Planning conserve `role="region"`, `tabindex="0"` et son nom accessible. Le focus visible des réservations est inchangé ; seule leur priorité de peinture par rapport au bandeau sticky est bornée.
+- Les fonds opaques des dates et de l'angle évitent que les événements restent visibles par transparence lors du défilement.
+
+## P2 — protection encore lexicale
+
+Le test Foundations protège maintenant les trois bons sélecteurs et valeurs, mais reste une assertion textuelle : il ne calcule pas les styles, ne contrôle pas les contextes d'empilement et ne déroule pas un scroll réel. Ce risque est non bloquant sur le candidat inspecté, dont le DOM, la cascade et les propriétés de positionnement ont été vérifiés directement. Un smoke navigateur de croisement vertical/horizontal reste souhaitable au gate QA/E2E.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` et `git rev-parse 56b9f45` : `56b9f456734de9389c1f4ab6623a378448fe2b67`.
+- Inspection du DOM produit, des règles historiques et de l'override final : les trois sélecteurs correspondent et gagnent la cascade ; **conforme**.
+- `node --test tests/foundations.test.js tests/planning-postproduction.test.js` : **PASS, 60/60**, 0 échec/skip/todo, durée `369,017 ms`.
+- `npm test` : **PASS, 340/340**, 0 échec/cancelled/skip/todo, durée `11,166 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check d4c7fcf..56b9f45` : **PASS**.
+- Limite : aucun smoke navigateur frais n'est revendiqué dans cette re-review ; il reste du ressort du gate visuel aval.
+
+Empreintes contrôlées :
+
+```text
+planning.css                        48a8ad5bec9e86c56d3444812632506a022be837eef82418f6db1b962d9bec36
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+tests/foundations.test.js           81af03baa607a81fc66e210c3cda032f240b7e37abbe47c08606a3816db96abf
+tests/planning-postproduction.test.js 9c5721e024c6e25161916c1a256202f1a289a80a86ae62e6b967764a714e061f
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW du correctif Planning est **APPROVED** sur `56b9f456734de9389c1f4ab6623a378448fe2b67` : 0 P0, 0 P1, 1 P2 non bloquant. L'intégrateur doit faire porter les gates visuels aval sur ce même état applicatif.
+
+---
+
+# Re-REVIEW indépendante — correctif de scroll Planning post-RC2
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `d4c7fcfbe423940ff57fbeca541ef0e873d12c15` (`fix(planning): keep date header above bookings`)
+
+Correctif contrôlé : `d564cca..d4c7fcfbe423940ff57fbeca541ef0e873d12c15`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 1 P1 ouvert, 1 P2.**
+
+Le correctif ferme la collision principale entre les dates sticky et les réservations temporisées : la règle finale porte effectivement les `.matrix-day` à `z-index:8`, au-dessus du contexte `.planning-timed-event` à `z-index:4`. En revanche, la partie annoncée pour l'angle Ressources/dates ne s'applique jamais au DOM réel : `.matrix-corner` n'est pas un descendant de `.planning-matrix-scroll`. L'angle reste donc à sa couche historique `6` dans une colonne fixe de couche `7`, et non à `10`. Le test ajouté valide seulement le texte CSS et produit un faux positif sur cette moitié du contrat.
+
+## P1 — REV-RC2-SCROLL-01 — sélecteur de l'angle sans cible réelle
+
+La règle ajoutée en fin de `planning.css` est :
+
+```css
+.planning-matrix-scroll .matrix-day { z-index: 8 }
+.planning-matrix-scroll .matrix-corner { z-index: 10 }
+```
+
+Or le rendu de `app.js` construit deux branches sœurs sous `.planning-matrix-shell` :
+
+```text
+.planning-fixed-column
+  .matrix-corner
+  .planning-fixed-resources
+.planning-matrix-scroll
+  .postprod-matrix
+    .matrix-day
+    .planning-cell / .planning-timed-event
+```
+
+Ainsi, la première règle correspond aux en-têtes de dates, mais la seconde ne peut correspondre à aucun élément. La cascade effective demeure `.matrix-corner{z-index:6}` à l'intérieur de `.planning-fixed-column{position:relative;z-index:7}`. La documentation de statut affirmant un angle à `10` et l'assertion Foundations ne décrivent donc pas le comportement livré.
+
+Ce défaut bloque la revue car la hiérarchie explicitement demandée `corner 10 > date header 8 > events 4` n'est pas établie. Il laisse aussi la jonction des deux scrollers dépendre de deux contextes d'empilement différents lors du sticky et des synchronisations d'axes. Correction attendue : cibler l'angle dans sa branche réelle, puis tester la structure/correspondance ou le style calculé, pas seulement la présence d'une chaîne CSS.
+
+## Comportements conformes et non-régressions
+
+- `.matrix-day` est sticky (`position:sticky;top:0`) avec fond opaque et reçoit effectivement `z-index:8` par une règle finale plus spécifique que la règle historique à `4`.
+- Les réservations temporisées restent dans `.planning-timed-event{position:relative;z-index:4}`. Le focus interne à `z-index:9` reste contenu dans ce contexte d'empilement parent à `4` et ne repasse pas devant le bandeau de dates.
+- La colonne Ressources demeure sticky/synchronisée verticalement ; la chronologie conserve son scroll natif vertical et horizontal, son scrollbar horizontal dédié et sa gestion clavier.
+- Le correctif CSS ne modifie ni les handlers `scrollLeft`/`scrollTop`, ni la synchronisation par `requestAnimationFrame`, ni le routage de la molette, ni les dimensions des vues.
+- La virtualisation lignes/colonnes, ses spacers, son overscan et la restauration des deux axes sont inchangés. Les tests fonctionnels existants de découpage virtuel restent verts.
+- Les dates restent focalisables et activables au clavier ; la région Planning garde `tabindex="0"`, `role="region"` et son libellé accessible. Aucun statut ou contenu accessible n'est changé par ce diff.
+
+## P2 — test de hiérarchie uniquement lexical
+
+Le test ajouté cherche exactement la chaîne contenant les deux déclarations. Il ne vérifie ni que les sélecteurs correspondent au DOM généré, ni les contextes d'empilement, ni la valeur calculée, ni un scroll réel. C'est précisément pourquoi l'angle inexistant à `10` passe au vert. Une preuve DOM/style calculé ou un smoke navigateur avec croisement vertical/horizontal est nécessaire pour protéger durablement ce correctif visuel.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` et `git rev-parse d4c7fcf` : `d4c7fcfbe423940ff57fbeca541ef0e873d12c15`.
+- Inspection de la cascade et du DOM produit dans `app.js` : `.matrix-day` correspond à la nouvelle règle ; `.matrix-corner` n'est pas descendant de `.planning-matrix-scroll` et n'y correspond pas.
+- `node --test tests/foundations.test.js tests/planning-postproduction.test.js` : **PASS, 60/60**, 0 échec/skip/todo, durée `529,138 ms`.
+- `npm test` : **PASS, 340/340**, 0 échec/cancelled/skip/todo, durée `8,500 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check d564cca..d4c7fcf` : **PASS**.
+- Limite : aucun smoke de scroll navigateur frais n'est revendiqué ; l'analyse structurelle suffit à démontrer que le sélecteur de l'angle a zéro correspondance dans le rendu.
+
+Empreintes contrôlées :
+
+```text
+planning.css                        acde3c58dfde5cc7a2d5614594eb20bca82610ae4067369a69936614a514629c
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+tests/foundations.test.js           a9063cc60fd43b94784f3725b5682ac1d243819885fb2cd9468e6bb247dc7906
+tests/planning-postproduction.test.js 9c5721e024c6e25161916c1a256202f1a289a80a86ae62e6b967764a714e061f
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW du correctif Planning est **CHANGES REQUIRED** sur `d4c7fcfbe423940ff57fbeca541ef0e873d12c15` : 0 P0, 1 P1 (`REV-RC2-SCROLL-01`), 1 P2. Retour DEV requis, puis re-REVIEW indépendante et contrôle visuel du scroll sur le même candidat corrigé.
+
+---
+
 # Re-REVIEW ultime RC2 — indicateur de focus Pilotage
 
 Date : 2026-08-24
