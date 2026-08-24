@@ -1,5 +1,9 @@
 # Rapport E2E G8 — Dashboards, exports et surfaces authentifiées
 
+## Addendum vue Projet Planning `0.5.0-rc4` — 2026-08-24
+
+**APPROVED — 0 P0 / 0 P1** sur le candidat applicatif `2fd37e212d19ecc507cfe12f077474f716ec0edd`. La recette navigateur a ouvert « Le Grand Format » depuis Projets puis contrôlé les deux réservations de la salle/date : cartes compactes de `58 px`, ligne de `132 px`, aucune couverture de la ligne suivante et libellés accessibles complets. Les vues heure/demi-journée confinent les piles et conservent la largeur d’une réservation isolée. À forte densité, le DOM est plafonné à 50 cartes avec compteur accessible ; un index `ressource × créneau` maintient le rendu 10k distribué à `40,63 ms` p95 et le scénario 92 jours à `1 064,73 ms`. Scroll profond, axes, restauration et virtualisation utilisent la hauteur publiée et restent alignés. Preuves : ciblés QA 151/151, REVIEW 44/44, SECURITY/PERFORMANCE 61/61, suite complète 341/341, lint/build/diff-check PASS ; quatre gates à 0 P0/P1.
+
 ## Addendum scroll Planning `0.5.0-rc3` — 2026-08-24
 
 **APPROVED — 0 P0 / 0 P1** sur le candidat Planning `56b9f456734de9389c1f4ab6623a378448fe2b67`. La recette navigateur a reproduit le défaut à `scrollTop=70` : une réservation temporisée traversait la ligne sticky car les deux couches valaient `4`. La hiérarchie finale est désormais événement `4`, carte focalisée `9`, dates `10`, colonne Ressources `11`, angle fixe `12`. Le contrôle réel confirme que les cellules passent sous les dates ; les axes vertical et horizontal, la synchronisation et la virtualisation restent opérationnels, et la console ne contient aucune erreur. Preuves automatisées : Foundations + Planning 60/60, ciblés QA 150/150, suite complète 340/340, lint/build/diff-check PASS ; REVIEW, QA, SECURITY et PERFORMANCE à 0 P0/P1.

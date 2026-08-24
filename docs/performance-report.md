@@ -1,3 +1,141 @@
+# Revalidation d'impact PERFORMANCE indépendante — chevauchement demi-journée Planning RC3
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `2fd37e212d19ecc507cfe12f077474f716ec0edd`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 P2 ouvert, 1 P3.**
+
+Le correctif ajoute exactement un contrôle de chevauchement O(1) par cellule candidate en vue demi-journée. L'index reste une passe sur les cellules rendues suivie de lectures O(1) par cellule visible. Le scénario frais le plus lourd, 10 000 périodes de 92 jours, termine à **1 064,73 ms p95 avant DOM**, sous le budget UI contractuel de 2 secondes.
+
+## Benchmark frais — index demi-journée
+
+Warm-up de deux passes ; 20 itérations distribuées/concentrées et 8 itérations longues. Fenêtre visible de 20 salles × 18 jours, 10 000 réservations :
+
+| Scénario | Clés / entrées | Cartes bornées | p50 | p95 / max |
+|---|---:|---:|---:|---:|
+| distribué 20 × 18 / 10 000 | `180 / 10 000`, max `56/cellule` | `9 000` | `39,12 ms` | `40,63 ms` |
+| concentré 1 cellule / 10 000 | `1 / 10 000`, max `10 000/cellule` | `50` | `38,75 ms` | `41,19 ms` |
+| 10 000 périodes de 92 jours | `350 / 95 040`, max `500/cellule` | `17 500` | `1 042,62 ms` | `1 064,73 ms` |
+
+Ces mesures appellent directement `planningCellEntriesBySlot(..., true, 'halfDay')`. Elles incluent la réplication des cellules et le nouveau contrôle, mais pas l'attachement DOM, le layout ni le paint.
+
+## Complexité et bornes
+
+- `planningSlotContainsBooking()` effectue des comparaisons numériques, sans parcourir de collection. Il n'est appelé que lorsqu'un slot candidat existe pour la date de la cellule.
+- L'index reste O(cellules de réservation + slots + cellules visibles), sans rescan des 10 000 réservations par cellule visible.
+- Les plafonds restent **50 cartes + un résumé par cellule**, ligne Projet **194 px**, ligne globale **92 px**, largeur horaire confinée et handler synchronisé sur `data-row-height` / `data-column-width`.
+- Les périodes entièrement hors 09:00–18:00 sont désormais éliminées avant insertion dans la Map et avant rendu DOM.
+
+## P2 important / limite de montée en charge
+
+L'index conserve toutes les références d'une clé avant le `slice(0, 50)`. À 10 000 entrées concentrées, le p95 reste `41,19 ms`, mais `{count, first50}` réduirait la mémoire temporaire avant toute hausse de volumétrie. Le cap de 50 est local : le cas long peut encore produire 17 500 cartes sur l'ensemble de la fenêtre.
+
+## P3 — limite de preuve navigateur
+
+Le navigateur intégré est indisponible. Aucun profil frais scripting/DOM/layout/paint, FPS ou heap n'est revendiqué. Le pire index laisse environ 935 ms sur le budget de 2 secondes ; l'interactivité réelle du cas long reste à confirmer en E2E navigateur.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `2fd37e212d19ecc507cfe12f077474f716ec0edd` |
+| benchmark ad hoc `planningCellEntriesBySlot` | résultats du tableau ci-dessus |
+| Foundations + Planning post-production | **PASS, 61/61**, durée `320,47 ms` |
+| `npm test` | **PASS, 341/341**, durée `8 514,32 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+Hashes : `app.js` `d38593864538040fa829aa3ee24fd649199cb3f2b1ba5a81c683c12dd741c1f5`; test Planning `4cc26cb0461e93fba23ce88b62fb527403bf7220455d44a1c33e7c712dd4a3cf`; `planning.css` `c7904c3cfab77078997ba5efb7c9c34e24d17db2fc2abb8773351985881bfdb1`.
+
+## Handoff
+
+- Gate PERFORMANCE d'impact Planning RC3 : **APPROVED** sur `2fd37e2`, 0 P0/0 P1/1 P2/1 P3.
+- `PERF-G8-09` reste fermé ; aucune reprise DEV bloquante n'est demandée.
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
+# Revalidation terminale PERFORMANCE indépendante — borne de pile Planning RC3
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `75a85cfdb3236ee1dcc63652d8a73fa578693ea5`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 P2 ouvert, 1 P3.**
+
+Le correctif ferme les quatre composantes de `PERF-G8-09` : vue globale à `92 px`, vue Projet plafonnée à **194 px**, DOM limité à **50 cartes + un résumé par cellule**, et collecte indexée en une seule passe par `planningCellEntriesBySlot()`. Le handler relit exactement `data-row-height` et `data-column-width`; les piles horaires sont confinées au créneau.
+
+La même fenêtre distribuée 20 salles × 18 jours / 10 000 réservations passe de **11 298,67 ms** à **32,43 ms p95**. Le pire scénario mesuré — 10 000 périodes couvrant 92 jours — termine à **821,29 ms p95** avant DOM, sous le budget UI `< 2 s` avec une marge de 1,18 s.
+
+## Mesures fraîches — index 250 ressources / 10 000 réservations / 92 jours
+
+Warm-up de deux passes ; 20 itérations distribuées/concentrées/horaires et 8 itérations longues :
+
+| Scénario indexé | Résultat | p50 | p95 / max |
+|---|---:|---:|---:|
+| distribué, fenêtre 20 salles × 18 jours | `168` entrées, max `1/cellule` | `31,66 ms` | `32,43 ms` |
+| concentré, 1 salle × 18 jours | `10 000` entrées, `50` rendues, max `10 000/cellule` | `33,93 ms` | `35,32 ms` |
+| 10 000 périodes de 92 jours, fenêtre 20 × 18 | `14 400` entrées/rendues, max `40/cellule` | `811,45 ms` | `821,29 ms` |
+| demi-journée, 20 salles / 10 000 | `10 000` entrées, `1 000` rendues, max `500/cellule` | `37,56 ms` | `38,13 ms` |
+
+La vue globale normale reste à `planningRowHeight(92, 1) = 92 px`. Les lignes Projet sont bornées à `194 px`; l'étendue virtuelle maximale de 250 lignes est `48 500 px`. Ces quatre lignes mesurent directement l'index pré-DOM, sans attachement DOM, layout ni paint.
+
+## Fermeture de PERF-G8-09
+
+- `planningCellEntriesBySlot()` parcourt les réservations/cellules une seule fois, élimine immédiatement les salles et dates hors fenêtre, puis range chaque entrée dans une `Map` `resourceId|slot.key`.
+- Le rendu effectue ensuite une lecture O(1) par cellule visible ; l'ancien produit `cellules visibles × réservations × jours` disparaît. La complexité devient O(cellules de réservation + slots + cellules visibles).
+- Hauteur globale (`92 px`), hauteur Projet (`194 px`), DOM local (`50 + résumé`) et largeur des piles horaires restent bornés. Un événement horaire isolé conserve son `span`.
+- Les tests ciblés vérifient une indexation fonctionnelle, l'absence de `bookings.flatMap` dans la boucle visible, les caps et les sélecteurs timed/non-timed.
+
+## P2 important / limite de montée en charge
+
+L'index conserve encore toutes les références d'une clé avant que le rendu n'en prenne 50. À la volumétrie contractuelle, le concentré 10 000 reste à `35,32 ms` et une Map de 10 000 références. Avant d'augmenter la limite globale de réservations ou d'autoriser des périodes sensiblement plus longues, stocker `{count, first50}` par clé réduirait la mémoire temporaire. Le cas long visible produit également 14 400 cartes agrégées sur 360 cellules ; le cap est local et non global.
+
+## P3 — limite de preuve navigateur
+
+Le navigateur intégré est indisponible. Aucun profil frais scripting/DOM/layout/paint, FPS, heap ou test de scroll imbriqué n'est disponible. L'approbation repose sur l'index mesuré sous 0,83 s, les caps mathématiques et l'analyse DOM ; l'interactivité réelle `< 2 s` du cas long 14 400 cartes reste à confirmer en E2E.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `75a85cfdb3236ee1dcc63652d8a73fa578693ea5` |
+| benchmark ad hoc `planningCellEntriesBySlot` | résultats du tableau ci-dessus |
+| Foundations + Planning post-production | **PASS, 61/61**, durée `317,95 ms` |
+| `npm test` | **PASS, 341/341**, durée `8 239,78 ms` hors sandbox |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+```text
+app.js                               98f9740d54dbc2c460c77cc40958f27663c220f8df5043a445f5ea313a23f3df
+planning.css                         c7904c3cfab77078997ba5efb7c9c34e24d17db2fc2abb8773351985881bfdb1
+server.js                            b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+index.html                           419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+tests/planning-postproduction.test.js 6e7e9197bf8f26ff6a38f614a4ae6dd80e34e543551e4642ba700ff78654fd66
+tests/foundations.test.js            81af03baa607a81fc66e210c3cda032f240b7e37abbe47c08606a3816db96abf
+```
+
+## Handoff
+
+- Gate PERFORMANCE Planning RC3 : **APPROVED** sur `75a85cf`, 0 P0/0 P1/1 P2/1 P3.
+- `PERF-G8-09` est fermé ; aucune reprise DEV bloquante demandée sur cet axe.
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Gate PERFORMANCE indépendant S7-C — Backlog et Forecast représentatifs
 
 Date : 2026-08-23

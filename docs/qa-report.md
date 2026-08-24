@@ -4261,3 +4261,422 @@ Statut : **conforme sans régression**.
 ## Verdict terminal
 
 La re-QA finale Planning scroll sur `56b9f456734de9389c1f4ab6623a378448fe2b67` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. La hiérarchie `4 < 9 < 10 < 11 < 12` garantit dates au-dessus des cartes, colonne fixe au-dessus des dates et coin au-dessus des deux axes ; scroll et virtualisation ne régressent pas. Preuves terminales : ciblés **150/150**, suite complète **340/340**, lint, build et diff-check verts.
+
+---
+
+# Re-QA indépendante — Projet → Ouvrir le planning
+
+Date : 2026-08-24 16:24 CEST
+
+Verdict : **REJECTED — 1 P1 QA ouvert**
+
+Périmètre : candidat exact `e9752f4e791f42bfcd8ad584e898ce68e20a850f`, reproduction de deux cartes « Le Grand Format » dans une même cellule, mesure du fit, vue Projet / Tous les projets, scroll profond sur les deux axes et virtualisation.
+
+Indépendance : aucun code, test, statut ni autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Empreintes du candidat testé
+
+```text
+app.js                                 4a8427df94b98677a16e99e5795c6aabfff0ea6a0e3e42880ce1e9781f8d2005
+planning.css                           48a8ad5bec9e86c56d3444812632506a022be837eef82418f6db1b962d9bec36
+tests/planning-postproduction.test.js  927dee2c88297b4457c381f42e399db65edfa3f888f1116b790754989266ecee
+tests/foundations.test.js              81af03baa607a81fc66e210c3cda032f240b7e37abbe47c08606a3816db96abf
+tests/domain.test.js                   4fc062d534da69e27d2b30106f8d6c805d520179a92d171d250824f70e22896f
+tests/sprint8-dashboards.test.js       098b4f463bafb9c7ba5722c549415954a5aa92502f0b9abdd3918c7b013ee747
+tests/sprint8-exports.test.js          7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-bi.test.js               a0c8dbf3ecb64974559d52a5bc6b0ac2c14b87467ad670ec6b7d77004b591f32
+tests/sprint8-security.test.js         9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+tests/api.test.js                      69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e
+server.js                              b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64, application `0.5.0-rc3`.
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| probe « Le Grand Format », deux réservations même projet/ressource/date | PASS fit nominal : profondeur `2`, ligne calculée `132 px`, budget de contenu `12 + 2×58 + 1×4 = 132 px` |
+| probe Projet / Tous les projets | PASS : la vue Projet filtre avant le comptage et conserve profondeur `2` / `132 px` ; l'ajout d'une troisième carte d'un autre projet donne profondeur `3` / `194 px` en Tous les projets |
+| probe scroll horizontal profond, 126 colonnes à `scrollLeft=4160` | PASS : fenêtre `[35,55)`, 20 colonnes rendues, compensateurs gauche/droite `3640/7384 px` |
+| probe scroll vertical profond, 250 lignes à `scrollTop=12000` et hauteur dynamique `132 px` | **FAIL** : fenêtre rendue correcte `[74,112)` ; avec `132 px`, aucun nouveau rendu n'est requis, mais le handler utilise encore `92 px` et retourne `true`, provoquant un rendu parasite à chaque événement profond |
+| `node --test tests/planning-postproduction.test.js tests/foundations.test.js tests/domain.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **151/151**, 0 échec/annulé/ignoré/TODO, 4 159,10 ms |
+| `npm test` | PASS, **341/341**, 0 échec/annulé/ignoré/TODO, 10 375,84 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check e9752f4^ e9752f4` | PASS, code 0 |
+
+## Deux cartes et changement de périmètre
+
+`planningMaxCellStack` compte bien les cartes par ressource et cellule après application de `matches()`. Deux réservations « Le Grand Format » du même projet dans la même cellule produisent une profondeur `2`; `planningRowHeight(92,2)` porte uniformément la ligne et ses cellules à `132 px`, soit exactement le budget codé pour deux cartes, leur intervalle et les marges de cellule. La variable CSS `--planning-row-height:132px` alimente à la fois la grille temporelle et la colonne Ressources.
+
+En vue Projet, une réservation d'un autre projet est exclue avant ce calcul. Après « Afficher tous les projets », les trois cartes de la cellule sont comptées et la ligne passe à `194 px`. Le `virtualKey` contient le filtre Projet et la hauteur calculée : le changement de périmètre invalide donc correctement la fenêtre précédente.
+
+Statut : **conforme sur le fit nominal et le changement de périmètre**.
+
+## P1 — hauteur divergente dans le scroll profond
+
+Le rendu et ses spacers utilisent la hauteur dynamique `planningRowHeight(baseRowHeight, stackDepth)`. En revanche, `timeline.onscroll` recalcule encore une hauteur fixe selon la vue (`92`, `74` ou `64 px`) avant d'appeler `planningVirtualWindowNeedsRender`.
+
+La divergence est reproductible : à `scrollTop=12000`, une ligne dynamique de `132 px` produit la fenêtre correcte `[74,112)`. Cette fenêtre contient la zone visible et la fonction retourne normalement `false`. Le handler livré refait le même calcul avec `92 px`, situe à tort la zone visible après la ligne 129 et retourne `true`. Chaque événement de scroll profond peut donc reprogrammer `render()` alors que la fenêtre est déjà correcte, ce qui réintroduit accrochages, travail DOM inutile et instabilité du scroll sur le cas précisément corrigé.
+
+Le scroll horizontal reste conforme ; le défaut est limité au calcul vertical lorsque `stackDepth > 1`, mais il bloque l'approbation du parcours demandé.
+
+## Limites
+
+- aucun navigateur contrôlable n'était exposé directement à cette session QA : aucune capture pixel ou mesure de cadence native n'est revendiquée ; les valeurs proviennent des fonctions réellement exportées, du handler livré et des simulations profondes déterministes ;
+- la mesure de fit couvre les deux cartes nominales demandées ; les variantes option, présence ou période multijour ajoutant des libellés n'ont pas fait l'objet d'une mesure pixel native ;
+- le verdict porte exclusivement sur le hash exact ci-dessus et devient caduc si le calcul de hauteur, le handler de scroll ou les tests couverts changent.
+
+## Verdict terminal
+
+La re-QA indépendante Projet → Ouvrir le planning sur `e9752f4e791f42bfcd8ad584e898ce68e20a850f` est **REJECTED** avec **0 P0 et 1 P1 QA ouvert**. Les deux cartes « Le Grand Format » tiennent nominalement dans `132 px`, les vues Projet/Tous les projets et l'axe horizontal sont cohérents, mais la virtualisation verticale profonde conserve `92 px` dans son handler et déclenche des rendus parasites. Les suites restent vertes — ciblés **151/151**, complète **341/341**, lint, build et diff-check — mais ne couvrent pas cette divergence.
+
+---
+
+# Re-QA finale — Projet → Planning, empilements bornés
+
+Date : 2026-08-24 16:36 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat exact `4d067719358d92b452a8888f8cc8dfe757e3aa86`, deux cartes « Le Grand Format » dans une même cellule, empilements supérieurs à trois, vue Projet / vue globale, dimensions transmises au handler, scroll profond sur les deux axes et virtualisation.
+
+Indépendance : aucun code, test, statut ni autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Empreintes du candidat testé
+
+```text
+app.js                                 eaa823db9d7e5f98363025b3fce209490f68db1f76639886a97cbab24335520f
+planning.css                           4aaf3b966ef952ddaaece54c90058aa58569becbacd07a6ca3d4fc48d55dad9a
+styles.css                             8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+tests/planning-postproduction.test.js  e40ddc06ec226d906b930a4e89aff0e3bea12c17e2371db36c8c758e8a602fb5
+tests/foundations.test.js              81af03baa607a81fc66e210c3cda032f240b7e37abbe47c08606a3816db96abf
+tests/domain.test.js                   4fc062d534da69e27d2b30106f8d6c805d520179a92d171d250824f70e22896f
+tests/sprint8-dashboards.test.js       098b4f463bafb9c7ba5722c549415954a5aa92502f0b9abdd3918c7b013ee747
+tests/sprint8-exports.test.js          7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-bi.test.js               a0c8dbf3ecb64974559d52a5bc6b0ac2c14b87467ad670ec6b7d77004b591f32
+tests/sprint8-security.test.js         9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+tests/api.test.js                      69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e
+server.js                              b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64, application `0.5.0-rc3`.
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| probe « Le Grand Format », deux cartes dans la même cellule | PASS : chaque carte compacte mesure `58 px`, profondeur `2`, ligne `132 px`, budget occupé `132 px`, couverture `0 px` |
+| probe quatre cartes en vue Projet | PASS : profondeur plafonnée à `3`, ligne plafonnée à `194 px`, contenu `256 px`, surplus `62 px` accessible par `overflow-y:auto` local |
+| probe vue globale | PASS : profondeur forcée à `1`, ligne standard `92 px`; deux cartes restent accessibles par scroll local (`40 px` de contenu supplémentaire) |
+| probe vertical profond, `scrollTop=12000` | PASS : handler lit `data-row-height=132`, fenêtre `[74,112)`, `needsRender=false`; le rendu parasite du candidat précédent est supprimé |
+| probe horizontal profond, `scrollLeft=4160` | PASS : handler lit `data-column-width=104`, fenêtre `[35,55)`, 20 colonnes rendues |
+| restauration/synchronisation des axes | PASS : `scrollLeft` et `scrollTop` restaurés, timeline et colonne fixe synchronisées verticalement dans les deux sens |
+| `node --test tests/planning-postproduction.test.js tests/foundations.test.js tests/domain.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **151/151**, 0 échec/annulé/ignoré/TODO, 3 240,46 ms |
+| `npm test` | PASS, **341/341**, 0 échec/annulé/ignoré/TODO, 8 980,00 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check 4d067719^ 4d067719` | PASS, code 0 |
+
+## Fit des cartes et comportement local
+
+Dans une cellule empilée, le rendu compact borne chaque carte à `58 px`. Le modèle global `box-sizing:border-box`, le gap de `4 px` et les marges internes produisent pour deux cartes le budget exact `12 + 2×58 + 4 = 132 px`. La ligne, la cellule temporelle et la cellule Ressources partagent `--planning-row-height:132px` : aucune carte ne couvre la suivante et aucun contenu ne dépasse sur la ligne voisine.
+
+En vue Projet, le calcul s'arrête volontairement à une profondeur `3`, soit `194 px`. Avec quatre cartes, les `256 px` nécessaires restent contenus dans `.planning-cell.is-stacked` et son `overflow-y:auto`; les `62 px` supplémentaires sont consultables localement sans agrandir tout le planning. Les variantes compactes conservent titre, projet/horaire et un libellé de statut/décision/pré­sence unique, avec le détail complet maintenu dans l'`aria-label`.
+
+En vue globale, la profondeur reste `1` et la ligne conserve `92 px`, même si plusieurs projets occupent la cellule. Le même scroll local évite le chevauchement tout en préservant la densité générale.
+
+Statut : **conforme**.
+
+## Scroll profond et virtualisation
+
+La matrice publie maintenant ses dimensions effectives dans `data-row-height` et `data-column-width`. Le handler consomme directement ces deux valeurs au lieu de reconstruire une hauteur fixe divergente.
+
+À `scrollTop=12000`, le rendu avec des lignes de `132 px` produit la fenêtre `[74,112)` et le contrôle confirme qu'aucun rerender n'est requis. À `scrollLeft=4160`, la fenêtre `[35,55)` reste cohérente. Les compensateurs avant/après, la restauration des deux axes et la synchronisation verticale bidirectionnelle demeurent inchangés.
+
+Statut : **conforme sans régression**.
+
+## Limites
+
+- aucun navigateur contrôlable n'était exposé directement à cette session QA : aucune nouvelle capture pixel ou mesure subjective de fluidité n'est revendiquée ; les mesures proviennent des dimensions CSS contractuelles, des fonctions réellement exécutées, du DOM source et des simulations profondes ;
+- le scroll local est prévu pour les cellules non temporisées ; les cellules horaires utilisent leur modèle horizontal spécifique et n'étaient pas le cas « Le Grand Format » demandé ;
+- le verdict porte exclusivement sur le hash exact ci-dessus et devient caduc si le calcul de hauteur, les styles d'empilement, le handler ou les tests couverts changent.
+
+## Verdict terminal
+
+La re-QA finale Projet → Planning sur `4d067719358d92b452a8888f8cc8dfe757e3aa86` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Deux cartes de `58 px` occupent la ligne de `132 px` sans couverture ; au-delà de trois cartes, la ligne reste plafonnée à `194 px` avec scroll local ; la vue globale reste à `92 px`. Le handler utilise désormais les dimensions publiées et le scroll profond ne déclenche plus de rendu parasite. Preuves terminales : ciblés **151/151**, suite complète **341/341**, lint, build et diff-check verts.
+
+---
+
+# Re-QA terminale — impact timed des empilements
+
+Date : 2026-08-24 16:40 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat exact `b95493cffd9a6d23b5b7a9bf4614170696189445`, vue Jour heure et demi-journée avec deux et quatre cartes empilées, confinement vertical/local, conservation de la largeur d'une carte isolée, non-timed « Le Grand Format », axes et virtualisation.
+
+Indépendance : aucun code, test, statut ni autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Empreintes du candidat testé
+
+```text
+app.js                                 eaa823db9d7e5f98363025b3fce209490f68db1f76639886a97cbab24335520f
+planning.css                           0a46eb6422be59c393e7cd188a4be1171e58f190b0b552c3d19b70ced1e24dd8
+styles.css                             8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+tests/planning-postproduction.test.js  1a0686dfb520e265bf2ced2331f06154dc629271f344281e90343e9cd14b388c
+tests/foundations.test.js              81af03baa607a81fc66e210c3cda032f240b7e37abbe47c08606a3816db96abf
+tests/domain.test.js                   4fc062d534da69e27d2b30106f8d6c805d520179a92d171d250824f70e22896f
+tests/sprint8-dashboards.test.js       098b4f463bafb9c7ba5722c549415954a5aa92502f0b9abdd3918c7b013ee747
+tests/sprint8-exports.test.js          7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-bi.test.js               a0c8dbf3ecb64974559d52a5bc6b0ac2c14b87467ad670ec6b7d77004b591f32
+tests/sprint8-security.test.js         9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+tests/api.test.js                      69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e
+server.js                              b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64, application `0.5.0-rc3`.
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| vue Jour heure, deux cartes même créneau | PASS : 48 créneaux de 30 min, profondeur `2`, ligne `132 px`, cartes `58 px`, aucune couverture verticale |
+| vue Jour heure, quatre cartes même créneau | PASS : profondeur plafonnée à `3`, ligne `194 px`, surplus `62 px` accessible par scroll vertical local ; largeur empilée confinée à `64 px` (`72-8`) |
+| vue Jour demi-journée, deux cartes | PASS : profondeur `2`, ligne `132 px`, aucune couverture ; largeur empilée `172 px` (`180-8`) |
+| vue Jour demi-journée, quatre cartes | PASS : profondeur plafonnée à `3`, ligne `194 px`, surplus `62 px` accessible localement |
+| cartes isolées | PASS : la règle de confinement exige `.is-stacked`; une carte heure de 3 h conserve `424 px` (`6×72-8`) et une carte demi-journée de 8 h conserve `352 px` (`2×180-8`) |
+| non-timed « Le Grand Format » | PASS : deux cartes `58 px`, gap `4 px`, ligne `132 px`, couverture `0 px`; le comportement validé au candidat précédent est inchangé |
+| scroll profond / virtualisation | PASS : fenêtre verticale `[74,112)` à `scrollTop=12000`, `needsRender=false`; fenêtre horaire `[11,36)` autour du scroll initial ; dimensions lues depuis le DOM |
+| axes | PASS : restauration de `scrollLeft`/`scrollTop`, scroll horizontal natif et synchronisation verticale bidirectionnelle préservés |
+| `node --test tests/planning-postproduction.test.js tests/foundations.test.js tests/domain.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **151/151**, 0 échec/annulé/ignoré/TODO, 3 365,76 ms |
+| `npm test` | PASS, **341/341**, 0 échec/annulé/ignoré/TODO, 9 203,94 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check b95493c^ b95493c` | PASS, code 0 |
+
+## Empilements Jour heure et demi-journée
+
+Une cellule temporisée n'est marquée `.is-stacked` que si plusieurs cartes commencent dans le même créneau rendu. Dans ce cas seulement, elle masque le débordement horizontal, active `overflow-y:auto` et ramène chaque wrapper à la largeur d'une colonne moins `8 px`. Les cartes compactes restent bornées à `58 px`.
+
+Deux cartes occupent ainsi la ligne de `132 px` sans recouvrir la ressource suivante. À quatre cartes, le calcul reste plafonné à trois niveaux et la ligne à `194 px`; les `62 px` supplémentaires demeurent consultables dans la cellule, sans s'échapper verticalement ni horizontalement.
+
+Pour une carte isolée, aucun sélecteur `.is-stacked` ne s'applique. La largeur générale `calc(span × largeur-colonne - 8 px)` reste donc active : `424 px` pour trois heures dans la grille 30 minutes, et `352 px` pour huit heures sur deux segments demi-journée. La durée visuelle n'est pas écrasée par le correctif.
+
+Statut : **conforme**.
+
+## Non-timed, axes et virtualisation
+
+Le cas non-timed « Le Grand Format » reste identique : `2×58 px`, un gap `4 px` et les `12 px` d'enveloppe occupent exactement la ligne de `132 px`. Les règles timed sont qualifiées par `.is-timed-grid .is-time-slot` et ne modifient pas ce parcours.
+
+Le handler conserve les dimensions `data-row-height` et `data-column-width`; la fenêtre profonde reste stable. Les compensateurs, la restauration des axes et la synchronisation timeline/colonne fixe ne sont pas modifiés par le diff CSS/test.
+
+Statut : **conforme sans régression**.
+
+## Limites
+
+- aucun navigateur contrôlable n'était exposé directement à cette session QA : aucune capture pixel ni mesure subjective de fluidité n'est revendiquée ; les preuves reposent sur les slots et fonctions réellement exécutés, les calculs de largeur, la cascade CSS et les suites automatisées ;
+- les durées isolées sondées sont trois heures et huit heures ; les changements d'heure civile restent couverts par les tests temporels existants mais n'ont pas été combinés avec un empilement dans cette campagne ciblée ;
+- le verdict porte exclusivement sur le hash exact ci-dessus et devient caduc si les styles timed, le rendu des cellules, les dimensions ou les tests couverts changent.
+
+## Verdict terminal
+
+La re-QA terminale de l'impact timed sur `b95493cffd9a6d23b5b7a9bf4614170696189445` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Heure et demi-journée confinent correctement deux ou quatre cartes sans recouvrir la ligne suivante ; les cartes isolées conservent leur largeur de durée ; Le Grand Format non-timed, les axes et la virtualisation ne régressent pas. Preuves terminales : ciblés **151/151**, suite complète **341/341**, lint, build et diff-check verts.
+
+---
+
+# Re-QA ultime — borne de rendu des cellules denses
+
+Date : 2026-08-24 16:44 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat exact `9543ecc38be2e504ba6dcfeb0779692391064a88`, cellules de 51 et 10 000 réservations, borne de 50 wrappers/articles, compteur d'éléments masqués, immutabilité des données, puis non-régression Le Grand Format, timed stacks, vue globale, scroll profond, axes et virtualisation.
+
+Indépendance : aucun code, test, statut ni autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Empreintes du candidat testé
+
+```text
+app.js                                 c63782771df62be98a0e5ca484f766f5bf903f680aea9668e8639387e249fc39
+planning.css                           c7904c3cfab77078997ba5efb7c9c34e24d17db2fc2abb8773351985881bfdb1
+styles.css                             8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+tests/planning-postproduction.test.js  089dc0012d73faa6652475219631ac5be0104c44a77b9ce05c8d7c07aec78ee4
+tests/foundations.test.js              81af03baa607a81fc66e210c3cda032f240b7e37abbe47c08606a3816db96abf
+tests/domain.test.js                   4fc062d534da69e27d2b30106f8d6c805d520179a92d171d250824f70e22896f
+tests/sprint8-dashboards.test.js       098b4f463bafb9c7ba5722c549415954a5aa92502f0b9abdd3918c7b013ee747
+tests/sprint8-exports.test.js          7570ca69c479f50dc169139210b9111cda6bb614fc2c99ce96721aaaa60a7529
+tests/sprint8-bi.test.js               a0c8dbf3ecb64974559d52a5bc6b0ac2c14b87467ad670ec6b7d77004b591f32
+tests/sprint8-security.test.js         9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+tests/api.test.js                      69ee260835eae2051ebd40e05162cb6a62e0979621749feae6bc9c39faf2886e
+server.js                              b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64, application `0.5.0-rc3`.
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| probe cellule dense à 51 éléments | PASS : **50 wrappers + 50 articles**, 1 masqué, compteur exact `+ 1 autre · affinez les filtres`, annonce ARIA de 1 réservation supplémentaire |
+| probe cellule dense à 10 000 éléments | PASS : **50 wrappers + 50 articles**, 9 950 masqués, compteur exact `+ 9950 autres · affinez les filtres`, annonce ARIA de 9 950 réservations supplémentaires |
+| immutabilité sur 51 et 10 000 objets | PASS : longueurs, ordre, JSON et identités objet inchangés après `slice(0,50)` ; aucune suppression ni mutation des réservations source |
+| résumé dense | PASS : `role=status`, position sticky en bas de cellule, pluriel exact et invitation à affiner les filtres |
+| Le Grand Format non-timed | PASS : deux cartes `58 px`, ligne `132 px`, couverture `0 px` |
+| timed stacks | PASS : deux cartes à `132 px`; quatre cartes plafonnées à `194 px` avec `62 px` de scroll local; largeur d'une carte isolée préservée |
+| vue globale | PASS : ligne `92 px`, cartes supplémentaires accessibles par scroll local |
+| scroll profond / virtualisation | PASS : fenêtre lignes `[74,112)`, fenêtre colonnes `[35,55)`, `needsRender=false` avec les dimensions DOM |
+| axes | PASS : restauration des deux axes et synchronisation verticale bidirectionnelle préservées |
+| `node --test tests/planning-postproduction.test.js tests/foundations.test.js tests/domain.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **151/151**, 0 échec/annulé/ignoré/TODO, 5 334,93 ms |
+| `npm test` | PASS, **341/341**, 0 échec/annulé/ignoré/TODO, 11 495,79 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check 9543ecc^ 9543ecc` | PASS, code 0 |
+
+## Borne DOM et exactitude du compteur
+
+La cellule calcule d'abord la collection complète correspondant à son périmètre, puis dérive une vue de rendu par `cells.slice(0, 50)`. Chaque élément visible génère exactement un `.planning-timed-event` et un article `.planning-event`; le maximum DOM est donc 50 de chaque, indépendamment d'une densité de 51 ou 10 000 réservations.
+
+Le nombre masqué est calculé par `cells.length - visibleCells.length`. Les probes obtiennent respectivement `1` et `9950`, restitués sans approximation dans le résumé visuel et dans l'`aria-label` de la cellule. Le résumé est un statut sticky au bas de la cellule et conserve la distinction « autre » / « autres ».
+
+`slice` crée uniquement un nouveau tableau de références. Les instantanés avant/après sur 51 puis 10 000 objets confirment que la collection source, son ordre, ses objets réservation et ses cellules ne sont ni tronqués ni modifiés. Les données restent disponibles pour filtres, comptages et autres vues ; seule la quantité de nœuds rendus est bornée.
+
+Statut : **conforme**.
+
+## Non-régression Planning
+
+La borne intervient après la détection du nombre total de cartes : les classes `is-stacked`, le cap de profondeur et les hauteurs restent calculés sur la collection complète. Le Grand Format conserve donc `132 px` pour deux cartes ; les vues Jour conservent leur confinement timed et la vue globale reste à `92 px`.
+
+Le diff ne modifie ni les fenêtres virtuelles, ni les dimensions DOM, ni les handlers d'axes. Les probes profonds retrouvent `[74,112)` verticalement et `[35,55)` horizontalement sans rerender parasite.
+
+Statut : **conforme sans régression**.
+
+## Limites
+
+- aucun navigateur contrôlable n'était exposé directement à cette session QA : aucune capture pixel ou mesure de frame native n'est revendiquée ; la preuve DOM repose sur le chemin de rendu exact, les collections exécutées, les assertions de structure et les suites automatisées ;
+- la borne limite le coût DOM, mais la collecte initiale des correspondances reste proportionnelle au nombre de réservations candidates ; l'approbation ne prétend pas à une complexité de collecte constante ;
+- le verdict porte exclusivement sur le hash exact ci-dessus et devient caduc si la limite, le rendu des cellules, les compteurs ou les tests couverts changent.
+
+## Verdict terminal
+
+La re-QA ultime sur `9543ecc38be2e504ba6dcfeb0779692391064a88` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Les cellules de 51 ou 10 000 réservations rendent au maximum 50 wrappers et 50 articles, annoncent exactement 1 ou 9 950 éléments masqués et ne modifient aucune donnée source. Le Grand Format, les empilements timed, la vue globale, les axes et la virtualisation ne régressent pas. Preuves terminales : ciblés **151/151**, suite complète **341/341**, lint, build et diff-check verts.
+
+---
+
+# Re-QA terminalissime — index Map des cellules Planning
+
+Date : 2026-08-24 16:53 CEST
+
+Verdict : **REJECTED — 1 P1 QA ouvert**
+
+Périmètre : candidat exact `75a85cfdb3236ee1dcc63652d8a73fa578693ea5`, équivalence entre le nouvel index `planningCellEntriesBySlot` et l'ancien calcul au rendu pour Le Grand Format, vues non-timed, heure et demi-journée, périodes multi-jours, cellules déplacées, fenêtre virtualisée, cellule dense, compteurs et axes.
+
+Indépendance : aucun code, test, statut ni autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Environnement et empreintes
+
+```text
+Node                                     v26.6.0, Darwin arm64
+app.js                                   98f9740d54dbc2c460c77cc40958f27663c220f8df5043a445f5ea313a23f3df
+planning.css                             c7904c3cfab77078997ba5efb7c9c34e24d17db2fc2abb8773351985881bfdb1
+styles.css                               8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+tests/planning-postproduction.test.js    6e7e9197bf8f26ff6a38f614a4ae6dd80e34e543551e4642ba700ff78654fd66
+```
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| comparaison exécutable ancien calcul / nouvel index, demi-journée standard | PASS : réservation 09:00–12:00 dans AM et 14:00–17:00 dans PM, mêmes clés et mêmes identifiants |
+| comparaison heure | PASS : départs 10:00 et 10:30 indexés dans les deux slots attendus, ordre conservé |
+| comparaison non-timed multi-jours + override | PASS par cellule : mêmes couples salle/date et mêmes réservations ; seul l'ordre interne d'itération des clés de la `Map`, sans effet sur les lectures par clé du rendu, diffère |
+| Le Grand Format | PASS : deux cartes `lgf1`, `lgf2` indexées dans la même cellule, ordre conservé ; hauteur attendue inchangée à `132 px` |
+| cellule dense 10 000 | PASS : 10 000 entrées ordonnées `d0` à `d9999`, cap rendu 50, compteur masqué exact 9 950 |
+| fenêtre profonde / axes | PASS : lignes `[64,100)`, colonnes `[55,75)`, compensateurs cohérents ; stabilité verticale et horizontale vraie |
+| comparaison demi-journée hors plage 06:00–08:00 | **FAIL** : ancien rendu `[]`, nouvel index place `early` dans `2026-08-24-am` |
+| comparaison demi-journée hors plage 19:00–20:00 | **FAIL** : ancien rendu `[]`, nouvel index place `late` dans `2026-08-24-pm` |
+| `node --test --test-reporter=dot tests/planning-postproduction.test.js tests/foundations.test.js tests/domain.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **151/151** points, code 0 |
+| `npm test` | PASS, **341/341**, 0 échec/annulé/ignoré/TODO, 9 362,10 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check 75a85cf^ 75a85cf` | PASS, code 0 |
+
+## P1 — la vue demi-journée affiche désormais des réservations hors de ses plages
+
+L'ancien rendu appliquait d'abord `planningSlotContainsBooking(booking, cell, slot)`. En demi-journée, une réservation devait donc réellement chevaucher `09:00–13:00` ou `13:00–18:00` avant d'être retenue dans la tranche déterminée par son heure de départ.
+
+Le nouvel index choisit directement `candidates[mins(booking.start) < 780 ? 0 : 1]` et omet ce contrôle de chevauchement. Les probes reproductibles montrent qu'une réservation `06:00–08:00`, auparavant absente de cette grille, apparaît dans AM, et qu'une réservation `19:00–20:00` apparaît dans PM. La carte est ainsi présentée dans une cellule dont la plage horaire ne contient ni ne chevauche la réservation. C'est une régression fonctionnelle visible et une rupture de l'objectif explicite d'équivalence ; elle bloque l'approbation QA.
+
+Correction attendue : lors de l'indexation timed non-hour, conserver le choix de tranche mais exiger également le chevauchement avec le slot candidat, comme le faisait `planningSlotContainsBooking`. Ajouter les cas négatifs avant 09:00 et après 18:00 au test automatisé de l'index.
+
+## Points conformes et limites
+
+Le chemin usuel Le Grand Format, les créneaux demi-journée à l'intérieur des plages, la vue heure, le non-timed multi-jours, les overrides, l'ordre au sein de chaque cellule, le cap 50 et le compteur dense sont conformes. Les fonctions et attributs d'axes/virtualisation ne sont pas modifiés par le diff et les probes profonds restent stables.
+
+Aucun navigateur contrôlable n'était exposé directement à cette session QA : aucune capture pixel ni mesure subjective de fluidité n'est revendiquée. Le défaut P1 est néanmoins déterministe dans la fonction désormais appelée par le rendu et comparé à l'algorithme exact du parent du candidat. Le verdict porte uniquement sur le hash exact ci-dessus.
+
+## Verdict terminal
+
+La re-QA terminalissime de `75a85cfdb3236ee1dcc63652d8a73fa578693ea5` est **REJECTED** avec **0 P0 et 1 P1 QA ouvert**. Les suites automatisées, lint, build et diff-check sont verts, et les scénarios usuels restent équivalents, mais le nouvel index rend à tort en vue demi-journée les réservations entièrement hors des plages 09:00–18:00. Une correction et une re-QA sont requises avant approbation.
+
+---
+
+# Re-QA finale — correctif index demi-journée
+
+Date : 2026-08-24 16:57 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat exact `2fd37e212d19ecc507cfe12f077474f716ec0edd`, correction du P1 demi-journée, frontières et intersections, équivalence de l'index, performance, cap dense, Le Grand Format, empilements timed, axes et virtualisation.
+
+Indépendance : aucun code, test, statut ni autre rapport modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Environnement et empreintes
+
+```text
+Node                                     v26.6.0, Darwin arm64
+app.js                                   d38593864538040fa829aa3ee24fd649199cb3f2b1ba5a81c683c12dd741c1f5
+planning.css                             c7904c3cfab77078997ba5efb7c9c34e24d17db2fc2abb8773351985881bfdb1
+styles.css                               8f14b1483f6bb58522df36a3841e318099ca9a0fc32b82f8b9b6fde1fd07c196
+tests/planning-postproduction.test.js    4cc26cb0461e93fba23ce88b62fb527403bf7220455d44a1c33e7c712dd4a3cf
+```
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| probe demi-journée 06:00–08:00 et 19:00–20:00 | PASS : aucune entrée indexée, conformément à l'ancien rendu |
+| frontières exactes 08:00–09:00 et 18:00–19:00 | PASS : absentes, l'intersection semi-ouverte avec 09:00–18:00 est vide |
+| intersections 08:59–09:01, 09:00–13:00, 12:59–13:01 et 13:00–18:00 | PASS : trois cartes AM et une carte PM, mêmes clés et ordre que l'ancien rendu |
+| heure, carte isolée et empilement | PASS : deux départs 10:00 dans le même slot, départ 10:30 dans le suivant ; index ancien/nouveau identique |
+| non-timed multi-jours + override | PASS : mêmes clés, cellules source/cible et ordre, y compris déplacement `r1/25-08` vers `r2/26-08` |
+| Le Grand Format | PASS : deux cartes présentes dans la même cellule, ordre conservé ; calcul de ligne `132 px` inchangé |
+| cellule dense 10 000 | PASS : 10 000 entrées ordonnées, 50 visibles, compteur exact 9 950 |
+| benchmark index, 100 ressources / 10 000 réservations / 28 slots, 30 mesures après 5 chauffes | PASS : médiane **36,785 ms**, p95 **38,876 ms**, max **39,196 ms**, 10 000 cellules réparties sur 700 clés |
+| fenêtre profonde / axes | PASS : lignes `[64,100)`, colonnes `[55,75)`, compensateurs cohérents ; stabilité verticale et horizontale vraie |
+| `node --test --test-reporter=dot tests/planning-postproduction.test.js tests/foundations.test.js tests/domain.test.js tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **151/151** points, code 0 |
+| `npm test` | PASS, **341/341**, 0 échec/annulé/ignoré/TODO, 9 337,21 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` et `git diff --check 2fd37e2^ 2fd37e2` | PASS, code 0 |
+
+## Fermeture du P1
+
+Le candidat réintroduit le contrôle de chevauchement sur le slot demi-journée choisi : le slot n'est indexé que si `planningSlotContainsBooking` confirme une intersection. Les deux reproductions qui avaient bloqué `75a85cf` sont maintenant absentes, tandis que les réservations à l'intérieur des plages et celles qui franchissent 09:00 ou 13:00 conservent exactement l'affectation historique.
+
+Le test automatisé ajouté couvre explicitement les deux négatifs 06:00–08:00 et 19:00–20:00. Les probes indépendants étendent la couverture aux bordures exactes et aux intersections d'une minute. Aucun changement de comportement n'est observé en heure, non-timed, multi-jours ou override.
+
+## Performance, densité et axes
+
+L'index construit 10 000 cellules sur 100 ressources et 28 slots en p95 inférieur à 39 ms sur cette machine. Le chemin dense conserve toutes les entrées et ne borne que le DOM à 50 éléments, avec un compteur exact de 9 950 masqués. Le diff ne modifie ni les hauteurs Le Grand Format/timed, ni les fenêtres virtuelles, ni les handlers d'axes ; les probes profonds restent stables.
+
+## Limites
+
+- aucun navigateur contrôlable n'était exposé directement à cette session QA : aucune capture pixel ou mesure subjective de fluidité n'est revendiquée ; les preuves reposent sur les fonctions de rendu réellement appelées, la comparaison exécutable avec l'ancien algorithme et les suites automatisées ;
+- la mesure d'index est locale, mono-processus et porte sur 30 échantillons après chauffe ; elle ne remplace pas une mesure de frame navigateur ;
+- le verdict porte exclusivement sur le hash exact ci-dessus et devient caduc si l'index, les slots, le rendu Planning ou les tests couverts changent.
+
+## Verdict terminal
+
+La re-QA finale de `2fd37e212d19ecc507cfe12f077474f716ec0edd` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Le P1 demi-journée est fermé : 06:00–08:00 et 19:00–20:00 restent absents, les frontières/intersections usuelles sont exactes, et Le Grand Format, timed, multi-jours, overrides, densité, performance, axes et virtualisation ne régressent pas. Preuves terminales : ciblés **151/151**, suite complète **341/341**, lint, build et diff-check verts.

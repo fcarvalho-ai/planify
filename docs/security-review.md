@@ -1,3 +1,112 @@
+# Revalidation d'impact SECURITY indépendante — chevauchement demi-journée Planning RC3
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `2fd37e212d19ecc507cfe12f077474f716ec0edd`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 P2 ouvert, 0 P3.**
+
+Le seul changement applicatif ajoute un appel à `planningSlotContainsBooking()` avant d'insérer une cellule dans l'index demi-journée. Il exclut les réservations entièrement hors des fenêtres 09:00–13:00 et 13:00–18:00, sans nouvelle entrée, mutation, autorité, persistance ou sortie HTML. Les bornes de hauteur, d'index et de rendu restent inchangées.
+
+## Threat-check ciblé
+
+- **Autorité et scopes :** l'index reçoit toujours uniquement `state.bookings.filter(matches)`, `visibleRooms` et `visibleSlots`. Le contrôle opère après l'exclusion des salles hors fenêtre et avant l'insertion dans la `Map`; il ne peut pas réintroduire une réservation filtrée.
+- **Entrées et bornes :** `start` et `end` étaient déjà lus par `mins()` pour choisir le candidat AM/PM. Le nouvel appel ajoute seulement des comparaisons numériques constantes avec les bornes internes du slot. Les validations API restent inchangées.
+- **Map, clés et données :** la clé locale `resourceId|slot.key` reste non interprétée comme propriété d'objet, non rendue et non journalisée. Une cellule hors horaires est désormais absente du DOM au lieu d'être associée à tort à AM ou PM.
+- **XSS et accessibilité :** aucun sink HTML, attribut ARIA, focus, drag, résumé ou wrapper n'est modifié. Les cartes conservées passent toujours par `esc()`; les cartes exclues ne produisent aucun nœud.
+- **Backend inchangé :** `server.js`, auth, RBAC, isolation société/site, CSRF, audit, SSE, exports et persistance sont byte-identiques au candidat précédent.
+
+## P2 résiduel
+
+**SEC-G8-05 demeure seul ouvert :** certaines valeurs internes d'overlays masqués/inertes ne sont pas intégralement purgées après fin de session. Ce correctif Planning n'affecte pas ce durcissement local.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `2fd37e212d19ecc507cfe12f077474f716ec0edd` |
+| Foundations + Planning post-production | **PASS, 61/61**, durée `320,47 ms` |
+| `npm test` | **PASS, 341/341**, durée `8 514,32 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+| index demi-journée 10 000 distribué / concentré / long | p95 `40,63 / 41,19 / 1 064,73 ms` |
+
+Le navigateur intégré est indisponible ; aucun comportement de focus réel n'est revendiqué. Hashes : `app.js` `d38593864538040fa829aa3ee24fd649199cb3f2b1ba5a81c683c12dd741c1f5`; test Planning `4cc26cb0461e93fba23ce88b62fb527403bf7220455d44a1c33e7c712dd4a3cf`; `server.js` `b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d`.
+
+## Handoff
+
+- Gate SECURITY d'impact Planning RC3 : **APPROVED** sur `2fd37e2`, 0 P0/0 P1/1 P2/0 P3.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
+# Revalidation terminale SECURITY indépendante — borne de pile Planning RC3
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `75a85cfdb3236ee1dcc63652d8a73fa578693ea5`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 P2 ouvert, 0 P3.**
+
+Le correctif ferme l'amplification de hauteur, de DOM et de rescans : hors filtre Projet, aucun calcul de pile n'est effectué (`stackDepth=1`) ; dans une vue Projet, la ligne est bornée à **194 px** ; chaque cellule rend au plus **50** cartes et un résumé ; `planningCellEntriesBySlot()` indexe une seule fois les cellules visibles. Aucun nouvel input, endpoint, droit, secret, sink HTML non échappé ou chemin de persistance n'est introduit.
+
+## Threat-check ciblé
+
+- **Scopes et autorité :** l'index reçoit `state.bookings.filter(matches)` ainsi que `visibleRooms` / `visibleSlots` ; le calcul de profondeur n'est activé que lorsque `filters.project` est défini. Le changement est strictement client ; `server.js`, auth, RBAC, scopes société/site, CSRF, audit, SSE et exports restent byte-identiques.
+- **Injection :** le plafond `3`, la hauteur `194` et les dimensions `data-row-height` / `data-column-width` proviennent uniquement de calculs numériques. Les titres, projets, statuts et identifiants continuent de passer par `esc()` dans le HTML et les attributs/labels.
+- **Accessibilité des cartes compactes :** chaque réservation reste un `article` avec son `aria-label` complet, ses règles de focus/drag et ses poignées de redimensionnement. Les deux wrappers tardifs propagent `compact`; la version visuelle conserve au moins le libellé présence/décision/statut. Le débordement vertical est contenu dans les cellules non horaires et horaires avec `overscroll-behavior:contain`.
+- **Confinement horaire :** une cellule horaire empilée passe à `overflow-x:hidden; overflow-y:auto` et contraint chaque wrapper à la largeur du créneau. Le sélecteur exige `.is-stacked`; un événement isolé conserve donc son `--planning-event-span`. Il s'agit de constantes CSS, sans donnée utilisateur ni effet sur le focus ou l'autorité.
+- **Résumé et sorties :** `hiddenCellCount` provient uniquement de deux longueurs de tableaux et reste numérique. Il alimente un texte statique et l'`aria-label` de la cellule ; aucune donnée cachée (titre, client, projet ou identifiant) n'est recopiée. Les 50 cartes visibles conservent leur échappement, leurs labels complets et leurs contrôles. Le résumé `role="status"` annonce le volume sans exposer le contenu masqué.
+- **Index Map et clés :** l'index reçoit uniquement `state.bookings.filter(matches)`, les `visibleRooms` et `visibleSlots`; aucune réservation hors scope ne peut y entrer. Les clés `resourceId|slot.key` servent seulement à une `Map` locale et ne sont ni rendues ni journalisées. Les IDs de ressource sont générés côté serveur et les clés de slots sont construites localement à partir de dates/instants validés ; aucune interprétation de propriété d'objet ou prototype n'est possible avec `Map`.
+- **Virtualisation :** le handler relit `matrix.dataset.rowHeight` et `matrix.dataset.columnWidth`, ce qui évite une fenêtre calculée avec une hauteur obsolète. L'étendue verticale maximale de 250 lignes est désormais `48 500 px`, au lieu de 155 millions de pixels dans le défaut précédent.
+
+## Fermeture de SEC-G8-06 et P2 résiduel
+
+**SEC-G8-06 est fermé au volume contractuel.** L'index distribué 20 salles × 18 jours / 10 000 réservations termine à `32,43 ms` p95 contre `11 298,67 ms` avant correction ; le cas concentré termine à `35,32 ms`, et 10 000 périodes de 92 jours à `821,29 ms`. Hauteur globale, DOM local et collecte restent sous leurs bornes opérationnelles sans charge serveur.
+
+**SEC-G8-05 demeure seul ouvert :** certaines valeurs internes d'overlays masqués/inertes ne sont pas intégralement purgées après fin de session. Ce correctif Planning n'affecte pas ce durcissement local.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `75a85cfdb3236ee1dcc63652d8a73fa578693ea5` |
+| Foundations + Planning post-production | **PASS, 61/61**, 0 échec/skip/todo, durée `317,95 ms` |
+| `npm test` | **PASS, 341/341**, 0 échec/skip/todo, durée `8 239,78 ms` hors sandbox |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+| index 10 000 distribué / concentré / long | p95 `32,43 / 35,32 / 821,29 ms` |
+
+Le navigateur intégré est resté indisponible ; aucune preuve de focus/scroll réelle n'est revendiquée. Les propriétés de sécurité et la limite locale sont établies par inspection du chemin de rendu et mesures déterministes.
+
+```text
+app.js                               98f9740d54dbc2c460c77cc40958f27663c220f8df5043a445f5ea313a23f3df
+planning.css                         c7904c3cfab77078997ba5efb7c9c34e24d17db2fc2abb8773351985881bfdb1
+server.js                            b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+index.html                           419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+tests/planning-postproduction.test.js 6e7e9197bf8f26ff6a38f614a4ae6dd80e34e543551e4642ba700ff78654fd66
+tests/foundations.test.js            81af03baa607a81fc66e210c3cda032f240b7e37abbe47c08606a3816db96abf
+```
+
+## Handoff
+
+- Gate SECURITY Planning RC3 : **APPROVED** sur `75a85cf`, 0 P0/0 P1/1 P2/0 P3.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Gate SECURITY indépendant S7-C — Backlog, Forecast et chaîne de revenus
 
 Date : 2026-08-23

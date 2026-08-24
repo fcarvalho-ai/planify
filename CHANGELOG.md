@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0-rc4 — 2026-08-24
+
+- correction du parcours Projet → Planning : plusieurs réservations d’une même salle/date restent dans leur ligne ;
+- cartes empilées compactes, hauteur bornée à trois cartes puis défilement local, y compris en heure et demi-journée ;
+- rendu borné à 50 cartes par cellule avec compteur accessible des réservations supplémentaires ;
+- index `ressource × créneau` construit en une passe, remplaçant le rescan de toutes les réservations pour chaque cellule ;
+- gestionnaire de scroll aligné sur les dimensions réellement rendues ; demi-journées hors plage 09:00–18:00 exclues ;
+- recette navigateur « Le Grand Format » : deux cartes de 58 px dans une ligne de 132 px, sans couverture ;
+- REVIEW, QA, SECURITY et PERFORMANCE approuvés sans P0/P1 ; suite finale 341/341, lint et build verts ; benchmark 10k distribué p95 40,63 ms et scénario long 1 064,73 ms.
+
 ## 0.5.0-rc3 — 2026-08-24
 
 - correction du scroll vertical du Planning : les réservations restent sous la ligne sticky des dates ;

@@ -1,3 +1,469 @@
+# Impact re-REVIEW — filtrage des créneaux demi-journée
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `2fd37e212d19ecc507cfe12f077474f716ec0edd` (`fix(planning): preserve half-day overlap filtering`)
+
+Correctif contrôlé : `75a85cfdb3236ee1dcc63652d8a73fa578693ea5..2fd37e212d19ecc507cfe12f077474f716ec0edd`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert ; 1 P2 non bloquant hérité.**
+
+Le correctif ferme l'écart QA demi-journée sans réouvrir `PERF-G8-09`. Après sélection sémantique AM/PM par l'heure de début, le candidat n'est indexé que si `planningSlotContainsBooking()` confirme un chevauchement réel. Les réservations `06:00–08:00` et `19:00–20:00`, extérieures aux colonnes affichées `09:00–13:00` et `13:00–18:00`, ne produisent donc plus de carte fantôme.
+
+## Équivalence et cas limites
+
+- L'ancien rendu appliquait d'abord le chevauchement avec le slot puis conservait uniquement l'index AM/PM correspondant à l'heure de début. Le nouveau code choisit ce même index puis applique le même prédicat de chevauchement : pour les deux slots complets de la vue demi-journée, les ensembles produits sont équivalents.
+- Une preuve exhaustive par pas de 30 minutes a comparé les deux formulations pour les `1 176` intervalles positifs possibles sur une journée : aucune divergence.
+- Les bornes sont semi-ouvertes comme auparavant : une fin à `09:00` n'entre pas dans AM, un début à `13:00` entre dans PM, une fin à `13:00` reste dans AM et un début à `18:00` n'entre pas dans PM.
+- Les périodes traversant 13 h restent attribuées à leur colonne de départ, conformément au comportement historique et au span visuel ; elles ne sont pas dupliquées dans les deux colonnes.
+- L'index heure est inchangé et continue de retenir exactement le slot contenant l'instant de début. Le chemin non temporisé est inchangé et conserve l'ordre des réservations.
+- Les exceptions quotidiennes et déplacements continuent de passer par `bookingRenderedCells()` avant l'indexation ; les clés cible restent donc exactes.
+
+## Performance, densité et accessibilité
+
+- La modification ajoute un contrôle constant sur le seul candidat demi-journée. Elle ne réintroduit ni scan des réservations par case ni construction DOM avant la borne.
+- `planningCellEntriesBySlot()` conserve sa passe unique sur réservations/cellules visibles et la matrice conserve sa lecture `Map.get()` par cellule.
+- Le cap de rendu à 50, le compteur exact du surplus, le résumé `role="status"`, les opérations sur les cartes visibles et les données complètes restent inchangés.
+- Les correctifs antérieurs de pile Projet, confinement temporisé, hauteurs virtuelles, scroll sur les deux axes et couches sticky ne sont pas touchés.
+
+## P2 — limite non bloquante héritée
+
+1. La suite pérenne couvre désormais directement les deux cas négatifs demi-journée, mais elle ne contient toujours pas une table exhaustive heure/demi-journée, une exception déplacée et 51 cartes. La preuve exhaustive et les assertions multi-granularité ont été rejouées pendant cette revue ; leur pérennisation reste souhaitable sans bloquer ce correctif minimal.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` et `git rev-parse 2fd37e212d19ecc507cfe12f077474f716ec0edd` : `2fd37e212d19ecc507cfe12f077474f716ec0edd`.
+- Inspection du diff et comparaison avec le pipeline historique `planningSlotContainsBooking → index AM/PM` : **conforme**.
+- Assertion exhaustive demi-journée par pas de 30 minutes : **PASS, 1 176/1 176** ; assertion heure sur fenêtre virtuelle : **PASS, 1 entrée unique au créneau 09:00**.
+- `node --test tests/planning-postproduction.test.js` : **PASS, 44/44**, 0 échec/skip/todo, durée `133,332 ms`.
+- `npm test` : **PASS, 341/341**, 0 échec/cancelled/skip/todo, durée `8,306 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `node --check app.js` : **PASS**.
+- `git diff --check 75a85cfdb3236ee1dcc63652d8a73fa578693ea5..2fd37e212d19ecc507cfe12f077474f716ec0edd` : **PASS**.
+
+Empreintes contrôlées :
+
+```text
+app.js                                 d38593864538040fa829aa3ee24fd649199cb3f2b1ba5a81c683c12dd741c1f5
+planning.css                           c7904c3cfab77078997ba5efb7c9c34e24d17db2fc2abb8773351985881bfdb1
+tests/planning-postproduction.test.js  4cc26cb0461e93fba23ce88b62fb527403bf7220455d44a1c33e7c712dd4a3cf
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW d'impact est **APPROVED** sur `2fd37e212d19ecc507cfe12f077474f716ec0edd` : 0 P0, 0 P1, 1 P2 non bloquant hérité. L'intégrateur reste responsable du statut et des gates aval sur ce même candidat.
+
+---
+
+# Re-REVIEW terminalissime — index pré-DOM du Planning
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `75a85cfdb3236ee1dcc63652d8a73fa578693ea5` (`perf(planning): index visible booking cells`)
+
+Correctif contrôlé : `9543ecc38be2e504ba6dcfeb0779692391064a88..75a85cfdb3236ee1dcc63652d8a73fa578693ea5`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert ; 1 P2 non bloquant.**
+
+`PERF-G8-09` est désormais fermé aussi avant construction du DOM. `planningCellEntriesBySlot()` parcourt une fois les réservations et leurs cellules rendues, écarte immédiatement les ressources et dates hors fenêtre virtuelle, puis indexe les entrées par `resourceId|slot.key`. La matrice effectue ensuite une lecture `Map.get()` par cellule visible : l'ancien `bookings.flatMap(...bookingRenderedCells...)` répété pour chaque case n'existe plus.
+
+## Exactitude de l'index
+
+- Hors vue temporisée, chaque date possède un seul slot et la clé `ressource|date` restitue les mêmes cellules, dans le même ordre réservation/cellule que l'ancien `flatMap`.
+- En vue heure, la cellule est affectée au créneau contenant son instant de début, comme le filtre final historique. Une fenêtre horizontale ne reçoit que les cellules dont le créneau de départ est visible ; le span CSS continue de représenter la durée sans dupliquer la réservation dans les demi-heures suivantes.
+- En demi-journée, le seuil historique de 13 h (`780` minutes) est conservé. Cette vue ne possède que deux colonnes et l'overscan de cinq colonnes les maintient ensemble dans la fenêtre virtuelle ; les index AM/PM restent donc stables.
+- `bookingRenderedCells()` reste l'unique source des cellules quotidiennes et des exceptions : une cellule déplacée est indexée sur sa `targetDate` et sa `targetResourceId`, tout en conservant `sourceDate/sourceResourceId` pour les opérations.
+- Le filtre `roomIds` limite le travail aux lignes virtuelles visibles ; `slotsByDate` limite les cellules aux dates/créneaux de la fenêtre horizontale. Le déplacement vertical ou horizontal reconstruit l'index avec la nouvelle fenêtre, sans perte dans `state.bookings`.
+- Les doublons métier éventuels ne sont ni fusionnés ni réordonnés : chaque couple `{ booking, cell }` est ajouté à la liste de sa clé.
+
+## Densité, accessibilité et anciens P1
+
+- La borne `PLANNING_CELL_RENDER_LIMIT=50`, `visibleCells`, `hiddenCellCount` et le résumé `role="status"` restent calculés après la lecture de la liste complète de la case. Le compteur et le nom accessible annoncent donc le surplus exact, tandis que les données demeurent intactes.
+- Les 50 cartes visibles suivent toujours `event()` et conservent focus, sélection, déplacement, redimensionnement et opérations commerciales selon les permissions.
+- Le cap de profondeur à trois et `planningMaxCellStack()` sont inchangés ; les lignes Projet gardent leurs hauteurs bornées de 58 px par carte et leur débordement local.
+- Les piles temporisées restent confinées à la largeur du créneau avec scroll vertical local ; une réservation isolée conserve son span normal.
+- Les correctifs sticky (jour `z-index:10`, colonne fixe `11`, coin réel `12`), la lecture dynamique de `data-row-height/data-column-width`, la propagation `compact` et la virtualisation sur les deux axes ne sont pas réouverts.
+
+## P2 — limite de couverture non bloquante
+
+1. Le test ajouté couvre directement l'ordre et la clé non temporisés, puis vérifie lexicalement l'emploi de la `Map` et l'absence de l'ancien `flatMap` par case. Il ne fige pas encore automatiquement les variantes heure, demi-journée, exception quotidienne, fenêtre horizontale partielle et scénario de 51 cartes. Ces variantes ont été exercées fraîchement par assertion Node pendant la revue, mais gagneraient à rejoindre la suite pérenne.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` : `75a85cfdb3236ee1dcc63652d8a73fa578693ea5`.
+- Inspection du diff, de `planningMatrix()`, `planningTimelineSlots()`, `planningCellInterval()`, `bookingRenderedCells()`, `planningMaxCellStack()` et des consommateurs d'opérations : **conforme**.
+- Assertion Node dédiée non temporisé/heure/demi-journée/override/fenêtre : **PASS** ; clés observées `r1|2026-08-17-am`, `r1|2026-08-17-pm`, `r1|2026-08-17T09:00@2026-08-17T07:00:00.000Z`, `r2|2026-08-18`.
+- `node --test tests/planning-postproduction.test.js` : **PASS, 44/44**, 0 échec/skip/todo, durée `167,645 ms`.
+- `npm test` : **PASS, 341/341**, 0 échec/cancelled/skip/todo, durée `8,248 s` (relance hors sandbox requise uniquement parce que les tests ouvrent des ports loopback éphémères).
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check 9543ecc38be2e504ba6dcfeb0779692391064a88..75a85cfdb3236ee1dcc63652d8a73fa578693ea5` : **PASS**.
+- Limite : aucun benchmark navigateur ou lecteur d'écran frais n'est revendiqué dans cette re-review de code.
+
+Empreintes contrôlées :
+
+```text
+app.js                                 98f9740d54dbc2c460c77cc40958f27663c220f8df5043a445f5ea313a23f3df
+planning.css                           c7904c3cfab77078997ba5efb7c9c34e24d17db2fc2abb8773351985881bfdb1
+tests/planning-postproduction.test.js  6e7e9197bf8f26ff6a38f614a4ae6dd80e34e543551e4642ba700ff78654fd66
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW du correctif pré-DOM Planning est **APPROVED** sur `75a85cfdb3236ee1dcc63652d8a73fa578693ea5` : 0 P0, 0 P1, 1 P2 non bloquant. L'intégrateur reste responsable de la mise à jour de statut et des gates aval sur ce même candidat.
+
+---
+
+# Re-REVIEW ultime — rendu borné des cellules Planning denses
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `9543ecc38be2e504ba6dcfeb0779692391064a88` (`fix(planning): bound dense cell rendering`)
+
+Correctif contrôlé : `b95493cffd9a6d23b5b7a9bf4614170696189445..9543ecc38be2e504ba6dcfeb0779692391064a88`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert ; 2 P2 non bloquants.**
+
+Le constat performance `PERF-G8-09` est fermé au niveau du DOM : chaque cellule rend au plus 50 cartes, dans l'ordre déjà produit par le filtre métier. Les réservations excédentaires restent présentes dans `state.bookings` et dans les calculs de densité ; seul leur HTML est différé. Le surplus est annoncé visuellement, dans le nom accessible de la cellule et par un statut demandant d'affiner les filtres.
+
+## Borne, ordre et intégrité des données
+
+- `PLANNING_CELL_RENDER_LIMIT` est une constante locale fixée à `50`.
+- `visibleCells=cells.slice(0,PLANNING_CELL_RENDER_LIMIT)` préserve exactement l'ordre de `cells` et ne trie, ne mute ni ne retire aucune réservation de la source.
+- `hiddenCellCount=cells.length-visibleCells.length` est calculé sur la collection complète après les mêmes règles salle/date/créneau que le rendu historique.
+- `stacked` dépend toujours de `cells.length`, pas de la tranche ; la hauteur, le compactage et le confinement restent donc fondés sur la densité réelle.
+- `planningMaxCellStack()` s'exécute avant le rendu borné et continue de voir toutes les réservations, avec son cap de profondeur à trois. Les données persistées, l'API et les mutations restent intactes.
+
+## Accessibilité du surplus
+
+- Le résumé visible indique `+ N autre(s) · affinez les filtres` et porte `role="status"`; il n'est pas codé uniquement par couleur.
+- Le `aria-label` de la cellule ajoute `N réservations supplémentaires non affichées`, ce qui expose l'information même si le statut sticky n'est pas parcouru séparément.
+- Le texte explique l'action disponible : affiner les filtres Projet, salle, métier ou statut pour ramener les cartes masquées dans la tranche rendue.
+- La carte de résumé est sticky en bas du scroller local, avec fond et bordure explicites, et ne remplace aucune carte visible.
+
+## Opérations sur les cartes visibles
+
+- Les 50 cartes visibles passent toujours par la chaîne complète `event()` : libellé accessible, sélection commerciale, focus, déplacement et poignées de redimensionnement selon permissions/statut.
+- Les bindings DOM parcourent uniquement les éléments rendus ; aucune opération ne peut cibler accidentellement une carte masquée depuis un identifiant absent du DOM.
+- Les opérations de groupe basées sur les filtres ou l'état restent inchangées. Une carte masquée redevient opérable dès qu'un filtre la place dans les 50 premières de sa cellule.
+- La tranche ne duplique pas d'identifiant et conserve l'association réservation/cellule source utilisée par copier-coller, déplacement et redimensionnement.
+
+## Vues temporisées et non temporisées
+
+- Hors grille temporisée, la cellule conserve son scroll vertical local, ses cartes compactes de 58 px, le cap de piste à trois et désormais le résumé après la 50e carte.
+- En heure et demi-journée, les 50 wrappers restent confinés à la largeur du créneau source et la cellule empilée conserve `overflow-y:auto`; le résumé fait partie du même flux vertical local.
+- Une réservation temporisée isolée n'est ni compactée ni tranchée et conserve son span de durée historique.
+- Les anciens P1 de hauteur dynamique, propagation des wrappers, cap de pile, sticky headers et confinement temporisé ne sont pas réouverts.
+
+## P2 — limites non bloquantes
+
+1. La borne porte sur les nœuds rendus, pas sur la construction de `cells` : le code continue de parcourir toutes les réservations et d'appeler `bookingRenderedCells()` avant `slice(0,50)`. C'est cohérent avec l'exigence d'un compteur exact, mais une indexation salle/date/créneau serait nécessaire si le calcul CPU devenait le prochain goulot.
+2. Le test reste lexical et ne construit pas 51 cartes réelles. Il ne vérifie donc pas automatiquement le nombre de nœuds, l'ordre du 50e élément, le texte singulier/pluriel, l'annonce du statut ou les opérations après filtrage. Une recette DOM/navigation assistée demeure souhaitable.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` et `git rev-parse 9543ecc38be2e504ba6dcfeb0779692391064a88` : `9543ecc38be2e504ba6dcfeb0779692391064a88`.
+- Inspection du flux complet `cells → visibleCells/hiddenCellCount → event()/summary`, des bindings d'opérations et de la cascade timed/non-timed : **conforme**.
+- `node --test tests/planning-postproduction.test.js` : **PASS, 44/44**, 0 échec/skip/todo, durée `598,099 ms`.
+- `npm test` : **PASS, 341/341**, 0 échec/cancelled/skip/todo, durée `11,339 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check b95493cffd9a6d23b5b7a9bf4614170696189445..9543ecc38be2e504ba6dcfeb0779692391064a88` : **PASS**.
+- Limite : aucun smoke navigateur ou lecteur d'écran frais n'est revendiqué dans cette re-review.
+
+Empreintes contrôlées :
+
+```text
+app.js                              c63782771df62be98a0e5ca484f766f5bf903f680aea9668e8639387e249fc39
+planning.css                        c7904c3cfab77078997ba5efb7c9c34e24d17db2fc2abb8773351985881bfdb1
+tests/planning-postproduction.test.js 089dc0012d73faa6652475219631ac5be0104c44a77b9ce05c8d7c07aec78ee4
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW du correctif de densité Planning est **APPROVED** sur `9543ecc38be2e504ba6dcfeb0779692391064a88` : 0 P0, 0 P1, 2 P2 non bloquants. L'intégrateur doit faire porter les gates aval sur ce même état applicatif.
+
+---
+
+# Re-REVIEW terminale — confinement des piles temporisées
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `b95493cffd9a6d23b5b7a9bf4614170696189445` (`fix(planning): confine timed booking stacks`)
+
+Correctif contrôlé : `4d067719358d92b452a8888f8cc8dfe757e3aa86..b95493cffd9a6d23b5b7a9bf4614170696189445`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert ; 1 P2 non bloquant.**
+
+Le P1 `REV-RC3-PROJECT-03` est fermé. Une cellule horaire ou demi-journée empilée remplace désormais l'`overflow:visible` historique par un confinement horizontal et un scroll vertical local. Ses cartes temporisées sont ramenées à la largeur du créneau source. Une réservation isolée ne reçoit ni `.is-stacked` ni ces overrides et conserve donc sa largeur calculée sur toute sa durée.
+
+## Fermeture du P1 temporisé
+
+- La règle `.planning-matrix-shell.is-timed-grid .planning-cell.is-time-slot.is-stacked` est plus spécifique et plus tardive que la règle historique `.planning-cell.is-time-slot{overflow:visible}`. `overflow-x:hidden;overflow-y:auto` gagne effectivement la cascade.
+- L'override descendant sur `.planning-timed-event` fixe la largeur à `calc(var(--planning-day-width) - 8px)`, identique à la largeur minimale d'un créneau. Les cartes empilées ne débordent donc plus horizontalement dans les créneaux suivants.
+- Le rendu ajoute `.is-stacked` uniquement lorsque `cells.length > 1`. Une réservation temporisée isolée conserve la règle originale `width:calc(var(--planning-event-span)*var(--planning-day-width) - 8px)` et continue de représenter sa durée.
+- Deux cartes empilées sont compactées à 58 px chacune. Avec filtre Projet, la piste vaut 132 px et contient les 130 px nécessaires ; sans filtre Projet, la piste reste bornée à 104 px et le surplus est disponible par le scroll local.
+- À partir de quatre cartes, la profondeur Projet demeure plafonnée à trois et la piste à 194 px ; les 254 px de contenu sont contenus dans la cellule et accessibles verticalement. Le même contrat vaut pour les granularités heure et demi-journée.
+- Les cellules non temporisées conservent leur règle `overflow-y:auto` existante et leurs pistes `92/132/194 px`. Aucun comportement de largeur n'y est modifié.
+
+## Wrappers, virtualisation et axes
+
+- Les deux wrappers `event` continuent de propager `compact`; sélection, déplacement et poignées restent présents.
+- `data-row-height` et `data-column-width` restent la source commune du handler de scroll. CSS, spacers, découpage initial et seuils de re-rendu utilisent les mêmes dimensions.
+- Le correctif est exclusivement CSS hors test/statut : aucune mutation des calculs de créneau, de l'overscan, du `scrollTop`/`scrollLeft`, des synchronisations ou de la restauration.
+- Le scroll local est borné à la cellule ; `overscroll-behavior:contain` évite de transférer involontairement sa fin de course au scroller principal.
+
+## Accessibilité et non-régression
+
+- Les cartes compactes conservent leur `aria-label` complet, y compris statut, décision, projet, période et présence. Le badge visible conserve la présence, la décision ou le statut selon la priorité prévue.
+- Les cartes et poignées restent focalisables selon les mêmes permissions. Le focus successif permet au navigateur de révéler les cartes situées dans la partie scrollée de la cellule.
+- Les statuts ne reposent pas uniquement sur la couleur et aucun ordre DOM n'est modifié.
+- Sticky headers, filtres Projet, API, données, RBAC et opérations Planning sont inchangés.
+
+## P2 — preuve de layout encore statique
+
+Les assertions ajoutées vérifient les sélecteurs et valeurs CSS, mais ne rendent pas deux ou quatre cartes dans un moteur de layout et ne mesurent pas l'overflow calculé. Le DOM et la cascade actuels ferment le défaut, mais une recette navigateur heure/demi-journée reste recommandée pour protéger visuellement le scrollbar local, le focus et les poignées de redimensionnement.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` et `git rev-parse b95493cffd9a6d23b5b7a9bf4614170696189445` : `b95493cffd9a6d23b5b7a9bf4614170696189445`.
+- Inspection du DOM produit et de la cascade `is-time-slot`/`is-stacked`/`planning-timed-event` : confinement actif uniquement pour les piles ; span normal préservé pour une carte isolée.
+- `node --test tests/planning-postproduction.test.js` : **PASS, 44/44**, 0 échec/skip/todo, durée `153,761 ms`.
+- `npm test` : **PASS, 341/341**, 0 échec/cancelled/skip/todo, durée `8,760 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check 4d067719358d92b452a8888f8cc8dfe757e3aa86..b95493cffd9a6d23b5b7a9bf4614170696189445` : **PASS**.
+- Limite : aucun smoke navigateur frais n'est revendiqué dans cette re-review.
+
+Empreintes contrôlées :
+
+```text
+app.js                              eaa823db9d7e5f98363025b3fce209490f68db1f76639886a97cbab24335520f
+planning.css                        0a46eb6422be59c393e7cd188a4be1171e58f190b0b552c3d19b70ced1e24dd8
+tests/planning-postproduction.test.js 1a0686dfb520e265bf2ced2331f06154dc629271f344281e90343e9cd14b388c
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW du correctif Projet vers Planning est **APPROVED** sur `b95493cffd9a6d23b5b7a9bf4614170696189445` : 0 P0, 0 P1, 1 P2 non bloquant. L'intégrateur doit faire porter les gates visuels aval sur ce même état applicatif.
+
+---
+
+# Re-REVIEW finale — Projet vers Planning, lignes empilées bornées
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `4d067719358d92b452a8888f8cc8dfe757e3aa86` (`fix(planning): bound stacked project rows`)
+
+Correctif contrôlé : `e9752f4e791f42bfcd8ad584e898ce68e20a850f..4d067719358d92b452a8888f8cc8dfe757e3aa86`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 1 P1 ouvert, 1 P2.**
+
+Les deux P1 du candidat `e9752f4` sont fermés pour les cellules non temporisées : le handler relit désormais exactement `data-row-height` et `data-column-width`, tous les wrappers `event` propagent le mode compact, et une carte empilée est réellement bornée à 58 px. Le cap à trois produit des pistes cohérentes de `92/132/194 px` et le surplus obtient un scroll local. En revanche, ce dernier mécanisme exclut explicitement les cellules horaires/demi-journée, qui conservent `overflow:visible`. Plus de trois cartes dans un même créneau temporisé débordent donc encore sur la ligne suivante, y compris en vue Projet.
+
+## Fermetures confirmées des anciens P1
+
+### Virtualisation et axes
+
+- `planningMatrix()` publie `data-row-height="${rowHeight}"` et `data-column-width="${columnWidth}"` sur la matrice.
+- `timeline.onscroll` relit ces deux valeurs depuis le même nœud avant `planningVirtualWindowNeedsRender()`. La création de fenêtre, les variables CSS, les spacers, les seuils de re-rendu et la restauration utilisent désormais la même hauteur.
+- Les fallbacks `92/104` ne s'appliquent qu'en absence anormale de données ; le rendu normal fournit toujours les attributs.
+- Les synchronisations verticales et horizontales, la molette, le scrollbar dédié et le `requestAnimationFrame` restent inchangés.
+
+### Cartes compactes et consommateurs
+
+- Le mode compact remplace les lignes option, présence et période par un badge unique priorisé, tout en conservant le détail complet dans `aria-label` et `title`.
+- Les deux wrappers successifs — sélection commerciale puis opérations de déplacement/redimensionnement — acceptent et transmettent `compact`. Aucun autre wrapper de `event` n'est présent.
+- `.planning-event.is-compact-stack` possède `box-sizing:border-box`, `height:58px`, `max-height:58px` et `overflow:hidden` dans une règle finale suffisamment spécifique. Les poignées restent dans cette boîte et leurs libellés accessibles sont conservés.
+- La formule de piste correspond au layout : padding cellule 10 px + `n × 58 px` + `(n−1) × 4 px`; deux cartes occupent 130 px dans 132, trois 192 px dans 194.
+- La profondeur n'agrandit les lignes que lorsque `filters.project` est renseigné. Elle est plafonnée à trois avec sortie anticipée, évitant une croissance globale non bornée.
+
+## P1 — REV-RC3-PROJECT-03 — absence d'overflow local en grille temporisée
+
+La nouvelle règle limite le scroll local à :
+
+```css
+.planning-cell.is-stacked:not(.is-time-slot) { overflow-y: auto }
+```
+
+Les cellules Jour horaires ou demi-journée portent `.is-time-slot` et restent couvertes par la règle historique plus spécifique :
+
+```css
+.planning-matrix-shell.is-timed-grid .planning-cell.is-time-slot { overflow: visible }
+```
+
+Le calcul de profondeur est pourtant plafonné à trois pour ces vues aussi, et `timelineRows` rend toutes les cartes réelles, sans tronquer la liste. À partir de quatre réservations dans la même salle et le même créneau de départ, la piste reste à `194 px` tandis que les quatre cartes compactes demandent 254 px avec padding et gaps. Sans `overflow-y:auto`, la quatrième carte se peint au-delà de la cellule et recouvre la ressource suivante. Hors filtre Projet, deux cartes temporisées sont compactées dans la hauteur de base `104 px` mais demandent 130 px, produisant déjà le même défaut.
+
+Ce comportement échoue précisément l'exigence de parité temporisée/non temporisée et le contrat « cap 3 + overflow local ». La correction doit préserver le débordement horizontal nécessaire aux cartes couvrant plusieurs créneaux tout en bornant verticalement la pile — par exemple via un conteneur vertical interne dédié — puis recevoir un test DOM/CSS sur quatre cartes horaires et demi-journée.
+
+## P2 — couverture de test incomplète
+
+Le test ajouté vérifie les nombres, les chaînes source et la règle de hauteur, mais aucun cas temporisé, aucun style calculé et aucun overflow réel. Il ne détecte donc pas l'exclusion `:not(.is-time-slot)`. Un smoke navigateur doit couvrir deux et quatre cartes en Jour heure/demi-journée, en plus du parcours Projet non temporisé.
+
+## Accessibilité et non-régression
+
+- Les informations retirées visuellement en compact restent présentes dans `aria-label`; le badge montre au moins présence, décision ou statut, par ordre de priorité.
+- Les cartes et poignées conservent focus, raccourcis et noms accessibles. Dans les cellules non temporisées, la navigation vers un enfant focalisable peut révéler les éléments du scroller local.
+- Les filtres, API, données, permissions, sticky headers et mutations Planning sont inchangés.
+- `planningMaxCellStack()` reste exact pour les clés jour, demi-journée et heure ; sa recherche de créneau est bornée par la petite fenêtre Jour et sort dès le cap atteint.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` et `git rev-parse 4d067719358d92b452a8888f8cc8dfe757e3aa86` : `4d067719358d92b452a8888f8cc8dfe757e3aa86`.
+- Inspection de tous les wrappers `event`, des attributs de dimensions, du handler de scroll et de la cascade `is-stacked`/`is-time-slot` : anciens P1 fermés, P1 temporisé reproduit structurellement.
+- `node --test tests/planning-postproduction.test.js` : **PASS, 44/44**, 0 échec/skip/todo, durée `142,389 ms`.
+- `npm test` : **PASS, 341/341**, 0 échec/cancelled/skip/todo, durée `8,404 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check e9752f4..4d067719358d92b452a8888f8cc8dfe757e3aa86` : **PASS**.
+- Limite : aucun navigateur/layout engine frais n'est revendiqué ; le défaut restant découle directement des sélecteurs mutuellement exclusifs et des dimensions exactes.
+
+Empreintes contrôlées :
+
+```text
+app.js                              eaa823db9d7e5f98363025b3fce209490f68db1f76639886a97cbab24335520f
+planning.css                        4aaf3b966ef952ddaaece54c90058aa58569becbacd07a6ca3d4fc48d55dad9a
+tests/planning-postproduction.test.js e40ddc06ec226d906b930a4e89aff0e3bea12c17e2371db36c8c758e8a602fb5
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW du correctif Projet vers Planning est **CHANGES REQUIRED** sur `4d067719358d92b452a8888f8cc8dfe757e3aa86` : 0 P0, 1 P1 (`REV-RC3-PROJECT-03`), 1 P2. Retour DEV requis, puis re-REVIEW indépendante et preuve navigateur des piles temporisées et non temporisées.
+
+---
+
+# Re-REVIEW indépendante — densité de la vue Projet Planning
+
+Date : 2026-08-24
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `e9752f4e791f42bfcd8ad584e898ce68e20a850f` (`fix(planning): fit stacked project bookings`)
+
+Correctif contrôlé : `6c59402..e9752f4e791f42bfcd8ad584e898ce68e20a850f`
+
+Nature : revue seule ; seul `docs/code-review.md` est modifié par cet axe
+
+## Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 2 P1 ouverts, 2 P2.**
+
+Le regroupement `planningMaxCellStack()` reproduit correctement les clés de cellule utilisées par le rendu journalier, horaire et demi-journée, et la nouvelle hauteur alimente bien la variable CSS ainsi que la création initiale de la fenêtre virtuelle. Deux consommateurs bloquants restent toutefois incohérents : le handler de scroll continue de recalculer les seuils virtuels avec les anciennes hauteurs fixes, et la formule `planningRowHeight()` suppose une hauteur constante de 58 px par carte alors que le composant rendu possède un nombre de lignes variable. Le cas testé prouve seulement `2 → 132 px`, sans démontrer que deux cartes réelles tiennent dans ces 132 px.
+
+## P1 — REV-RC3-PROJECT-01 — le scroll virtuel ignore la hauteur dynamique
+
+`planningMatrix()` calcule désormais `rowHeight`, l'utilise dans `planningVirtualSlice()`, l'injecte dans `--planning-row-height` et l'ajoute à la clé virtuelle. En revanche, `timeline.onscroll` conserve ce calcul historique :
+
+```js
+rowHeight = planningFullscreen && compactView ? 64 : compactView ? 74 : 92
+```
+
+Ce second consumer n'utilise ni `matrix.style --planning-row-height`, ni une donnée `data-row-height`, ni `planningRowHeight()`. Avec deux cartes, le DOM et les spacers progressent par `132 px`, mais `planningVirtualWindowNeedsRender()` décide encore les limites visibles par pas de `92 px` hors vue compacte. Le décalage augmente à chaque ligne : après dix lignes, le seuil logique dérive déjà de 400 px. Selon la position, la fenêtre peut être reconstruite trop tôt ou trop tard, avec lignes vides, saut de contenu ou restauration instable du `scrollTop`.
+
+Le même chemin oublie aussi le `baseRowHeight=104` d'une grille Jour temporisée. Le correctif étend donc une incohérence existante au parcours précis qu'il cherche à réparer. Tous les consommateurs de la virtualisation doivent utiliser la même hauteur résolue.
+
+## P1 — REV-RC3-PROJECT-02 — 58 px par carte ne couvre pas les cartes réellement rendues
+
+La formule est :
+
+```js
+12 + depth * 58 + (depth - 1) * 4
+```
+
+Elle donne `132 px` pour deux cartes. Or `event()` rend toujours titre, projet/horaire et badge de statut, puis peut ajouter une ligne de décision d'option, une présence avec `white-space:normal`, et une ligne supplémentaire pour toute réservation multi-jour. Les cellules ont 10 px de padding vertical et 4 px de gap. Aucune règle ne fixe une hauteur de carte à 58 px et aucun plafond ne garantit que ces variantes y tiennent.
+
+Le test utilise justement une réservation multi-jour, mais n'appelle jamais `event()`, ne construit aucun DOM et n'évalue aucune hauteur calculée. Il valide uniquement le nombre `132`. Deux cartes multi-jour, deux doubles options ou deux cartes avec présence peuvent donc dépasser la piste CSS ; le contenu déborde vers la ligne suivante ou est rogné par l'`overflow:hidden` interne. Cela contredit le critère « multi-cartes sans overflow » et peut masquer des libellés accessibles visuellement utiles.
+
+Correction attendue : soit imposer et tester une carte compacte de hauteur réellement bornée avec traitement accessible du contenu, soit mesurer/modéliser toutes les variantes rendues et dimensionner la piste en conséquence. Une preuve DOM sur au minimum deux cartes multi-jour, option et présence est requise.
+
+## Exactitude du comptage
+
+- Hors grille temporisée, la clé `resourceId|date` correspond à la cellule qui rend les cartes.
+- En demi-journée, la partition avant/après 13 h reprend le même choix que le filtre de rendu.
+- En horaire, la recherche du créneau contenant le début de l'intervalle correspond à la condition qui rend une carte uniquement dans son créneau initial ; la largeur continue de porter sa durée.
+- Les cellules déplacées et allocations sont prises via `bookingRenderedCells()`, comme le rendu. Les filtres salle et dates empêchent de surcompter hors matrice.
+- Le maximum global rend volontairement toutes les lignes uniformes, ce qui maintient le modèle de virtualisation à taille constante.
+
+## P2 — complexité et ergonomie
+
+1. En horaire, chaque cellule de réservation exécute `slots.find()`. Le coût ajouté est `O(cellules de réservation × créneaux)` avant le rendu déjà coûteux. Le nombre de créneaux Jour borne actuellement l'impact, mais une indexation des créneaux éviterait une régression si la granularité ou la fenêtre s'élargit.
+2. Une seule cellule très dense agrandit toutes les lignes de toutes les salles sur toute la période chargée. C'est compatible avec la virtualisation uniforme, mais peut fortement réduire la densité et la navigation clavier/visuelle d'une grande vue Projet. Aucune borne ni stratégie de repli n'est documentée.
+
+## Accessibilité et consommateurs inchangés
+
+- Les cartes conservent leur article, libellé `aria-label`, focus, raccourcis clavier et statuts textuels ; aucune permission ni action n'est changée.
+- L'injection de `rowHeight` est numérique et issue de données comptées, sans nouveau contenu HTML utilisateur.
+- Les API, données persistées, filtres Projet, sticky headers et synchronisation des axes ne changent pas dans ce diff.
+- L'augmentation de piste est correctement transmise aux cellules, ressources et spacers CSS initiaux via `--planning-row-height`, mais pas au consumer de seuils lors du scroll, objet du P1 principal.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` et `git rev-parse e9752f4` : `e9752f4e791f42bfcd8ad584e898ce68e20a850f`.
+- Inspection de `planningMaxCellStack`, `planningRowHeight`, `planningMatrix`, du handler `timeline.onscroll`, du HTML `event()` et des règles CSS de cellules/cartes : deux divergences P1 reproduites structurellement.
+- `node --test tests/planning-postproduction.test.js` : **PASS, 44/44**, 0 échec/skip/todo, durée `142,964 ms`.
+- `npm test` : **PASS, 341/341**, 0 échec/cancelled/skip/todo, durée `11,620 s`.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check 6c59402..e9752f4` : **PASS**.
+- Limite : aucun navigateur/layout engine frais n'est revendiqué ; les tests ajoutés sont purement fonctionnels et ne rendent pas les cartes.
+
+Empreintes contrôlées :
+
+```text
+app.js                              4a8427df94b98677a16e99e5795c6aabfff0ea6a0e3e42880ce1e9781f8d2005
+planning.css                        48a8ad5bec9e86c56d3444812632506a022be837eef82418f6db1b962d9bec36
+tests/planning-postproduction.test.js 927dee2c88297b4457c381f42e399db65edfa3f888f1116b790754989266ecee
+```
+
+## Handoff
+
+Seul `docs/code-review.md` est modifié par cette re-review. Le gate REVIEW du correctif vue Projet est **CHANGES REQUIRED** sur `e9752f4e791f42bfcd8ad584e898ce68e20a850f` : 0 P0, 2 P1 (`REV-RC3-PROJECT-01`, `REV-RC3-PROJECT-02`), 2 P2. Retour DEV requis, puis re-REVIEW indépendante et preuve navigateur de cartes empilées avec scroll/virtualisation.
+
+---
+
 # Re-REVIEW finale — hiérarchie sticky du Planning
 
 Date : 2026-08-24
