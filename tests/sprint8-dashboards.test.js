@@ -133,12 +133,13 @@ test('S8-A expose le dashboard via HTTP avec le contrat d’erreur stable', asyn
 });
 
 test('S8-A câble la route, l’interface Pilotage et le contrat OpenAPI', () => {
-  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'), app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8'), html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8'), openapi = fs.readFileSync(path.join(__dirname, '..', 'docs', 'api', 'openapi-v1.yaml'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'), app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8'), css = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8'), html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8'), openapi = fs.readFileSync(path.join(__dirname, '..', 'docs', 'api', 'openapi-v1.yaml'), 'utf8');
   assert.match(server, /route\.match\(\/\^\\\/api\\\/v1\\\/dashboards/);
   assert.match(html, /data-route="pilotage"/);
   assert.match(app, /DASHBOARD_KINDS_UI/);
   assert.match(app, /pilotagePageSectionsBase/); assert.match(app, /data-pilotage-detail-page/); assert.match(app, /pilotageShareFilters/);
   assert.match(app, /<dialog class="pilotage-detail-dialog"/); assert.match(app, /data-pilotage-detail-close/); assert.match(app, /Sous-utilisé/); assert.match(app, /pilotageDetailValue/);
+  assert.match(app, /pilotageForecastSection/); assert.match(app, /Prévisions de chiffre d’affaires/); assert.match(app, /Déjà planifié/); assert.match(app, /À planifier/); assert.match(css, /\.pilotage-forecast-grid/);
   assert.match(openapi, /\/dashboards\/\{kind\}:/);
   assert.match(openapi, /\/dashboards\/\{kind\}\/drilldown:/);
   assert.match(openapi, /DashboardDrilldownResponse:/);

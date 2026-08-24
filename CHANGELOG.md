@@ -8,6 +8,7 @@
 - la vue Mois devient une bande détaillée de trois mois glissants, centrée sur le mois sélectionné, avec le mois précédent à gauche et le suivant à droite ;
 - suppression de la vue 6 semaines devenue redondante ; le sélecteur propose Jour, Semaine, Mois et 3 mois ;
 - le détail des KPI Pilotage s’ouvre dans une fenêtre accessible et localisée ; les occupations réelles absentes ne génèrent plus de fausses lignes « — bps » ;
+- la section Forecast du tableau Direction présente désormais les horizons 30/60/90 jours en français, avec dates lisibles et montants planifiés/à planifier formatés en euros ;
 - recette navigateur en plein écran et mode normal jusqu’aux dates terminales, avec 12 déplacements continus en 337 ms, suite complète 343/343, lint et build verts.
 
 ## 0.5.0-rc4 — 2026-08-24
