@@ -34,7 +34,7 @@ test('S8-A couvre les KPI obligatoires, conserve les filtres et réconcilie CA s
     planning: ['occupancy', 'saturation', 'underutilization', 'openOptions', 'conflicts', 'unplannedProjects'],
     sales: ['budgets', 'quotes', 'budgetConversion', 'conversion', 'discount'],
     operations: ['resources', 'maintenance', 'unavailable', 'plannedOccupancy', 'actualOccupancy', 'occupancyGap'],
-    project: ['projects', 'planning', 'planningCompleteness', 'unplannedProjects', 'actuals'],
+    project: ['projects', 'planning', 'planningCompleteness', 'unplannedProjects', 'actuals', 'actualCompletion', 'actualGap'],
   };
   for (const [kind, ids] of Object.entries(required)) { const model = dashboardReadModel(db, admin, kind, { asOf: '2026-08-23', from: '2026-08-01', to: '2026-08-23' }); for (const id of ids) assert.ok(model.kpis.some(value => value.id === id), `${kind}.${id}`); }
   const resource = db.resources.find(value => value.companyId === db.companies[0].id), planning = dashboardReadModel(db, admin, 'planning', { asOf: '2026-08-23', from: '2026-08-01', to: '2026-08-23', resourceId: resource.id, resourceCategoryId: resource.resourceCategoryId });
@@ -46,6 +46,26 @@ test('S8-A couvre les KPI obligatoires, conserve les filtres et réconcilie CA s
 test('S8-A refuse Exploitation sans maintenance.read et ne divulgue aucun compteur', () => {
   const db = makeSeed(), withoutMaintenance = authFor(db, ['planning.read', 'resource.read']);
   assert.throws(() => dashboardReadModel(db, withoutMaintenance, 'operations', { asOf: '2026-08-23' }), error => error.status === 403 && error.code === 'DASHBOARD_FORBIDDEN' && error.details.missingPermissions.includes('maintenance.read'));
+});
+
+test('S8-A applique le filtre Projet à l’occupation et réconcilie la carte avec le détail journalier', () => {
+  const db = makeSeed(), admin = authFor(db, ['finance.read', 'quote.read', 'planning.read', 'resource.read', 'actual.read', 'client.read', 'project.read', 'maintenance.read']), resource = db.resources.find(value => value.companyId === db.companies[0].id), projects = db.projects.filter(value => value.companyId === resource.companyId).slice(0, 2), source = db.reservations[0];
+  assert.equal(projects.length, 2); for (const project of projects) project.siteId = resource.siteId;
+  const booking = (id, projectId, endsAt) => ({ ...structuredClone(source), id, companyId: resource.companyId, siteId: resource.siteId, projectId, status: 'confirmed', startsAt: '2026-08-10T00:00:00.000Z', endsAt, resources: [{ resourceId: resource.id, quantity: 1 }], version: 1, sourceQuoteId: undefined, sourceQuoteVersionId: undefined, sourceQuoteLineId: undefined });
+  db.reservations = [booking('reservation_dashboard_short', projects[0].id, '2026-08-10T01:00:00.000Z'), booking('reservation_dashboard_hidden', projects[1].id, '2026-08-10T08:00:00.000Z')]; db.actualRecords = []; db.actualRevisions = [];
+  const input = { asOf: '2026-08-23', from: '2026-08-10', to: '2026-08-10', projectId: projects[0].id, resourceId: resource.id }, model = dashboardReadModel(db, admin, 'planning', input), kpi = model.kpis.find(value => value.id === 'occupancy'), detail = dashboardDrilldownReadModel(db, admin, 'planning', { ...input, kpiId: 'occupancy', pageSize: 100 });
+  assert.equal(model.sources.counts.reservations, 1); assert.equal(kpi.value, 417); assert.equal(detail.total, 1); assert.equal(detail.items[0].value, kpi.value);
+});
+
+test('S8-A exige un KPI explicite sur le drill-down public', () => {
+  const db = makeSeed(), admin = authFor(db, ['finance.read', 'quote.read', 'planning.read', 'resource.read', 'actual.read', 'client.read', 'project.read', 'maintenance.read']);
+  assert.throws(() => dashboardDrilldownReadModel(db, admin, 'direction', { asOf: '2026-08-23' }), error => error.status === 422 && error.code === 'DASHBOARD_KPI_REQUIRED');
+});
+
+test('S8-A refuse un export de détail supérieur à 10 000 sources sans troncature silencieuse', () => {
+  const db = makeSeed(), admin = authFor(db, ['quote.read', 'planning.read', 'project.read', 'actual.read']), source = db.reservations[0], project = db.projects.find(value => value.id === source.projectId);
+  db.reservations = Array.from({ length: 10001 }, (_, index) => ({ ...structuredClone(source), id: `reservation_dashboard_export_${index}`, projectId: project.id, status: 'confirmed', version: 1, sourceQuoteId: undefined, sourceQuoteVersionId: undefined, sourceQuoteLineId: undefined }));
+  assert.throws(() => dashboardDrilldownReadModel(db, admin, 'project', { asOf: '2026-08-23', from: '2026-08-01', to: '2026-08-23', kpiId: 'planning', page: '1', pageSize: '10000', internalExport: true }), error => error.status === 422 && error.code === 'EXPORT_TOO_LARGE' && error.details.total === 10001);
 });
 
 test('S8-A n’expose aucun coût ni marge au Commercial sans finance.read', () => {
@@ -82,6 +102,8 @@ test('S8-A expose le dashboard via HTTP avec le contrat d’erreur stable', asyn
   assert.equal(response.status, 200); assert.equal(data.dashboard, 'direction'); assert.equal(data.kpis.some(value => value.id === 'signedRevenue'), true);
   const drilldown = await fetch(`${base}/api/v1/dashboards/direction/drilldown?asOf=2026-08-23&kpiId=signedRevenue&page=1&pageSize=10`, { headers: { cookie } }), detail = await drilldown.json();
   assert.equal(drilldown.status, 200); assert.equal(detail.dashboard, 'direction'); assert.equal(detail.kpiId, 'signedRevenue'); assert.ok(Array.isArray(detail.items)); assert.ok(detail.items.every(value => value.kpiId === 'signedRevenue'));
+  const missingKpi = await fetch(`${base}/api/v1/dashboards/direction/drilldown?asOf=2026-08-23`, { headers: { cookie } }), missingKpiError = await missingKpi.json();
+  assert.equal(missingKpi.status, 422); assert.equal(missingKpiError.error.code, 'DASHBOARD_KPI_REQUIRED');
   const invalid = await fetch(`${base}/api/v1/dashboards/direction?asOf=2999-01-01`, { headers: { cookie } }), error = await invalid.json();
   assert.equal(invalid.status, 422); assert.equal(error.error.code, 'DASHBOARD_PERIOD_INVALID'); assert.ok(error.error.requestId);
 });
@@ -91,6 +113,7 @@ test('S8-A câble la route, l’interface Pilotage et le contrat OpenAPI', () =>
   assert.match(server, /route\.match\(\/\^\\\/api\\\/v1\\\/dashboards/);
   assert.match(html, /data-route="pilotage"/);
   assert.match(app, /DASHBOARD_KINDS_UI/);
+  assert.match(app, /pilotagePageSectionsBase/); assert.match(app, /data-pilotage-detail-page/); assert.match(app, /pilotageShareFilters/);
   assert.match(openapi, /\/dashboards\/\{kind\}:/);
   assert.match(openapi, /\/dashboards\/\{kind\}\/drilldown:/);
   assert.match(openapi, /DashboardDrilldownResponse:/);

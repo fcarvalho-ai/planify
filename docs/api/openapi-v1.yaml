@@ -746,7 +746,7 @@ paths:
           in: path
           required: true
           schema: { type: string, enum: [direction, finance, planning, sales, operations, project] }
-        - { name: kpiId, in: query, schema: { type: string } }
+        - { name: kpiId, in: query, required: true, schema: { type: string } }
         - { name: asOf, in: query, schema: { type: string, format: date } }
         - { name: from, in: query, schema: { type: string, format: date } }
         - { name: to, in: query, schema: { type: string, format: date } }
@@ -789,10 +789,11 @@ paths:
         - { name: resourceCategoryId, in: query, schema: { type: string } }
       responses:
         '200':
-          description: Classeur XLSX local avec feuilles Synthèse, Détail et Définitions
+          description: Classeur XLSX local avec feuilles Synthèse, Détail, Sections et Définitions
           content:
             application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
               schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
@@ -2440,12 +2441,13 @@ components:
         resourceId: { type: [string, 'null'] }
         value: {}
         unit: { type: [string, 'null'] }
+        weight: { type: [string, number, 'null'], description: Poids de réconciliation d’un indicateur pondéré }
         status: { type: [string, 'null'] }
         label: { type: [string, 'null'] }
     DashboardDrilldownResponse:
       type: object
       additionalProperties: false
-      required: [dashboard, definitionVersion, generatedAt, asOf, period, filters, items, page, pageSize, total, pageCount]
+      required: [dashboard, definitionVersion, generatedAt, asOf, period, filters, kpiId, items, page, pageSize, total, pageCount]
       properties:
         dashboard: { type: string, enum: [direction, finance, planning, sales, operations, project] }
         definitionVersion: { type: string }
@@ -2453,7 +2455,7 @@ components:
         asOf: { type: string, format: date }
         period: { type: object, additionalProperties: true }
         filters: { type: object, additionalProperties: { type: [string, 'null'] } }
-        kpiId: { type: [string, 'null'] }
+        kpiId: { type: string }
         items: { type: array, maxItems: 500, items: { $ref: '#/components/schemas/DashboardDrilldownItem' } }
         page: { type: integer, minimum: 1 }
         pageSize: { type: integer, minimum: 1, maximum: 500 }

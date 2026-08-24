@@ -147,14 +147,22 @@ test('S8-D applique la matrice des sept rôles, six dashboards et trois exports 
     for (const dashboard of dashboards) {
       const allowed = requirements[dashboard].every(hasPermission); let model = null, error = null; try { model = dashboardReadModel(db, auth, dashboard, { asOf: '2026-08-23', from: '2026-08-01', to: '2026-08-23' }); } catch (caught) { error = caught; }
       assert.equal(Boolean(model), allowed, `${role.code}/${dashboard}`); if (!allowed) assert.equal(error?.status, 403); if (model && !hasPermission('finance.read')) assert.doesNotMatch(JSON.stringify(model), /plannedMargin|actualMargin|plannedCost|actualCost|costUnitMinor/);
-      for (const format of ['screen', 'xlsx', 'pdf']) { checked++; if (!model) continue; if (format === 'xlsx') assert.equal(exportXlsxBuffer('Matrice', ['Dashboard'], [[dashboard]]).subarray(0, 2).toString(), 'PK'); if (format === 'pdf') assert.equal(exportPdfBuffer('Matrice', dashboard, ['Dashboard'], [[dashboard]]).subarray(0, 8).toString(), '%PDF-1.4'); }
+      checked++;
     }
     if (hasPermission('planning.read') && hasPermission('project.read|project.manage')) assert.doesNotThrow(() => planningExportRows(db, auth, { from: '2026-08-01', to: '2026-08-31' }));
   }
-  assert.equal(checked, 7 * 6 * 3);
-  const observed = {};
-  for (const dashboard of dashboards) observed[dashboard] = (await request(`/api/v1/dashboards/${dashboard}`, {}, planner)).response.status;
-  assert.deepEqual(observed, { direction: 403, finance: 403, planning: 200, sales: 200, operations: 200, project: 200 });
+  assert.equal(checked, 7 * 6);
+  const matrixSeed = readDb(), plannerMembership = matrixSeed.organizationMemberships.find(value => value.userId === 'user_planner' && value.companyId === 'company_northlight'); assert.ok(plannerMembership); let httpChecked = 0;
+  for (const role of roles) {
+    const roleDb = structuredClone(matrixSeed); roleDb.membershipRoles = roleDb.membershipRoles.filter(value => value.membershipId !== plannerMembership.id); roleDb.membershipRoles.push({ membershipId: plannerMembership.id, roleId: role.id }); resetData(roleDb); const actor = await login('planner@northlight.fr'), permissions = actor.user.permissions, hasPermission = value => permissions.includes('*') || value.split('|').some(permission => permissions.includes(permission));
+    for (const dashboard of dashboards) {
+      const allowed = requirements[dashboard].every(hasPermission), screen = await request(`/api/v1/dashboards/${dashboard}?asOf=2026-08-23&from=2026-08-01&to=2026-08-23`, {}, actor); httpChecked++; assert.equal(screen.response.status, allowed ? 200 : 403, `${role.code}/${dashboard}/screen`);
+      const kpiId = allowed ? screen.data.kpis.find(value => value.status !== 'unavailable')?.id : 'signedRevenue', detail = await request(`/api/v1/dashboards/${dashboard}/drilldown?asOf=2026-08-23&from=2026-08-01&to=2026-08-23&kpiId=${encodeURIComponent(kpiId || 'signedRevenue')}`, {}, actor); httpChecked++; assert.equal(detail.response.status, allowed ? 200 : 403, `${role.code}/${dashboard}/drilldown`);
+      const workbook = await request(`/api/v1/dashboards/${dashboard}/export.xlsx?asOf=2026-08-23&from=2026-08-01&to=2026-08-23`, {}, actor); httpChecked++; assert.equal(workbook.response.status, allowed ? 200 : 403, `${role.code}/${dashboard}/xlsx`); if (allowed && !hasPermission('finance.read')) assert.equal(/plannedMargin|actualMargin|plannedCost|actualCost|costUnitMinor/i.test(workbook.raw.toString('latin1')), false);
+    }
+    for (const route of ['/api/v1/exports/planning.xlsx?from=2026-08-01&to=2026-08-31', '/api/v1/exports/planning.pdf?from=2026-08-01&to=2026-08-31']) { const output = await request(route, {}, actor), planningAllowed = hasPermission('planning.read'); assert.equal(output.response.status, planningAllowed ? 200 : 403, `${role.code}/${route}`); }
+  }
+  assert.equal(httpChecked, 7 * 6 * 3); resetData(matrixSeed); admin = await login('admin@northlight.fr'); planner = await login('planner@northlight.fr');
 
   const catalogue = await request('/api/v1/analytics/datasets', {}, planner);
   assert.equal(catalogue.response.status, 200);
