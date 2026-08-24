@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0-rc2 — 2026-08-24
+
+- correction du design system : alias sémantiques partagés par Pilotage, Réalisations et Finance ;
+- onglets Pilotage actifs à nouveau lisibles, contraste texte/fond `4,86:1` ;
+- contours et surfaces des écrans Réalisations et Finance restaurés ;
+- focus clavier Pilotage renforcé à 3 px, contraste minimal `4,16:1` ;
+- recette navigateur des six onglets et des écrans affectés sans erreur console ;
+- REVIEW, QA, SECURITY et PERFORMANCE approuvés sans P0/P1 ; suite finale 340/340, lint et build verts.
+
 ## 0.5.0-rc1 — 2026-08-24
 
 - six dashboards adaptés aux rôles : Direction, Finance, Planning, Commercial, Exploitation et Chef de projet ;

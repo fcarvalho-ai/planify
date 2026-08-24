@@ -1,11 +1,13 @@
 # État du projet — Planning Post Prod
 
-Version : `0.5.0-rc1`
+Version : `0.5.0-rc2`
 Date : 2026-08-24
 
 Organisation : gouvernance multi-agents formalisée dans `AGENTS.md`; dépôt Git initialisé sur `main`.
 
 Architecture cible : le synoptique global fourni par le Product Owner est adopté comme cible de développement. La migration reste incrémentale depuis la RC1, sans big bang.
+
+Décision RELEASE visuelle G8 2026-08-24 : **APPROVED — Planify `0.5.0-rc2`**. Le candidat applicatif `34a9d7883dcf22cad517bf45393848eaa60d48d8` ferme le défaut de tokens et le contraste focus révélé par la recette PO de RC1. Les six onglets Pilotage sont lisibles (`4,86:1`), le focus clavier atteint au minimum `4,16:1`, Réalisations et Finance récupèrent leurs contours, Planning reste inchangé et la console navigateur est propre. REVIEW, QA, SECURITY et PERFORMANCE sont à 0 P0/P1 ; Foundations 17/17, ciblés QA 107/107, suite 340/340, lint/build/diff-check PASS. `package.json`, `CHANGELOG.md`, `README.md` et l’addendum E2E sont alignés ; aucune publication distante n’est effectuée.
 
 Décision recette visuelle PO post-release 2026-08-24 : la recette réelle de `0.5.0-rc1` a identifié un défaut de contraste transversal : les modules Pilotage, Réalisations et Finance utilisaient cinq variables CSS sémantiques non définies, notamment l’onglet Pilotage actif rendu blanc sur fond transparent clair. Les alias canoniques `primary/surface/surface-soft/text/border` sont désormais reliés au design system existant et protégés par un test de fondation. La release locale `0.5.0-rc1` reste la baseline précédente ; ce correctif visuel revient en DEV et doit être contrôlé dans le navigateur puis repasser les gates impactés avant une candidate `0.5.0-rc2`.
 
@@ -264,7 +266,7 @@ Décision produit 2026-08-14 : l’ordre de livraison est désormais strictement
 | Performance | Approved | Agent 10 | 100 ressources / 10 000 réservations | Mono-processus local |
 | Sécurité | Approved | Agent 11 | Auth, CSRF, RBAC, isolation, statique, fail-closed | Aucun bloquant connu |
 | Intégration | Intégré RC1 | Agent 12 | Frontend/API local vérifié | Aucun |
-| Release V1 | **0.5.0-rc1 APPROVED — candidate locale** | Intégration / PO | G0–G8 et Integration/E2E approuvés ; métadonnées et rollback G8 alignés. Preuves release fraîches : 339/339, lint/build/syntaxe/diff-check PASS, 5 actifs runtime. | Aucun P0/P1. Publication ou déploiement distant non demandé ; limites P2 conservées dans les rapports. |
+| Release V1 | **0.5.0-rc2 APPROVED — candidate locale** | Intégration / PO | G0–G8, Integration/E2E et recette visuelle finale approuvés ; tokens UI et focus clavier corrigés. Preuves : 340/340, lint/build/diff-check PASS, 5 actifs runtime. | Aucun P0/P1. Publication ou déploiement distant non demandé ; limites P2 conservées dans les rapports. |
 | Organisation 01 / Fiscalité 01b | DEV intégré, revalidation indépendante requise | Product/Domain Organisation + Backend/Frontend 01 | 84/84 tests complets le 2026-08-15 ; syntaxe et diff-check propres ; dernier benchmark HTTP p95 1,574 ms lecture / 3,214 ms écriture | Exemples de saisie ajoutés ; archivage logique Organisation et désactivation Service/Ressource réservés aux administrateurs, via une commande compacte « − » et un avertissement explicite avant confirmation, avec contrôles de dépendances et conservation de l'historique. Les anciens verdicts APPROVED doivent être rejoués sur ce nouveau candidat avant Ressources 02 ; validation produit O2/O3 reste à clôturer |
 | Ressources 02 | DEV partiel intégré, revalidation indépendante requise | Product/Domain Ressources + Intégration | 90/90 tests complets le 2026-08-15 ; smoke navigateur Ressources et Parc matériel | Premier incrément visible : liste professionnelle des salles et affectation/dépose d’exemplaires Stock par site. La fondation Organisation reste le prérequis de validation avant poursuite Ressources 02 |
 | Projets 04 + Planning 03 | DEV initial Post-production intégré, revalidation indépendante requise | Product Planning/Workflow + Intégration | Gate SPEC APPROVED ; 97/97 tests complets ; smoke navigateur semaine/mois/sélecteur | Projet référencé obligatoire. Première tranche limitée à la matrice Post-production ; exceptions unitaires de cellule intégrées, Planning Location reste hors de ce candidat |

@@ -1,5 +1,9 @@
 # Rapport E2E G8 — Dashboards, exports et surfaces authentifiées
 
+## Addendum visuel `0.5.0-rc2` — 2026-08-24
+
+**APPROVED — 0 P0 / 0 P1** sur le candidat visuel `34a9d7883dcf22cad517bf45393848eaa60d48d8`. La recette navigateur a reproduit l’onglet actif blanc sur fond clair de RC1, puis confirmé sa correction sur les six onglets Pilotage : fond primaire `#6c5ce7`, texte blanc, contraste `4,86:1`. La navigation clavier affiche un contour primaire opaque de 3 px avec un contraste minimal `4,16:1`. Les bordures Réalisations et Finance sont restaurées ; Planning demeure inchangé et la console ne contient aucune erreur ni avertissement. Preuves automatisées : Foundations 17/17, suite complète 340/340, lint/build/diff-check PASS ; REVIEW, QA, SECURITY et PERFORMANCE à 0 P0/P1.
+
 Date : 2026-08-24
 Environnement : macOS arm64, Node.js v26.6.0, navigateur intégré
 Candidat applicatif : `68489b1fc0575706ecbf13c191ab033dc1981d63`
