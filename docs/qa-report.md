@@ -3368,3 +3368,87 @@ Statut : **conforme**.
 ## Verdict terminal
 
 La re-QA ultime G7-D du candidat `7051fe4ff4849b1e9849e81b8266d73fa6c2fda6` est **APPROVED**. Les trois négatifs demandés passent, le P1 résiduel est fermé et aucune anomalie P0/P1 QA n'est ouverte. Le candidat peut poursuivre vers les autres gates indépendants puis INTEGRATION/E2E ; ce verdict seul ne débloque pas encore G7.
+
+---
+
+# Re-QA indépendante G8 — correctifs Dashboards, exports et rejeu SSE
+
+Date : 2026-08-24 11:45 CEST
+
+Verdict : **REJECTED — 1 P1 QA ouvert**
+
+Périmètre : candidat applicatif exact `1d4d97b3c43b6d91756b5c74207371dd879c760a`, revalidation des quatre P1 historiques G8, contrats Dashboards/Drill-down/Exports, permissions/scopes, rejeu idempotent et non-régression.
+
+Indépendance : aucun code, test, contrat, statut ou autre rapport modifié ; seul `docs/qa-report.md` est actualisé. Le worktree contenait pendant la campagne la rédaction indépendante de `docs/code-review.md`, sans dérive du hash applicatif testé.
+
+## Empreintes du candidat testé
+
+```text
+server.js                         015388c5d033f7d43c0e9472d2c8146d7e151eaba053e9a56a4a01bde6172365
+app.js                            c40d6bb10cc5394b845131b49f7c06b7de90a878b1e54e97a635f1e42a50f480
+tests/sprint8-dashboards.test.js  2fe0fa87f0fe3e0c902a731b7184914abba75e2de9e139994067ec994dfc4c80
+tests/sprint8-exports.test.js     45b0eb8efe99e5770f9573e4219ee23a7affb75ba264ae5b235be3f7937d78e7
+tests/sprint8-security.test.js    4258f8e212b8be5ebced51a5b38be4e067efe9b2e361f2c12a805c57962dc7aa
+docs/api/openapi-v1.yaml          c4adb3ef48d93d9996dd6de8a126a70be82f229b59fa4c68e99c1d9300d6c240
+```
+
+Environnement : Node `v26.6.0`, Darwin arm64.
+
+## Preuves fraîches
+
+| Commande exacte | Résultat observé |
+|---|---|
+| `node --test tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` | PASS, **64/64**, 0 échec/annulé/ignoré/TODO, 1 339,71 ms |
+| `npm test` | PASS, **334/334**, 0 échec/annulé/ignoré/TODO, 8 039,00 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` | PASS, code 0 avant rédaction du présent rapport |
+| validation Ruby/Psych OpenAPI | PASS, OpenAPI `3.1.0`, **71 chemins / 85 opérations / 354 références**, aucun `$ref`, `operationId` ou paramètre de chemin manquant |
+| probe déterministe filtre Projet → occupation | **ÉCHEC métier** : KPI `3 750 bps`, attendu `417 bps`; le compteur Dashboard ne voit qu'une réservation mais l'agrégat en compte deux |
+| probe déterministe Dashboard → drill-down occupation | **ÉCHEC de réconciliation** : Dashboard `3 333 bps`, moyenne des dix lignes du détail `2 000 bps` |
+
+## Revalidation des quatre P1 historiques
+
+### P1-1 — filtres et drill-down Dashboard : encore ouvert
+
+Les champs `resourceId` et `resourceCategoryId`, la route paginée et leur conservation dans les liens/UI ont bien été ajoutés. Le CA signé se réconcilie dans le test nominal. Cependant, le moteur d'occupation appelé par les Dashboards reçoit encore la base complète : `financeOccupancy(db, ...)` ne filtre que Site/Ressource/Catégorie et ignore Projet, Client et commercial.
+
+Reproduction déterministe : deux Projets autorisés partagent une ressource un même jour. Le Projet filtré réserve une heure et l'autre huit heures. Avec `projectId` fixé sur le premier Projet, `sources.counts.reservations` vaut correctement `1`, mais le KPI occupation vaut `3 750 bps`, soit les neuf heures cumulées. Sur la seule source filtrée, la valeur correcte est `417 bps`.
+
+Un second probe confirme que le détail n'utilise pas toujours la même définition que la carte : Direction agrège l'occupation par semaine, alors que son drill-down la reconstruit par jour. Du 1er au 10 août avec deux jours occupés, la carte vaut `3 333 bps`; les dix lignes du détail donnent une moyenne de `2 000 bps`.
+
+Impact : la sélection visible n'est pas appliquée avant agrégation et le même `asOf`/périmètre ne suffit pas à réconcilier écran, détail et export. Le critère central G8 « chaque nombre réconciliable » reste faux.
+
+Correction attendue : construire une source Planning/Occupation déjà filtrée par les Projets/Clients/commerciaux visibles avant le calcul, puis utiliser exactement le même `groupBy`, la même dimension et la même formule entre KPI et détail. Ajouter des tests négatifs chiffrés pour chaque filtre et une égalité agrégat ↔ détail pour chaque KPI calculé, pas uniquement le CA signé.
+
+### P1-2 — structure et bornes des exports : fermé
+
+- Planning XLSX contient `Planning`, `Filtres`, `Définitions`, une ligne par allocation/jour et un format date Excel dédié (`numFmtId=164`).
+- KPI XLSX contient `Synthèse`, `Détail`, `Définitions` et réemploie le read-model/drill-down courant.
+- PDF refuse plus de 62 jours, sélectionne A4 paysage jusqu'à 14 jours puis A3, et contient fuseau et légende textuelle.
+- Les négatifs de permissions, période trop longue, projet masqué et neutralisation de formules passent.
+
+Statut : **fermé pour la structure et les bornes**. L'export KPI hérite néanmoins du P1-1 puisque son détail provient du drill-down non réconcilié.
+
+### P1-3 — Maintenance et matrice de rôles : permission fermée
+
+Le Dashboard Exploitation exige désormais `maintenance.read`; le probe sans cette permission reçoit `403 DASHBOARD_FORBIDDEN` et aucun compteur. La campagne parcourt bien sept rôles, six Dashboards et trois formats (`126` combinaisons) et les routes d'export réévaluent le même `dashboardReadModel` sous l'acteur courant. Les rôles sans `finance.read` ne reçoivent pas de coûts/marges dans les surfaces testées.
+
+Statut : **fermé fonctionnellement**. Limite de preuve : la boucle `126` utilise les read-models et des générateurs mémoire pour les formats ; seul le Planificateur est rejoué via HTTP sur les trois exports. Une matrice HTTP complète resterait préférable.
+
+### P1-4 — replay exact de copie de cellule : fermé
+
+Le test dynamique ouvre un flux SSE, duplique une cellule liée à un Devis, observe les deux invalidations du premier commit, puis rejoue la même clé. Le replay répond `200` avec le même identifiant et aucun second `reservation.cellDuplicated` ni `quote.planningProgress` n'est reçu.
+
+Statut : **fermé**.
+
+## Limites et observations non bloquantes isolément
+
+- la tentative de probe HTTP supplémentaire, hors corpus de tests, a rencontré `listen EPERM` dans la sandbox ; les tests ciblés et complets ont toutefois réellement exercé les routes HTTP sur le même hash ;
+- aucun E2E navigateur ni benchmark contractuel n'est revendiqué par cette QA ; ils appartiennent aux gates aval/Performance ;
+- OpenAPI est structurellement cohérent. La réponse `401` manque encore sur `/dashboards/{kind}/export.xlsx`, alors qu'elle est documentée sur les exports Planning ; ce défaut documentaire reste P2 ;
+- le détail KPI interne est limité à 10 000 lignes par découpe mais ne prouve pas encore un refus explicite plutôt qu'une troncature lorsque le cumul de plusieurs KPI dépasse la borne.
+
+## Verdict terminal
+
+La re-QA G8 du candidat `1d4d97b3c43b6d91756b5c74207371dd879c760a` est **REJECTED** avec **0 P0 et 1 P1**. Les exports, la permission Maintenance et le rejeu SSE sont corrigés, et les **334/334** tests restent verts. En revanche, les filtres Projet/Client/commercial ne bornent pas l'occupation et le drill-down utilise une granularité différente de la carte ; G8 ne satisfait donc toujours pas la réconciliation obligatoire. Retour DEV ciblé requis, puis re-REVIEW, re-QA et gates aval impactés sur un nouveau hash exact.

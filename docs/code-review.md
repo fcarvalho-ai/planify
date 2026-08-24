@@ -5283,3 +5283,101 @@ Environnement : macOS arm64, Node `v26.6.0`.
 Aucun E2E navigateur ni benchmark du dataset contractuel n'a été exécuté dans ce gate REVIEW ; ils appartiennent aux gates correspondants, mais ne pourraient pas fermer les quatre P1 fonctionnels ci-dessus. Aucun fichier exporté n'a été conservé et aucun serveur n'est resté actif.
 
 Seul `docs/code-review.md` est modifié. L'intégrateur doit placer G8 en **Bloqué / retour DEV** dans `docs/project-status.md`. Toute correction invalidera cette revue et exigera une re-REVIEW indépendante sur le nouveau commit et les nouvelles empreintes.
+
+---
+
+## re-REVIEW G8 indépendante — correctifs Dashboards, exports, matrice et replay SSE
+
+Date : 2026-08-24
+Reviewer : agent indépendant `g8_review_final`
+Périmètre : fermeture des quatre P1 du REVIEW G8 précédent, consommateurs UI/OpenAPI et cas limites directement affectés.
+Indépendance : aucun code ni test authored ou corrigé ; seul le présent rapport est modifié. `docs/project-status.md` reste sous ownership de l'intégrateur.
+
+### Candidat exact contrôlé
+
+- commit : `1d4d97b3c43b6d91756b5c74207371dd879c760a` ;
+- `server.js` : `015388c5d033f7d43c0e9472d2c8146d7e151eaba053e9a56a4a01bde6172365` ;
+- `app.js` : `c40d6bb10cc5394b845131b49f7c06b7de90a878b1e54e97a635f1e42a50f480` ;
+- `index.html` : `d78c8c8a68cec49d7c2a73d694129099fd09415be41b422eb4abcf4f498e2a89` ;
+- `planning.css` : `51b38d7ed0eef30e085725777bc293c6e2c435dc87e07056913dbc116608197d` ;
+- `docs/api/openapi-v1.yaml` : `c4adb3ef48d93d9996dd6de8a126a70be82f229b59fa4c68e99c1d9300d6c240` ;
+- tests Dashboards / Exports / BI / Sécurité : `2fe0fa87…`, `45b0eb8e…`, `a0c8dbf3…`, `4258f8e2…`.
+
+### Verdict terminal
+
+**CHANGES REQUIRED — 0 P0, 3 P1 ouverts, 1 P2.**
+
+Le correctif ferme correctement la fuite Maintenance et le second SSE du replay exact. Les feuilles XLSX, dates Excel, ventilation allocation/jour et bornes/orientations PDF demandées existent aussi. Les tests ciblés et la suite complète sont verts. Cependant, les critères centraux « tout chiffre affiché/exporté est réconciliable » et « matrice réelle 7 rôles × 6 dashboards × 3 exports » ne sont toujours pas démontrés et sont contredits par le code contrôlé.
+
+### État des quatre P1 historiques
+
+| P1 historique | État | Preuve |
+|---|---|---|
+| Dashboards, filtres, drill-down et réconciliation | **PARTIELLEMENT FERMÉ — P1 restant** | Les filtres et la route paginée existent, mais plusieurs chiffres requis ne sont ni rendus ni exportés, plusieurs détails ne reproduisent pas la formule de la carte et l'UI n'offre ni pagination du détail ni hash partageable. |
+| Exports XLSX/PDF | **PARTIELLEMENT FERMÉ — P1 restant** | Les structures demandées et le PDF 62 jours/A4-A3 sont présents ; le détail KPI peut toutefois être tronqué silencieusement à 10 000 lignes et le Planning XLSX accepte 367 jours inclusifs. |
+| `maintenance.read` + matrice réelle | **PARTIELLEMENT FERMÉ — P1 restant** | `maintenance.read` est maintenant exigé côté serveur et UI. La boucle annoncée comme 126 cas ne sollicite cependant pas les trois vrais exports pour chacun des sept rôles. |
+| Second SSE au replay `duplicateReservationCell` | **FERMÉ** | Les deux émissions sont conditionnées par `!result.replay` et le test SSE dynamique confirme création `201`, replay `200`, puis absence de nouvelle invalidation. |
+
+### P1 — bloquants
+
+#### P1-1 — Les dashboards restent incomplets et plusieurs détails ne réconcilient pas les chiffres affichés
+
+Le contrat G8 impose que chaque nombre affiché ou exporté soit réconciliable et que Direction expose notamment le forecast, Commercial le pipeline par statut et Chef de projet ses écarts/alertes. Le serveur place le forecast et le pipeline dans `response.sections` (`server.js:4007`, `server.js:4021`), mais `pilotagePage()` ne lit jamais `data.sections` (`app.js:1041`). L'export KPI ne parcourt que `model.kpis` (`server.js:2804`) : ces chiffres obligatoires ne sont donc ni visibles dans l'écran livré, ni présents dans `Synthèse`, `Détail` ou `Définitions`. Le dashboard Projet fournit complétude et projets non planifiés, mais aucun KPI d'écart prévu/réalisé et aucune alerte propre au Projet (`server.js:4028-4033`).
+
+La réconciliation n'est pas non plus exacte pour toutes les cartes : Direction/Finance calcule l'occupation comme moyenne de lignes hebdomadaires par Site (`server.js:4004-4006`), tandis que son drill-down reconstruit systématiquement des lignes journalières (`server.js:4059`). La remise est une moyenne pondérée côté carte, mais le détail ne renvoie que `discountBps`, sans le poids nécessaire pour reproduire le résultat (`server.js:4020`, `server.js:4060`). Pour les indisponibilités Exploitation, `sourceCount` vaut toutes les réservations visibles alors que la valeur et le détail portent uniquement sur les réservations `unavailable` (`server.js:4026`, `server.js:4051`). Les tests ne réconcilient qu'un seul KPI, `signedRevenue` (`tests/sprint8-dashboards.test.js:42-43`), pas chaque KPI comme requis.
+
+Enfin, l'UI charge seulement la première page de 100 lignes et ne rend aucun contrôle de pagination (`app.js:1040-1042`). Les filtres restent dans l'objet mémoire `pilotageModule` et ne sont jamais sérialisés dans le hash, alors que la SPEC exige des filtres partageables et un retour conservant le contexte.
+
+Impact : Direction, Commercial et Chef de projet n'atteignent pas leur contenu obligatoire ; certains nombres ne peuvent pas être reproduits depuis leur détail ; écran, détail et export ne satisfont pas le critère principal de G8.
+
+Correction attendue : représenter les contenus obligatoires sous forme de KPI/sections effectivement rendus et exportés avec drill-down ; utiliser la même granularité/formule ou publier les composantes exactes de réconciliation ; aligner `sourceCount`; couvrir chaque KPI par une preuve agrégat ↔ détail ; ajouter pagination UI et hash filtré restaurable.
+
+#### P1-2 — L'export KPI tronque silencieusement le détail et la borne Planning Excel est décalée d'un jour
+
+L'export KPI appelle le drill-down global avec `pageSize: 10000` puis écrit directement `detail.items` (`server.js:2804`). Le read-model construit potentiellement les lignes de tous les KPI, retourne `items.slice(0, 10000)` et conserve seulement `total` hors classeur (`server.js:4040-4062`). Lorsque le cumul dépasse 10 000 lignes, le classeur reste `200` avec un détail incomplet, sans erreur, avertissement ni compteur de troncature. Les feuilles `Synthèse` et `Définitions` peuvent alors annoncer des valeurs/sources impossibles à réconcilier avec `Détail`.
+
+Par ailleurs, la validation Planning XLSX refuse uniquement un écart UTC strictement supérieur à 366 jours (`server.js:3895`). Comme `from` et `to` sont inclus dans les lignes journalières, un écart de 366 représente 367 jours et reste accepté, contrairement au maximum de 366 jours de la SPEC. Le PDF calcule correctement la borne inclusive et n'a pas ce défaut.
+
+Impact : un export déclaré réussi peut ne pas contenir toutes les sources et le Planning Excel dépasse sa borne contractuelle ; US-101/US-103 et la réconciliation export ne sont pas terminales.
+
+Correction attendue : refuser explicitement le détail total `> 10000` avec `422 EXPORT_TOO_LARGE` ou produire une partition contractuelle complète ; inclure les compteurs de contrôle ; valider les jours inclusifs (`difference + 1 <= 366`) et ajouter les cas limites 366/367 jours.
+
+#### P1-3 — La matrice annoncée comme 126 contrôles ne teste pas les trois exports réels sous les sept rôles
+
+La boucle de `tests/sprint8-security.test.js:145-154` appelle bien `dashboardReadModel` pour chaque rôle/dashboard, puis incrémente trois fois `checked`. Pour la branche `xlsx`, elle génère un classeur factice via `exportXlsxBuffer('Matrice', ...)`; pour la branche `pdf`, elle génère un PDF factice via `exportPdfBuffer(...)` (`tests/sprint8-security.test.js:150`). Ces appels ne passent ni par les routes, ni par le read-model d'export KPI, ni par les permissions/scopes/projections du rôle. Il n'existe d'ailleurs aucun export PDF de dashboard : le troisième export G8 est Planning PDF, pas un PDF factice par dashboard.
+
+Les vrais endpoints Planning XLSX, Planning PDF et KPI XLSX ne sont ensuite appelés qu'avec l'utilisateur Planificateur (`tests/sprint8-security.test.js:155-173`). La valeur `checked === 126` prouve donc seulement 126 incréments, pas 126 décisions d'autorisation et projections de contenu sur les trois exports réels.
+
+Impact : la fermeture annoncée du P1 historique et la preuve finale US-107 ne sont pas établies. Une régression propre à ADMIN, FINANCE, SALES, PROJECT_MANAGER, PLANNING_MANAGER ou READ_ONLY sur un export réel ne serait pas détectée.
+
+Correction attendue : authentifier ou construire le contexte effectif de chacun des sept rôles, appeler les six dashboards et les trois vrais endpoints/export read-models avec les mêmes filtres/scopes, vérifier statut attendu et absence/présence des champs financiers dans les artefacts réels, puis tester une révocation entre écran et export.
+
+### P2 — OpenAPI omet encore `401` sur l'export KPI
+
+La nouvelle route de drill-down et ses paramètres sont documentés. Les exports Planning documentent bien `401`. En revanche `/dashboards/{kind}/export.xlsx` ne déclare que `200`, `403`, `404` et `422` (`docs/api/openapi-v1.yaml:771-798`), alors que la route est authentifiée et retourne `401` sans session.
+
+Correction attendue : ajouter la réponse `401 Unauthorized` et un test contractuel de cette réponse.
+
+### Points fermés confirmés
+
+1. **Maintenance : FERMÉ.** Exploitation exige désormais `planning.read`, `resource.read` et `maintenance.read` côté serveur (`server.js:3966-3972`) et dans la navigation UI (`app.js:1033`). L'absence de permission produit `403` sans compteur.
+2. **Structure Planning XLSX : FERMÉE pour les feuilles et le grain.** Le classeur contient `Planning`, `Filtres`, `Définitions`; les dates sont typées et les lignes sont ventilées allocation/jour (`server.js:2792-2795`, `server.js:3863-3907`).
+3. **Planning PDF : FERMÉ.** La période inclusive est limitée à 62 jours, A4 paysage jusqu'à 14 jours puis A3, avec fuseau, filtres, légende et pagination (`server.js:2797-2801`, `server.js:3884-3891`).
+4. **Replay SSE : FERMÉ.** `duplicateReservationCell` réévalue toujours le droit d'override, mais ni `reservation.cellDuplicated.v1` ni `quote.planningProgress.v1` ne sont réémis au replay (`server.js:3419-3423`). Le test dynamique observe bien les deux événements à la création et aucun au replay (`tests/sprint8-security.test.js:182-194`).
+5. **OpenAPI drill-down : PRÉSENT.** La route, les filtres, la pagination et le schéma de réponse sont documentés (`docs/api/openapi-v1.yaml:739-770`).
+
+### Preuves fraîches exécutées
+
+- `git rev-parse HEAD` : `1d4d97b3c43b6d91756b5c74207371dd879c760a` ; worktree initial propre.
+- `node --test tests/sprint8-dashboards.test.js tests/sprint8-exports.test.js tests/sprint8-bi.test.js tests/sprint8-security.test.js tests/api.test.js` : **64 réussis, 0 échec, 0 ignoré**, 1 327,84 ms.
+- `npm test` hors sandbox, Node v26.6.0 : **334 réussis, 0 échec, 0 ignoré**, 8 084,85 ms. Une première tentative sandboxée a échoué sur des ouvertures de ports `EPERM`; elle n'est pas un échec produit et a été rejouée dans l'environnement approprié.
+- `npm run lint` : **PASS**.
+- `npm run build` : **PASS**, cinq actifs runtime vérifiés.
+- `git diff --check` avant rédaction du rapport : **PASS**.
+- inspection ciblée du diff `0732150a…1d4d97b3`, de `server.js`, `app.js`, OpenAPI et tests G8 : constats ci-dessus.
+
+### Limites et handoff
+
+Aucun E2E navigateur ni benchmark n'a été exécuté dans cette re-REVIEW ; ces preuves appartiennent aux gates aval. Aucun serveur ni artefact d'export n'est laissé actif ou conservé. Les tests verts ne compensent pas les trois écarts de contrat démontrés.
+
+Seul `docs/code-review.md` est modifié. L'intégrateur doit conserver G8 en **BLOQUÉ — retour DEV requis** dans `docs/project-status.md`. Toute correction de code, test ou OpenAPI invalidera cette re-REVIEW et exigera un nouveau verdict indépendant sur le nouveau hash.
