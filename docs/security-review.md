@@ -921,3 +921,66 @@ docs/api/openapi-v1.yaml            c4adb3ef48d93d9996dd6de8a126a70be82f229b59fa
 ## Référence terminale du journal SECURITY
 
 La section **« Re-gate SECURITY indépendant — G8 terminal »** datée du 2026-08-24 et portant sur `33ec24b2632729dd5faa45f47ca162b84c0df1d4` est la preuve la plus récente et fait autorité : **APPROVED, 0 P0/0 P1/1 P2/0 P3**.
+
+---
+
+# Revalidation ultime SECURITY indépendante — G8
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `b56d13f0cf576dbb5726f567d1c98a2081d2ca61`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 P2 ouvert, 0 P3.**
+
+Le cache de calcul ajouté pour le détail Finance ne crée pas de cache global ni de donnée réutilisable entre acteurs. Il est attaché uniquement au read-model de la requête courante, construit après validation des permissions et après projection Société/Site/Projet/Client/entités. Sa propriété `_dashboardCache` est non énumérable, non modifiable et non configurable ; elle est absente de `Object.keys()` et de la sérialisation JSON. Les exports et drill-downs conservent le même objet autorisé uniquement pendant l'appel courant.
+
+## Cache Finance et autorité
+
+- Direction/Finance exigent `finance.read` avant toute construction du cache. Un acteur non Finance reste refusé par `403` et ne reçoit jamais le read-model concerné.
+- Le cache contient le résultat `unbilled` déjà calculé avec `dashboardDb`, lui-même limité aux Devis autorisés et aux Projets, Clients, Sites et entités visibles. Il n'existe aucun registre partagé ni clé devinable.
+- `Object.defineProperty()` laisse `enumerable`, `writable` et `configurable` à `false`. Le contrôle dynamique confirme `appearsInKeys=false` et `appearsInJson=false`.
+- Le drill-down reconstruit encore ses lignes Projet/Réservation/Réalisé avec les permissions et scopes courants ; le cache ne remplace que le second calcul identique des dépassements facturables.
+
+## Temporalité Projet
+
+`dashboardActualRows()` exige simultanément une Réservation visible dans la période, `actualRecordAllowed()`, la révision courante, une confirmation au plus tard à `asOf` et un intervalle de réalisé intersectant la période. Le nouveau test négatif place un réalisé ancien hors fenêtre et un réalisé visible confirmé après `asOf` : aucun ne contribue à `actuals`/`actualCompletion`, tandis que `actualGap` conserve uniquement la Réservation visible. Le même helper aligne le read-model et son drill-down.
+
+## Régressions de sécurité
+
+- Matrice HTTP sept rôles × six dashboards × écran/drill-down/XLSX toujours verte, avec exports Planning selon `planning.read` et absence de clés financières hors `finance.read`.
+- `maintenance.read`, isolation Site/Projet, projections Audit/BI et SSE/idempotence restent couvertes.
+- Suite ciblée : 39/39 ; suite complète : 338/338, aucun échec/skip/todo.
+
+## P2 non bloquant
+
+**SEC-G8-03 demeure ouvert :** l'export KPI refuse bien plus de 10 000 sources, mais la vérification intervient encore après matérialisation du détail. Le cache Finance n'aggrave pas l'exposition des données, mais ce calcul tardif reste un durcissement anti-abus CPU/mémoire souhaitable pour un acteur authentifié autorisé.
+
+## Preuves et empreintes
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `b56d13f0cf576dbb5726f567d1c98a2081d2ca61` |
+| ciblés G8 + Finance | **PASS, 39/39** |
+| `npm test` | **PASS, 338/338** |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+| cache non énumérable/JSON | **PASS**, faux/faux ; descripteur non writable/configurable |
+
+```text
+server.js                           8bf91bc83c49ac42821ea07d3e9128a9bfa9bee3a673ee01807a966c936959ca
+app.js                              8897086486d372cf94b87c0b6c4a5fb5e0d5a6d10d2c67b4489e282af95aa0e5
+tests/sprint8-dashboards.test.js    aa416fc59090bbaf9ba987cf7fc9df877aefc664b7d12ed1a184157a96a955b1
+tests/sprint8-security.test.js      9c08bff300bb20ac1cb0b4b6267f07cd7622ddf7abe0aad230973c63d103ca97
+scripts/benchmark-finance.js        087702c7b9bf7d19c4f2a1042bd5318a234332f4863f7c3e571f34857d73e08e
+```
+
+## Handoff
+
+- Gate SECURITY G8 : **APPROVED** sur `b56d13f0`, 0 P0/0 P1/1 P2/0 P3.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.

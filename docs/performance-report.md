@@ -1063,3 +1063,83 @@ scripts/benchmark-finance.js        f8b72c6c3b69feb01387cb69a3478a34449a313d9c47
 ## Référence terminale du journal PERFORMANCE
 
 La section **« Re-gate PERFORMANCE indépendant — G8 terminal »** datée du 2026-08-24 et portant sur `33ec24b2632729dd5faa45f47ca162b84c0df1d4` est la preuve la plus récente et fait autorité : **REJECTED, 0 P0/1 P1 (`PERF-G8-03`)/2 P2/0 P3**.
+
+---
+
+# Revalidation ultime PERFORMANCE indépendante — G8
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `b56d13f0cf576dbb5726f567d1c98a2081d2ca61`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 3 P2 ouverts, 0 P3.**
+
+`PERF-G8-03` est fermé. Le résultat `unbilled` calculé pour le dashboard Finance est réutilisé par le drill-down `billableRevenue` de la même requête au lieu de relancer le moteur. Sur le dataset contractuel de **250 ressources, 10 000 Réservations, 2 000 documents commerciaux, 2 000 Réalisés et 2 000 coûts Projet**, le benchmark permanent donne p95 `206,60 ms`; une campagne indépendante de 30 itérations donne p95 `268,50 ms` et max `289,14 ms`. Les deux preuves restent sous le seuil `<300 ms`.
+
+## Benchmark contractuel frais
+
+`npm run benchmark:finance`, huit mesures chaudes par chemin :
+
+| Chemin | p95 |
+|---|---:|
+| Marges | `25,33 ms` |
+| Backlog | `55,28 ms` |
+| Forecast | `48,63 ms` |
+| Occupation journalière | `25,46 ms` |
+| Occupation annuelle | `29,44 ms` |
+| Rentabilité | `26,48 ms` |
+| Non-facturé | `52,82 ms` |
+| Remises | `7,09 ms` |
+| Drill-down Finance `billableRevenue` | **`206,60 ms`** |
+
+La campagne de confirmation longue de 30 itérations `billableRevenue` donne p50 `191,83 ms`, p95 `268,50 ms`, max `289,14 ms`, **0/30 mesure ≥300 ms**.
+
+## Chemins impactés complémentaires
+
+Campagne de vingt itérations après warm-up :
+
+| Chemin | p95 | Seuil |
+|---|---:|---:|
+| Dashboard Finance | `185,76 ms` | `<300 ms` |
+| Dashboard Projet avec filtre Projet | `38,06 ms` | `<300 ms` |
+| absence de `kpiId` → `422` | `183,45 ms` | `<300 ms` |
+
+La temporalité Projet ajoute des index et filtres en mémoire, mais reste très éloignée du seuil. Le cas sans KPI demeure systématiquement fermé et rapide.
+
+## P2 non bloquants
+
+1. **PERF-G8-04 — borne export tardive :** la limite de 10 000 lignes de détail est encore contrôlée après matérialisation. Un arrêt anticipé reste recommandé.
+2. **PERF-G8-05 — navigateur/concurrence :** aucun profil navigateur frais scripting/paint/heap ni test de concurrence export + dashboard n'a été rejoué. L'analyse UI reste bornée à un dashboard et un KPI paginé.
+3. **PERF-G8-06 — sensibilité ponctuelle au GC/hôte :** une première campagne combinant plusieurs benchmarks dans le même processus a produit deux pauses isolées et un p95 `636,79 ms` sur 20 mesures. Ce résultat n'a pas été reproduit par le benchmark officiel (p95 `206,60 ms`) ni par la campagne indépendante plus longue de 30 mesures (p95 `268,50 ms`, max `289,14 ms`). Conserver davantage d'itérations et un suivi RSS/heap dans le benchmark permanent permettrait de distinguer régression applicative et contention ponctuelle de la machine.
+
+## Preuves et empreintes
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / campagne | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `b56d13f0cf576dbb5726f567d1c98a2081d2ca61` |
+| `npm run benchmark:finance` | **PASS**, `billableRevenue` p95 `206,60 ms` |
+| confirmation `billableRevenue`, 30 mesures | **PASS**, p95 `268,50 ms`, max `289,14 ms` |
+| no-KPI + dashboards Finance/Projet, 20 mesures | **PASS**, p95 `183,45/185,76/38,06 ms` |
+| ciblés G8 + Finance | **PASS, 39/39** |
+| `npm test` | **PASS, 338/338** |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+```text
+server.js                           8bf91bc83c49ac42821ea07d3e9128a9bfa9bee3a673ee01807a966c936959ca
+app.js                              8897086486d372cf94b87c0b6c4a5fb5e0d5a6d10d2c67b4489e282af95aa0e5
+tests/sprint8-dashboards.test.js    aa416fc59090bbaf9ba987cf7fc9df877aefc664b7d12ed1a184157a96a955b1
+scripts/benchmark-finance.js        087702c7b9bf7d19c4f2a1042bd5318a234332f4863f7c3e571f34857d73e08e
+docs/api/openapi-v1.yaml            7395603efc38905461287d6c517d61653729869a76230a020ea3b3e6877a860c
+```
+
+## Handoff
+
+- Gate PERFORMANCE G8 : **APPROVED** sur `b56d13f0`, 0 P0/0 P1/3 P2/0 P3.
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
