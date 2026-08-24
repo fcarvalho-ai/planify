@@ -1200,6 +1200,59 @@ tests/foundations.test.js           6b47b94a2b09c3fd116a03a527fb6096265c8142716d
 
 ---
 
+# Revalidation terminale PERFORMANCE — wrapper final de rendu G8
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `68489b1fc0575706ecbf13c191ab033dc1981d63`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 0 nouveau P2, 1 P3.**
+
+L'ajout exécute une synchronisation constante au début du wrapper terminal : un shell et une liste fermée de trois overlays. Pour les routes qui atteignent aussi le rendu de base, la synchronisation est appelée deux fois, mais elle reste idempotente, O(1) sur le chemin authentifié et sans calcul métier, accès réseau, sérialisation ou création de listener. Pour les routes spécialisées, ce nouvel appel remplace précisément la synchronisation auparavant omise.
+
+## Analyse d'impact
+
+- Quatre recherches DOM par identifiant et quelques affectations de propriétés constantes par rendu ; aucune dépendance à la volumétrie Planning, Dashboard ou Drill-down.
+- Le nettoyage O(n) de `#app` ne s'exécute que hors session ; un second appel trouve alors le conteneur vide.
+- Aucun changement backend/API/données : les mesures contractuelles Finance, dashboards, exports et SSE ne sont pas invalidées.
+- La suite ciblée et la suite complète sont vertes, avec des durées inférieures aux campagnes immédiatement précédentes sur la même machine ; ces durées globales sont des preuves de non-régression, pas un profil DOM.
+
+## P3 — PERF-G8-07 maintenu
+
+Aucun profil navigateur frais scripting/style/layout/paint n'est disponible. La duplication constante du helper est analytiquement négligeable, mais elle pourra être fusionnée lors d'un refactor de composition si la chaîne de wrappers est simplifiée. Cette amélioration n'est pas nécessaire pour le gate.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `68489b1fc0575706ecbf13c191ab033dc1981d63` |
+| diff `08595fc..68489b1` | un appel frontend constant et une assertion ; aucun changement backend |
+| ciblés Foundations + dashboards + sécurité G8 | **PASS, 32/32**, durée `1 917,26 ms` |
+| `npm test` | **PASS, 339/339**, durée `7 801,21 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+```text
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+styles.css                          b26952fc8f08d8c3798c0764a7da2286acb35a53f5abcd03114545c869d6b8a1
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+tests/foundations.test.js           1b8a66d2e062c31287bedfce6bcf82ae88fb2da63f1648c128749163d726d8e0
+```
+
+## Handoff
+
+- Gate PERFORMANCE G8 wrapper terminal : **APPROVED** sur `68489b1`, 0 P0/0 P1/0 nouveau P2/1 P3 (`PERF-G8-07`).
+- Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation terminale PERFORMANCE — fermeture overlays G8
 
 Date : 2026-08-24

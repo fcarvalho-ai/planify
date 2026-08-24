@@ -1057,6 +1057,63 @@ tests/foundations.test.js           6b47b94a2b09c3fd116a03a527fb6096265c8142716d
 
 ---
 
+# Revalidation terminale SECURITY — wrapper final de rendu G8
+
+Date : 2026-08-24
+
+Candidat applicatif exact : `68489b1fc0575706ecbf13c191ab033dc1981d63`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 1 P2 ouvert, 0 P3.**
+
+Le wrapper terminal appelle désormais `syncAuthenticatedSurfaces(Boolean(state.user))` avant toute délégation aux wrappers composés. Il couvre ainsi aussi les routes spécialisées qui rendent directement leur page — notamment Pilotage, Finance et Réalisations — sans atteindre systématiquement le rendu de base. Toutes les routes passent désormais par la fermeture du shell et des overlays avant tout retour hors session.
+
+## Contrôles de sécurité
+
+- **Fail-closed global :** avec `state.user` absent, le wrapper terminal masque/rend inertes shell et overlays, ferme les overlays, purge `#app`, puis les wrappers internes aboutissent à l'écran de connexion et au focus e-mail.
+- **Routes composées :** le nouvel appel se trouve sur le wrapper le plus externe, après la composition Pilotage et avant l'ajout des exports Planning ; aucun court-circuit de route ne peut le contourner.
+- **Auth/RBAC :** `Boolean(state.user)` ne crée aucune autorité nouvelle. Les permissions visibles (`can(...)`) restent appliquées dans chaque wrapper et l'autorité serveur/RBAC/scopes est inchangée. Le wrapper ne charge ni ne projette aucune donnée.
+- **XSS :** aucun contenu utilisateur, HTML ou sélecteur dynamique n'est ajouté ; l'appel manipule uniquement quatre identifiants DOM constants déjà contrôlés.
+- **Focus :** hors session, le premier appel purge et rend inertes les surfaces authentifiées ; le rendu de base transfère ensuite le focus vers l'e-mail si nécessaire. Un second appel éventuel est idempotent et ne réouvre aucun overlay.
+- **Session expirée :** le chemin `401 → endSession() → render()` atteint nécessairement ce wrapper terminal avant tout rendu spécialisé.
+
+## P2 résiduel inchangé — SEC-G8-05
+
+Le contenu principal est purgé et les overlays sont cachés/inertes, mais les valeurs internes statiques de certains overlays ne sont pas explicitement vidées. Elles restent seulement inspectables localement, sans visibilité, accessibilité ou interaction. Ce durcissement non bloquant n'est ni aggravé ni fermé par le wrapper terminal.
+
+## Preuves fraîches et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` avant rapports | `68489b1fc0575706ecbf13c191ab033dc1981d63` |
+| diff `08595fc..68489b1` | un appel terminal de synchronisation + une assertion statique ; backend inchangé |
+| ciblés Foundations + dashboards + sécurité G8 | **PASS, 32/32**, 0 échec/skip/todo, durée `1 917,26 ms` |
+| `npm test` | **PASS, 339/339**, 0 échec/skip/todo, durée `7 801,21 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` | **PASS** avant rapports |
+
+Le navigateur intégré est resté indisponible lors du re-gate précédent et aucun navigateur n'a été rendu disponible depuis. Aucun smoke visuel/focus n'est affirmé ; la limite E2E demeure documentée.
+
+```text
+app.js                              4e65e29b37afc0c5be542990d1a15cb82d4e07d546d84c276d1fe29324f97671
+index.html                          419c3fdedcdb03e90cc3fec28d81d723d18be84eb2c9646fcfa0debba76d200d
+styles.css                          b26952fc8f08d8c3798c0764a7da2286acb35a53f5abcd03114545c869d6b8a1
+server.js                           b287ee5a967310ce087cf0699603ff6f14f059b690a54453b7941bb1f9e0102d
+tests/foundations.test.js           1b8a66d2e062c31287bedfce6bcf82ae88fb2da63f1648c128749163d726d8e0
+```
+
+## Handoff
+
+- Gate SECURITY G8 wrapper terminal : **APPROVED** sur `68489b1`, 0 P0/0 P1/1 P2 (`SEC-G8-05`)/0 P3.
+- Fichier modifié par cet axe : `docs/security-review.md` uniquement ; statut global à consolider par l'intégrateur.
+
+---
+
 # Revalidation terminale SECURITY — fermeture overlays G8
 
 Date : 2026-08-24
