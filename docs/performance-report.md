@@ -511,3 +511,89 @@ Recommandation : profiler chargement initial et rafale SSE, puis cibler l'entit�
 ## Verdict
 
 L'agrégat Finance passe largement et les scans identifiés sont optimisés, mais confirmation/correction ne respectent plus le seuil d'écriture. **PERFORMANCE REJECTED** sur `b42ea165ed32eeebae0b3f9f2080520bf946d4d8`.
+
+---
+
+# Gate PERFORMANCE indépendant — S7-D Occupation & rentabilité
+
+Date : 2026-08-23
+
+Candidat applicatif exact : `5f61fd4`
+
+HEAD documentaire au lancement : `5dcbd7aaa00957e9a8563f728c2de5e59ab3aede`
+
+Reviewer : agent indépendant `g7d_security_performance`
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 1 P1, 2 P2 ouverts.**
+
+Les quatre nouveaux calculs sont largement conformes sur la fenêtre nominale d'une journée. L'occupation ne tient toutefois pas le seuil contractuel sur une période pourtant explicitement acceptée par l'API : 365 jours prennent `3 235,26 ms`, plus de dix fois la cible `<300 ms`.
+
+## Benchmark représentatif nominal
+
+Commande : `npm run benchmark:finance`
+
+Dataset : **250 ressources, 10 000 réservations, 2 000 documents commerciaux, 2 000 ActualRecords et 2 000 ProjectCosts**. Huit mesures par chemin après warm-up.
+
+| Chemin direct | p50 | p95 | max | Seuil |
+|---|---:|---:|---:|---:|
+| Marges | `22,17 ms` | `23,80 ms` | `23,80 ms` | `<300 ms` |
+| Backlog | `46,93 ms` | `69,53 ms` | `69,53 ms` | `<300 ms` |
+| Forecast | `43,90 ms` | `51,21 ms` | `51,21 ms` | `<300 ms` |
+| Occupation, 1 jour | `26,78 ms` | `27,48 ms` | `27,48 ms` | `<300 ms` |
+| Rentabilité | `23,50 ms` | `26,23 ms` | `26,23 ms` | `<300 ms` |
+| Non-facturé | `44,68 ms` | `48,60 ms` | `48,60 ms` | `<300 ms` |
+| Remises | `5,88 ms` | `7,20 ms` | `7,20 ms` | `<300 ms` |
+
+Le benchmark termine avec code `0` et les totaux attendus sur 2 000 lignes.
+
+## P1 bloquant
+
+### PERF-S7D-01 — l'occupation sur la borne autorisée de 366 jours bloque le processus plus de 3 secondes
+
+`analyticsPeriod()` accepte jusqu'à 366 jours. `financeOccupancy()` parcourt ensuite chaque jour pour chaque Ressource, puis de nouveau chaque jour de la période pour chaque Réservation et chaque Réalisé, même lorsqu'ils ne recouvrent qu'une heure. La complexité pratique est donc `O(jours × (ressources + réservations + réalisés))` avec de nombreux `Date.parse()` dans les boucles.
+
+Mesure indépendante, même moteur et même volume de référence, 250 ressources/10 000 réservations, période `2026-01-01` → `2026-12-31`, agrégation mensuelle par Site : **`3 235,26 ms` pour une lecture**, seuil `<300 ms`. Le calcul synchrone monopolise l'event loop et rend le serveur local indisponible pour les autres sessions pendant ce temps.
+
+Correction requise : borner chaque Réservation/Réalisé aux seuls buckets qu'il recouvre, pré-indexer les sources visibles par Ressource et bucket, puis rebenchmarker au minimum 31 et 365 jours. Une autre option acceptable consiste à réduire explicitement la période maximale de l'API à une borne qui respecte le contrat, si le Produit l'approuve.
+
+## P2 importants
+
+1. **Fenêtre UI sans marge robuste.** Sur 31 jours avec 250 ressources et 10 000 réservations, huit mesures chaudes donnent p50 `285,77 ms` et p95 `292,06 ms`. Le seuil passe de seulement `7,94 ms` et ne couvre ni HTTP/JSON, ni les neuf autres requêtes Finance lancées en parallèle.
+2. **UI/HTTP non profilés.** Le script mesure les fonctions directement. Aucun profil navigateur frais ne démontre l'affichage exploitable `<2 s`, l'interactivité, le coût DOM des tableaux ou l'effet d'une invalidation SSE. `loadFinance()` déclenche dix lectures simultanées ; dans le monolithe synchrone, leurs temps CPU se cumulent en pratique.
+
+## Analyse favorable
+
+- Rentabilité agrège toutes les lignes avant de borner le drill-down ; l'ancien risque de total partiel au-delà de 200 lignes est fermé.
+- Les maintenances superposées sont fusionnées par Ressource avec saturation à la capacité nominale.
+- Les sorties restent bornées à 1 000 lignes d'occupation, 500 dépassements/remises et 200 sources par axe de rentabilité.
+- Les scopes sont appliqués avant les calculs, réduisant le jeu de travail pour les utilisateurs restreints.
+- Aucun accès réseau, dépendance ou actif distant n'est ajouté au runtime.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / mesure | Résultat |
+|---|---|
+| `npm run benchmark:finance` | **PASS nominal**, p95 S7-D `27,48 / 26,23 / 48,60 / 7,20 ms` |
+| Harness direct occupation 31 jours, 8 itérations chaudes | **PASS fragile**, p95 `292,06 ms` |
+| Harness direct occupation 365 jours, une lecture | **FAIL**, `3 235,26 ms` > `300 ms` |
+| `node --test tests/sprint7-occupancy.test.js` | **PASS, 4/4**, `82,85 ms` |
+| `git diff --check` | **PASS** avant écriture des rapports |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           4ae25134dfff067b8e438204f168cf6faf04c84d06b44453f1be44199aa02d93
+app.js                              bc53201ac1e56619ea9ea3212b0c488e54fd73e1255c34c1eed4d51d3100eaca
+tests/sprint7-occupancy.test.js     8b5bfcc8387c25385a83c869621ddc2e4ea892b522a6686b8b1bce25b69669d0
+scripts/benchmark-finance.js        89af6c12faa9127f56fc8ee1d413f025e5755e108aeb5136f3caa2c6824b3f9d
+```
+
+## Handoff
+
+- Gate PERFORMANCE S7-D : **REJECTED** sur le candidat `5f61fd4` ; retour DEV requis pour `PERF-S7D-01`.
+- Fichier modifié par ce gate : `docs/performance-report.md` uniquement.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur.

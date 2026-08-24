@@ -483,3 +483,72 @@ Recommandation : ajouter une matrice HTTP/SSE de révocation équivalente à cel
 ## Verdict
 
 La fuite de snapshot est fermée, mais les mutations Finance ne sont pas encore fail-closed sur tous les sites sources. **SECURITY REJECTED** sur `b42ea165ed32eeebae0b3f9f2080520bf946d4d8`.
+
+---
+
+# Gate SECURITY indépendant — S7-D Occupation & rentabilité
+
+Date : 2026-08-23
+
+Candidat applicatif exact : `5f61fd4`
+
+HEAD documentaire au lancement : `5dcbd7aaa00957e9a8563f728c2de5e59ab3aede`
+
+Reviewer : agent indépendant `g7d_security_performance`
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 1 P1, 2 P2 ouverts.**
+
+Les quatre read-models exigent `finance.read` avant chargement de la base et filtrent Société, Site, Projet, Client, Devis, Ressource, Prestation et Réalisé avant agrégation. Les mutations de seuil passent par session, Origin/CSRF, `finance.cost.manage`, validation, version, idempotence, audit atomique puis SSE après commit. Le gate reste cependant bloqué par une mutation de configuration globale accessible depuis un scope Site.
+
+## P1 bloquant
+
+### SEC-S7D-01 — un gestionnaire limité à un Site peut modifier le seuil global de la Société
+
+`POST /api/v1/finance/occupancy-thresholds` accepte `siteId` absent et le normalise à `null`. La garde de scope n'est exécutée que lorsque `siteId` est renseigné ; aucune garde `organizationScope` ne protège donc le seuil global. Un rôle personnalisé possédant `finance.cost.manage`, mais limité à un Site, peut créer ou modifier le seuil commun à tous les Sites de la Société.
+
+Le rejeu idempotent présente le même défaut : après réduction du scope de l'acteur, un ancien résultat global est encore restitué car la condition de rejeu autorise tout objet sans `siteId`. L'invalidation SSE globale est ensuite visible par tous les lecteurs Finance de la Société. Il s'agit d'une atteinte à l'intégrité inter-scope, pas d'un simple défaut d'interface.
+
+Correction requise : exiger `organizationScope` pour toute commande globale, revalider ce scope au rejeu, et tester par HTTP la création, la mise à jour et le rejeu après révocation. Une commande Site doit continuer à exiger `siteAllowed()` et retourner `404` hors périmètre.
+
+## P2 importants
+
+1. **Validation anti-tamper incomplète des marqueurs d'idempotence.** `sprint7OccupancyStateValid()` vérifie seulement que `scope` est une chaîne, que `payloadDigest` ressemble à un SHA-256 et que `resultId` désigne un seuil existant. Il ne lie pas le scope à la Société, au Site et au résultat, et ne refuse pas les scopes dupliqués. Une falsification locale d'un marqueur peut donc échapper au contrôle d'intégrité et provoquer un rejet ou un rejeu incohérent.
+2. **Matrice HTTP S7-D absente.** Les tests S7-D appellent directement les fonctions de calcul et recherchent les routes sous forme de chaînes. Ils ne prouvent pas les `401/403`, Origin/CSRF, l'idempotence conflictuelle, la version obsolète, l'absence d'audit/SSE sur refus ni la révocation dynamique des scopes pour ces cinq nouvelles routes.
+
+## Contrôles conformes
+
+- Les routes `/api/v1/analytics/*` nouvelles sont résolues par l'autorisation centrale `finance.read` avant `readDb()` et avant tout total.
+- `financeOccupancy()` part uniquement des Ressources autorisées ; Réservations et Réalisés repassent par leurs résolveurs complets. Marges, non-facturé et remises réutilisent les filtres Projet/Client/Devis/ligne.
+- Le non-facturé reste explicitement hors CA signé et hors revenu facturé ; aucune facture, réservation ou donnée commerciale n'est créée par une lecture.
+- Les entrées de seuil sont bornées, les champs tenant sont refusés, la concurrence optimiste est exigée en mise à jour et l'audit précède l'émission SSE.
+- Migration additive ordonnée, sauvegarde privée `0600`, marqueur signé, état courant/révisions digérés et rollback avec export obligatoire sont présents.
+- Les rendus Finance passent les valeurs dynamiques par `esc()` ; aucune dépendance, ressource distante, télémétrie ou secret n'est ajouté.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `5dcbd7aaa00957e9a8563f728c2de5e59ab3aede` |
+| `node --check server.js && node --check app.js` | **PASS** |
+| `node --test tests/sprint7-occupancy.test.js tests/sprint7-finance.test.js tests/sprint7-actuals.test.js tests/sprint7-forecast.test.js tests/migration-sprint7.test.js` | **PASS, 37/37**, 0 échec/skip/todo, `669,45 ms` |
+| Inspection auth/scopes/replay/audit/SSE/migration/rollback | agrégats filtrés ; mutation globale hors scope confirmée par le chemin de code |
+
+Empreintes SHA-256 :
+
+```text
+server.js                           4ae25134dfff067b8e438204f168cf6faf04c84d06b44453f1be44199aa02d93
+app.js                              bc53201ac1e56619ea9ea3212b0c488e54fd73e1255c34c1eed4d51d3100eaca
+tests/sprint7-occupancy.test.js     8b5bfcc8387c25385a83c869621ddc2e4ea892b522a6686b8b1bce25b69669d0
+scripts/benchmark-finance.js        89af6c12faa9127f56fc8ee1d413f025e5755e108aeb5136f3caa2c6824b3f9d
+docs/api/openapi-v1.yaml            f677c159e2e412e966dd6eb421132f7a788ee08a36ef6053c69f15b1a32f413d
+```
+
+## Handoff
+
+- Gate SECURITY S7-D : **REJECTED** sur le candidat `5f61fd4` ; retour DEV requis pour `SEC-S7D-01`.
+- Fichier modifié par ce gate : `docs/security-review.md` uniquement.
+- `docs/project-status.md` reste à mettre à jour par l'intégrateur.

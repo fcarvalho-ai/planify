@@ -3076,3 +3076,66 @@ Statut : **conforme**.
 ## Verdict terminal
 
 Le gate QA indépendant G6 du candidat Git `cdc475c9ff015531e662327dbdc9d7c2e82f6aa8` est **APPROVED** : les critères US-057..060 et US-062..064 sont couverts, aucune réservation n'est créée avant confirmation, les ambiguïtés imposent une clarification versionnée, les replays/divergences et droits/scopes sont correctement traités, la migration est réversible byte-exact et les **267/267** tests passent. Aucun P0/P1 QA n'est ouvert. Ce verdict ne vaut pas approbation des gates REVIEW, SECURITY, PERFORMANCE, INTEGRATION, E2E ou RELEASE.
+
+---
+
+# Gate QA indépendant G7-D — occupation et rentabilité
+
+Date : 2026-08-23 22:06 CEST
+
+Verdict : **REJECTED — 2 P1 QA ouverts**
+
+Périmètre : candidat applicatif exact `5f61fd4cca2121c74fa9392edd717eaaa969608b` et HEAD documentaire `5dcbd7aaa00957e9a8563f728c2de5e59ab3aede`, stories `US-089` à `US-093`, non-régression du candidat consolidé S7-A à S7-D.
+
+Indépendance : aucun code, test, contrat, statut ou donnée de travail modifié ; seul `docs/qa-report.md` est actualisé. Les modifications concurrentes de `docs/security-review.md` et `docs/performance-report.md` ont été laissées intactes.
+
+Environnement : Node `v26.6.0`, Darwin `25.5.0` arm64.
+
+## Preuves fraîches
+
+| Commande exacte | Résultat observé |
+|---|---|
+| `node --test tests/sprint7-occupancy.test.js` | PASS, **4/4**, 0 échec/annulé/ignoré/TODO, 93,46 ms |
+| `npm test` | PASS, **307/307**, 0 échec/annulé/ignoré/TODO, 8 543,90 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` | PASS, code 0 |
+| scénario Node isolé « deux options du même groupe/priorités 1 et 2 » | **ÉCHEC métier reproduit** : `plannedCapacityMs=14 400 000`, attendu canonique `7 200 000` |
+| scénario Node isolé « planifié 100 %, aucun réalisé » | **ÉCHEC métier reproduit** : planifié `10 000 bps`, réel exposé `0 bps`, statut `underutilized` au lieu du signal planifié saturé |
+
+Le fichier OpenAPI est couvert structurellement par le test ciblé et par le build. La validation YAML sémantique indépendante n'a pas été revendiquée : le runtime Python local ne fournit pas le module `yaml`. Un smoke HTTP isolé complémentaire a été interrompu avant exécution après le refus d'ouverture de port dans le sandbox ; aucun résultat HTTP n'est fabriqué à partir de cette tentative.
+
+## Constats bloquants
+
+### P1 — les doubles options gonflent l'occupation planifiée
+
+La section 7.3 de la spécification impose qu'un groupe de doubles options ne soit compté qu'une fois selon sa priorité canonique. `financeOccupancy` additionne actuellement chaque réservation `option` sans dédupliquer `optionGroupId`.
+
+Reproduction déterministe : deux réservations de deux heures, même ressource, même période, même `optionGroupId`, priorités `1` et `2`. Résultat observé : quatre heures (`14 400 000 ms`) ; résultat attendu : deux heures (`7 200 000 ms`). Le taux d'occupation, les alertes et les agrégats par ressource/catégorie/site sont donc surévalués.
+
+Correction attendue : sélectionner une option canonique unique par groupe avant toute ventilation dans les buckets, avec un test négatif couvrant au minimum deux priorités et plusieurs périodes.
+
+### P1 — l'absence de réalisé écrase à tort le signal planifié
+
+Chaque ligne initialise `actualCapacityMs` à zéro, puis calcule toujours `actualOccupancyBps=0` lorsque la capacité nette est non nulle. Le choix `actualBps ?? plannedBps` considère donc ce zéro comme un réalisé disponible, même lorsqu'aucun réalisé n'existe.
+
+Reproduction déterministe : capacité nette d'une journée, réservation confirmée couvrant 100 % de la journée, aucun `actualRecord`, seuil de saturation à 90 %. Résultat observé : `plannedOccupancyBps=10000`, `actualOccupancyBps=0`, statut `underutilized`. Le moteur masque ainsi une saturation planifiée et produit une alerte opposée au planning.
+
+Correction attendue : distinguer « aucune source réalisée » d'un réalisé confirmé de valeur nulle, exposer cette disponibilité de source et ne donner la priorité au taux réel que lorsqu'il est réellement disponible. Ajouter les tests planifié seul, réalisé présent, capacité nulle et seuils limites.
+
+## Contrôles conformes observés
+
+- les maintenances superposées d'une même ressource sont fusionnées et la période analytique est refusée au-delà de 366 jours ;
+- la rentabilité agrège les 250 lignes de la reproduction au-delà de la pagination du détail ;
+- le dépassement réalisé reste marqué `includedInSignedRevenue=false` et `includedInInvoicedRevenue=false` ;
+- la comparaison utilise le catalogue applicable et calcule la remise pondérée ;
+- l'état persistant des seuils détecte une altération de snapshot ; les routes, contrats publics et libellés UI attendus sont présents ;
+- les **307/307** tests complets confirment l'absence de régression automatisée connue dans les modules antérieurs.
+
+## Couverture manquante à combler au retour DEV
+
+Le corpus S7-D actuel vérifie principalement les fonctions de domaine et des jetons de contrat. Il doit recevoir une couverture HTTP dédiée pour `finance.read`/`finance.cost.manage`, scopes société/site/projet/entité, CSRF, clé d'idempotence absente, replay identique, divergence, version obsolète, audit, SSE après commit et persistance/rechargement des seuils. La migration/rollback Occupation doit également être rejouée explicitement avec sauvegarde privée, export obligatoire, altération refusée et restauration byte-exacte.
+
+## Verdict terminal
+
+Le gate QA indépendant G7-D est **REJECTED**. Les suites automatisées sont vertes, mais deux règles centrales d'occupation échouent sur des scénarios déterministes : les doubles options sont comptées deux fois et l'absence de réalisé transforme une saturation planifiée en sous-utilisation. Ces **2 P1** imposent un retour en DEV, l'ajout des régressions correspondantes, puis une nouvelle QA et le rejeu des gates aval impactés. G7 reste **BLOQUÉ**.
