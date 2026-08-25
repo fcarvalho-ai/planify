@@ -549,6 +549,42 @@ test('déplacer une cellule confirmée ou en option ne déplace pas le reste de 
   assert.equal(movedOption.response.status, 200);
   assert.equal(movedOption.data.status, 'option');
   assert.deepEqual(movedOption.data.cellOverrides, [{ sourceDate: '2026-09-15', sourceResourceId: 'resource_3', targetDate: '2026-09-15', targetResourceId: 'resource_4' }]);
+
+  const horizontal = await request('/api/v1/reservations', { method: 'POST', body: JSON.stringify({
+    title: 'Cellule décalable horizontalement', siteId: 'site_paris', projectId: 'project_1', status: 'confirmed',
+    startsAt: '2028-06-18T07:00:00.000Z', endsAt: '2028-06-18T16:00:00.000Z',
+    resources: [{ resourceId: 'resource_3', quantity: 1 }], planningMode: 'dailyCells', cellOverrides: [],
+  }) }, admin);
+  assert.equal(horizontal.response.status, 201);
+  const movedForward = await request(`/api/v1/reservations/${horizontal.data.id}/cells/2028-06-18/resource_3`, {
+    method: 'PATCH', headers: { 'Idempotency-Key': 'reservation-cell-move-next-day' },
+    body: JSON.stringify({ version: horizontal.data.version, targetDate: '2028-06-19', targetResourceId: 'resource_3' }),
+  }, admin);
+  assert.equal(movedForward.response.status, 200);
+  assert.deepEqual(movedForward.data.cellOverrides, [{ sourceDate: '2028-06-18', sourceResourceId: 'resource_3', targetDate: '2028-06-19', targetResourceId: 'resource_3' }]);
+  const targetWindow = await request('/api/v1/reservations?from=2028-06-19T00:00:00.000Z&to=2028-06-20T00:00:00.000Z&resourceIds=resource_3', {}, admin);
+  assert.ok(targetWindow.data.items.some(value => value.id === horizontal.data.id));
+  const movedBackward = await request(`/api/v1/reservations/${horizontal.data.id}/cells/2028-06-18/resource_3`, {
+    method: 'PATCH', headers: { 'Idempotency-Key': 'reservation-cell-move-previous-day' },
+    body: JSON.stringify({ version: movedForward.data.version, targetDate: '2028-06-17', targetResourceId: 'resource_3' }),
+  }, admin);
+  assert.equal(movedBackward.response.status, 200);
+  assert.deepEqual(movedBackward.data.cellOverrides, [{ sourceDate: '2028-06-18', sourceResourceId: 'resource_3', targetDate: '2028-06-17', targetResourceId: 'resource_3' }]);
+  const restoredDate = await request(`/api/v1/reservations/${horizontal.data.id}/cells/2028-06-18/resource_3`, {
+    method: 'PATCH', headers: { 'Idempotency-Key': 'reservation-cell-move-original-day' },
+    body: JSON.stringify({ version: movedBackward.data.version, targetDate: '2028-06-18', targetResourceId: 'resource_3' }),
+  }, admin);
+  assert.equal(restoredDate.response.status, 200);
+  assert.deepEqual(restoredDate.data.cellOverrides, []);
+  const invalidDate = await request(`/api/v1/reservations/${horizontal.data.id}/cells/2028-06-18/resource_3`, {
+    method: 'PATCH', headers: { 'Idempotency-Key': 'reservation-cell-move-invalid-date' },
+    body: JSON.stringify({ version: restoredDate.data.version, targetDate: '2030-06-18', targetResourceId: 'resource_3' }),
+  }, admin);
+  assert.equal(invalidDate.response.status, 422);
+  assert.equal(invalidDate.data.error.code, 'CELL_TARGET_DATE_INVALID');
+  const unchangedHorizontal = await request(`/api/v1/reservations/${horizontal.data.id}`, {}, admin);
+  assert.equal(unchangedHorizontal.data.version, restoredDate.data.version);
+  assert.deepEqual(unchangedHorizontal.data.cellOverrides, []);
 });
 
 test('un chevauchement au-delà de la capacité reçoit 409', async () => {

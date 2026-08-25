@@ -175,7 +175,7 @@ test('les gestes planning montrent un ghost et restaurent le snapshot sur refus 
   assert.match(source, /planningOperationDrag=\{type:'resize'/);
   assert.match(source, /state\.bookings\[index\]=snapshot;render\(\);toast\(`Redimensionnement annulé/);
   assert.match(source, /state\.bookings\[index\]=snapshot;render\(\);toast\(`Déplacement annulé/);
-  assert.match(source, /seule cette cellule passe/);
+  assert.match(source, /Cellule déplacée du.*au/);
   assert.match(css, /\.planning-cell\.is-operation-ghost/);
   assert.match(css, /data-operation-ghost-label/);
 });
@@ -547,12 +547,15 @@ test('déplacer depuis la barre agit sur une cellule précise et reste compensab
   const redo = source.match(/async function redoPlanningOperation\(\)\{[\s\S]+?async function moveWholePlanningBooking/)?.[0] || '';
   assert.match(move, /planningCellSelection\.size!==1/);
   assert.match(move, /dropAllocation\(item\.dataset\.booking,item\.dataset\.dragResource/);
-  assert.match(move, /planningPasteTarget\.date!==cell\.dataset\.date/);
+  assert.match(move, /planningPasteTarget\.date,item\.dataset\.cellDate/);
+  assert.doesNotMatch(move, /même jour/);
   assert.doesNotMatch(move, /type:'move'/);
-  assert.match(source, /rememberPlanningUndo\(\{type:'cellMove'/);
+  assert.match(source, /rememberPlanningUndo\(\{type:'cellMove'.*before:\{targetDate:currentDate,targetResourceId:currentResourceId\}.*after:\{targetDate:date,targetResourceId\}/);
   assert.match(undo, /action\.type==='cellMove'/);
+  assert.match(undo, /targetDate:action\.before\.targetDate/);
   assert.match(undo, /planning-undo-cell-move-/);
   assert.match(redo, /action\.type==='cellMove'/);
+  assert.match(redo, /targetDate:action\.after\.targetDate/);
   assert.match(redo, /planning-redo-cell-move-/);
 });
 

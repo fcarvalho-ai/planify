@@ -20,7 +20,7 @@ Le MVP est livré comme une application locale de démonstration complète. Le G
 - création de clients et projets ;
 - planning jour, semaine et mois ;
 - création, consultation, modification et annulation de réservations ;
-- déplacement par drag & drop et modification de durée ; le déplacement précis d’une cellule reste disponible pour une réservation en option ou confirmée et ne déplace pas les autres jours de sa période ;
+- déplacement par drag & drop et modification de durée ; le déplacement précis d’une cellule reste disponible pour une réservation en option ou confirmée, sur l’axe des salles comme sur l’axe des dates, et ne déplace pas les autres cellules de sa période ;
 - réservation d'une ou plusieurs ressources ;
 - statuts option, confirmé et annulé ;
 - détection et présentation des conflits ;

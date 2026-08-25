@@ -672,7 +672,7 @@ paths:
   /reservations/{reservationId}/cells/{sourceDate}/{sourceResourceId}:
     patch:
       operationId: moveReservationCell
-      description: Déplace une seule cellule quotidienne vers une autre salle du même jour. Un rejeu avec la même clé et le même contenu restitue le premier résultat sans nouvel audit ni événement.
+      description: Déplace une seule cellule quotidienne vers une autre date et/ou une autre salle, dans une amplitude maximale de 370 jours. Les autres cellules de la réservation restent inchangées. Un rejeu avec la même clé et le même contenu restitue le premier résultat sans nouvel audit ni événement.
       parameters:
         - { name: reservationId, in: path, required: true, schema: { type: string } }
         - { name: sourceDate, in: path, required: true, schema: { type: string, format: date } }
