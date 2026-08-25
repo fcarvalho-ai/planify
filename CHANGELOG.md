@@ -1,9 +1,12 @@
 # Changelog
 
-## Non publié — après 0.5.0-rc5
+## 0.5.0-rc6 — 2026-08-25
 
 - correction de l'alignement vertical du Planning : la colonne Ressources retranche désormais la hauteur réelle de la barre horizontale et atteint exactement la même dernière ligne que la grille ;
-- ajout d'une couleur de repérage configurable par Client, validée côté serveur et affichée comme liseré sur ses réservations sans remplacer le nom ni le statut accessible.
+- recalcul responsive de cet alignement par un observateur unique et déconnecté lors de chaque reconstruction du Planning ;
+- ajout d'une couleur de repérage configurable par Client, validée côté serveur et affichée comme liseré sur ses réservations sans remplacer le nom ni le statut accessible ;
+- contrat OpenAPI versionné pour la consultation et la modification Client, couleur comprise ;
+- REVIEW, QA, SECURITY, PERFORMANCE, INTEGRATION et E2E approuvés sans P0/P1 sur le même candidat applicatif ; suite finale 345/345, lint et build verts.
 
 ## 0.5.0-rc5 — 2026-08-24
 

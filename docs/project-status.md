@@ -1,11 +1,13 @@
 # État du projet — Planning Post Prod
 
-Version : `0.5.0-rc5`
+Version : `0.5.0-rc6`
 Date : 2026-08-25
 
 Organisation : gouvernance multi-agents formalisée dans `AGENTS.md`; dépôt Git initialisé sur `main`.
 
 Architecture cible : le synoptique global fourni par le Product Owner est adopté comme cible de développement. La migration reste incrémentale depuis la RC1, sans big bang.
+
+Décision RELEASE post-RC5 2026-08-25 : **APPROVED — Planify `0.5.0-rc6`**. Le candidat applicatif exact `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f` et ses rapports passent REVIEW, QA, SECURITY, PERFORMANCE, INTEGRATION et E2E à 0 P0/P1. RC6 livre l'alignement vertical responsive du Planning et la couleur Client persistée/accessible. Preuves terminales : suite complète `345/345`, ciblés QA `74/74`, lint/build/diff-check PASS ; scroll réel synchronisé `0 ↔ 6456`, couleur `#E64A7A` relue après redémarrage et lecteur sans mutation Client. Le rollback vers `v0.5.0-rc5` est applicatif et sans migration destructive. Cette release reste locale : aucune publication ni aucun déploiement distant n'est effectué.
 
 INTEGRATION/E2E post-release RC5 2026-08-25 : **APPROVED — 0 P0 / 0 P1** sur le candidat applicatif exact `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f`. Un serveur isolé sur le port `8224` et une copie privée de la démonstration ont validé le parcours administrateur : la couleur Netflix France a été changée en `#E64A7A`, rendue comme liseré avec le nom Client dans le libellé accessible, puis retrouvée identique après arrêt/redémarrage et reconnexion. Le scroll vertical réel atteint `scrollTop=6456` dans la grille et la colonne Ressources, revient à `0` sur les deux axes et conserve les fenêtres virtualisées attendues. Le profil lecteur ne voit ni « Nouveau client » ni « Modifier le compte ». Le serveur, l'onglet et le fichier temporaire ont été arrêtés/supprimés. REVIEW, QA, SECURITY et PERFORMANCE sont également APPROVED à 0 P0/P1 ; le candidat peut passer au gate RELEASE local suivant.
 
