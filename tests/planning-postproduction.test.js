@@ -22,6 +22,7 @@ const {
   planningZonedCandidates,
   planningZonedIso,
   planningLocalParts,
+  planningCalendarDate,
   francePublicHolidayLabel,
   snapPlanningTime,
   planningVirtualSlice,
@@ -49,6 +50,24 @@ const period = {
   people: 1,
   version: 1,
 };
+
+test('le Planning utilise la date civile courante de Paris et réinitialise ses entrées générales', () => {
+  assert.equal(planningCalendarDate(new Date('2026-08-24T22:30:00.000Z')), '2026-08-25');
+  assert.equal(planningCalendarDate(new Date('2026-01-01T23:30:00.000Z')), '2026-01-02');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  assert.match(source, /anchor=planningCalendarDate\(\)/);
+  assert.doesNotMatch(source, /anchor='2026-08-17'/);
+  assert.match(source, /\[data-today\][\s\S]*?resetPlanningAnchor\(\)/);
+  assert.match(source, /hashchange'[\s\S]*?resetPlanningAnchor\(planningAnchorIntent\|\|planningCalendarDate\(\)\)/);
+  assert.match(source, /data-project-planning[\s\S]*?openPlanningRoute\(\)/);
+  assert.match(source, /openLinkedLineInPlanning[\s\S]*?openPlanningRoute\(booking\?/);
+});
+
+test('la cible de déplacement reste visible sans badge Destination redondant', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8');
+  assert.match(css, /\.planning-cell\.is-paste-target\{[^}]*box-shadow:/);
+  assert.doesNotMatch(css, /content:\s*['"]Destination['"]/i);
+});
 
 test('les quatre vues temporelles conservent la date de référence dans une plage civile déterministe', () => {
   assert.deepEqual(planningDatesFor('day', '2026-08-19'), ['2026-08-19']);

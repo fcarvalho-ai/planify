@@ -129,6 +129,7 @@ La durée-capacité réservée additionne les segments de réservations non annu
 
 ### Planning
 
+- [ ] Une ouverture générale du Planning se positionne sur la date civile courante en Europe/Paris, y compris après connexion ; une ouverture depuis une réservation précise conserve la date de cette réservation.
 - [ ] Un planificateur crée une réservation confirmée sur une ressource disponible et la retrouve après rechargement.
 - [ ] Le même ensemble de données est consultable en vues jour, semaine et mois.
 - [ ] Le drag & drop modifie correctement début et fin, conserve la durée et persiste après rechargement.
