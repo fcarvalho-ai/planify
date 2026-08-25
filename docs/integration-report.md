@@ -1,3 +1,23 @@
+# Rapport d’intégration post-RC5 — Scroll vertical et couleur Client
+
+Date : 2026-08-25
+Environnement : macOS arm64, Node.js v26.6.0, navigateur intégré
+Candidat applicatif exact : `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f`
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+Le frontend, l’API, la persistance JSON, les permissions et le Planning ont été rejoués ensemble sur une copie privée de la démonstration, servie localement sur le port `8224`. Le Planning publie la hauteur native de sa barre horizontale, synchronise la grille et la colonne Ressources et conserve sa virtualisation. La couleur Client passe par le formulaire, le PATCH versionné, l’écriture atomique, l’audit/SSE puis le rendu accessible des réservations.
+
+Le parcours administrateur a changé Netflix France en `#E64A7A`. Après arrêt complet et redémarrage avec le même fichier, reconnexion et rechargement du Planning, la réservation Netflix porte encore `--client-color:#E64A7A` et le libellé accessible commence par « Netflix France ». Le rôle lecteur charge les Clients mais ne dispose d’aucun contrôle « Nouveau client » ou « Modifier le compte ». Les charges invalides restent refusées par `422` sans mutation.
+
+Preuves complémentaires : Clients 11/11, Planning 46/46, Fondations/OpenAPI 17/17, ciblés QA 74/74, suite complète 345/345, lint/build/diff-check PASS. REVIEW, QA, SECURITY et PERFORMANCE approuvent le même candidat sans P0/P1. Aucune dépendance réseau, migration destructive ou donnée de travail n’a été introduite.
+
+Le serveur temporaire, son onglet et le fichier de données isolé ont été arrêtés et supprimés. Le candidat franchit INTEGRATION.
+
+---
+
 # Rapport d’intégration RC5 — Planning long et Pilotage réconcilié
 
 Date : 2026-08-24

@@ -1,3 +1,28 @@
+# Rapport E2E post-RC5 — Scroll vertical et repérage Client
+
+Date : 2026-08-25
+Environnement : macOS arm64, Node.js v26.6.0, navigateur intégré
+Candidat applicatif exact : `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f`
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+| Scénario | Résultat observé |
+|---|---|
+| Connexion administrateur | Authentification locale réussie sur une copie isolée de la démonstration. |
+| Couleur Client | Netflix France modifié en `#E64A7A`; confirmation UI « Compte client mis à jour ». |
+| Planning accessible | La carte affiche le liseré choisi et un libellé commençant par « Netflix France » ; nom et statut restent les signaux principaux. |
+| Scroll vertical réel | Six gestes vers le bas atteignent `scrollTop=6456` dans la grille et la colonne Ressources, avec fenêtre virtuelle `48..75`; six gestes inverses ramènent les deux à `0`, fenêtre `0..38`. |
+| Redémarrage/persistance | Après arrêt et redémarrage du serveur, reconnexion et rechargement, `#E64A7A` est toujours présent sur la réservation Netflix. |
+| Rôle lecteur | La page Clients reste consultable mais ne contient ni « Nouveau client » ni « Modifier le compte ». |
+
+Limite non bloquante : la transition responsive du `ResizeObserver` est couverte par le contrat et les tests, tandis que cette campagne navigateur a exercé le scroll aux dimensions disponibles sans redimensionnement automatisé du viewport.
+
+Le serveur, l’onglet et le fichier temporaire ont été nettoyés. Le candidat franchit E2E et peut passer au gate RELEASE local.
+
+---
+
 # Rapport E2E RC5 — Planning long et Pilotage
 
 Date : 2026-08-24
