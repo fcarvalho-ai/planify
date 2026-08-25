@@ -3672,7 +3672,8 @@ async function moveReservationCell(rid, sourceDate, sourceResourceId, input, aut
     const overrides = (item.cellOverrides || []).filter(value => !key(value));
     if (targetResourceId !== sourceResourceId) overrides.push({ sourceDate, sourceResourceId, targetDate, targetResourceId });
     const candidate = { ...item, planningMode: 'dailyCells', cellOverrides: overrides, version: item.version + 1, updatedAt: now() };
-    const checked = validateReservation(db, auth, candidate, item.id);
+    const validationCandidate = { ...candidate, includeWeekends: candidate.includeWeekends !== false, timeGranularity: candidate.timeGranularity || 'day', snapMinutes: Number(candidate.snapMinutes || 1440) };
+    const checked = validateReservation(db, auth, validationCandidate, item.id);
     if (checked.errors.length) throw apiError(422, 'VALIDATION_ERROR', 'Déplacement de cellule invalide.', { fields: checked.errors });
     const conflictOverride = planningConflictOverride(auth, input, checked.conflicts, 'La salle cible n’est pas disponible ce jour.');
     applyPlanningConflictOverride(candidate, conflictOverride);

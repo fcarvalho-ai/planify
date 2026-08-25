@@ -540,18 +540,30 @@ test('annuler et rétablir une réservation utilisent des compensations serveur'
   assert.match(redo, /planning-redo-cancel-/);
 });
 
-test('déplacer une sélection utilise une seule commande batch compensable', () => {
+test('déplacer depuis la barre agit sur une cellule précise et reste compensable', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   const move = source.match(/async function movePlanningSelectionToTarget\(\)\{[^\n]+/s)?.[0] || '';
   const undo = source.match(/async function undoPlanningOperation\(\)\{[\s\S]+?async function redoPlanningOperation/)?.[0] || '';
   const redo = source.match(/async function redoPlanningOperation\(\)\{[\s\S]+?async function moveWholePlanningBooking/)?.[0] || '';
-  assert.match(move, /\/api\/v1\/reservations\/batch/);
-  assert.match(move, /type:'move'/);
-  assert.match(move, /rememberPlanningUndo\(\{type:'batchMove'/);
-  assert.match(undo, /action\.type==='batchMove'/);
-  assert.match(undo, /planning-undo-move-/);
-  assert.match(redo, /action\.type==='batchMove'/);
-  assert.match(redo, /planning-redo-move-/);
+  assert.match(move, /planningCellSelection\.size!==1/);
+  assert.match(move, /dropAllocation\(item\.dataset\.booking,item\.dataset\.dragResource/);
+  assert.match(move, /planningPasteTarget\.date!==cell\.dataset\.date/);
+  assert.doesNotMatch(move, /type:'move'/);
+  assert.match(source, /rememberPlanningUndo\(\{type:'cellMove'/);
+  assert.match(undo, /action\.type==='cellMove'/);
+  assert.match(undo, /planning-undo-cell-move-/);
+  assert.match(redo, /action\.type==='cellMove'/);
+  assert.match(redo, /planning-redo-cell-move-/);
+});
+
+test('la barre de sélection reste compacte et masque les actions indisponibles', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8');
+  assert.match(source, /bar\.dataset\.hasSelection/);
+  assert.match(source, /Aucune cellule sélectionnée/);
+  assert.match(source, /Déplacer la cellule ici/);
+  assert.match(css, /\.planning-selection-bar button:disabled\{display:none\}/);
+  assert.match(css, /\.planning-selection-bar>span::after\{content:'\?'/);
 });
 
 test('redimensionner une sélection utilise une seule commande batch compensable', () => {

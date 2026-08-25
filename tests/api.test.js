@@ -483,7 +483,21 @@ test('un projet commercial actif reste planifiable avant confirmation du devis',
   assert.equal(prepared.data.lifecycleStatus, 'confirmed');
 });
 
-test('déplacer une cellule quotidienne ne déplace pas le reste de la réservation', async () => {
+test('déplacer une cellule confirmée ou en option ne déplace pas le reste de la réservation', async () => {
+  const legacy = await request('/api/v1/reservations/reservation_1', {}, admin);
+  assert.equal(legacy.response.status, 200);
+  assert.equal(legacy.data.status, 'confirmed');
+  assert.equal(legacy.data.includeWeekends, undefined);
+  assert.equal(legacy.data.timeGranularity, undefined);
+  const movedLegacy = await request('/api/v1/reservations/reservation_1/cells/2026-08-17/resource_3', {
+    method: 'PATCH', headers: { 'Idempotency-Key': 'reservation-legacy-confirmed-cell-move' },
+    body: JSON.stringify({ version: legacy.data.version, targetDate: '2026-08-17', targetResourceId: 'resource_2' }),
+  }, admin);
+  assert.equal(movedLegacy.response.status, 200);
+  assert.equal(movedLegacy.data.status, 'confirmed');
+  assert.equal(movedLegacy.data.includeWeekends, undefined);
+  assert.equal(movedLegacy.data.timeGranularity, undefined);
+  assert.deepEqual(movedLegacy.data.cellOverrides, [{ sourceDate: '2026-08-17', sourceResourceId: 'resource_3', targetDate: '2026-08-17', targetResourceId: 'resource_2' }]);
   const independent = await request('/api/v1/reservations', { method: 'POST', body: JSON.stringify({ title: 'Réservation indépendante à conserver', siteId: 'site_paris', projectId: 'project_2', status: 'confirmed', startsAt: '2026-09-08T09:00:00.000Z', endsAt: '2026-09-08T17:00:00.000Z', resources: [{ resourceId: 'resource_5', quantity: 1 }], planningMode: 'dailyCells', cellOverrides: [] }) }, admin);
   assert.equal(independent.response.status, 201);
   const payload = {
@@ -526,6 +540,15 @@ test('déplacer une cellule quotidienne ne déplace pas le reste de la réservat
   assert.equal(events.length, 1);
   const event = events[0];
   assert.deepEqual({ sourceDate: event.details.sourceDate, targetResourceId: event.details.targetResourceId }, { sourceDate: '2026-09-08', targetResourceId: 'resource_4' });
+  const option = await request('/api/v1/reservations', { method: 'POST', body: JSON.stringify({ ...payload, title: 'Option — série cellules', status: 'option', startsAt: '2026-09-14T07:00:00.000Z', endsAt: '2026-09-16T16:00:00.000Z' }) }, admin);
+  assert.equal(option.response.status, 201);
+  const movedOption = await request(`/api/v1/reservations/${option.data.id}/cells/2026-09-15/resource_3`, {
+    method: 'PATCH', headers: { 'Idempotency-Key': 'reservation-option-cell-move' },
+    body: JSON.stringify({ version: option.data.version, targetDate: '2026-09-15', targetResourceId: 'resource_4' }),
+  }, admin);
+  assert.equal(movedOption.response.status, 200);
+  assert.equal(movedOption.data.status, 'option');
+  assert.deepEqual(movedOption.data.cellOverrides, [{ sourceDate: '2026-09-15', sourceResourceId: 'resource_3', targetDate: '2026-09-15', targetResourceId: 'resource_4' }]);
 });
 
 test('un chevauchement au-delà de la capacité reçoit 409', async () => {

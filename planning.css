@@ -120,6 +120,17 @@ body.planning-immersive{overflow:hidden}
 
 /* Keep long booking forms operable on laptop-height viewports. */
 .modal{max-height:calc(100dvh - 40px);overflow:auto}
+
+/* Barre de sélection Planning : compacte au repos, actions secondaires à la demande. */
+.planning-selection-bar{min-height:42px;flex-wrap:wrap;gap:6px;margin:8px 0;padding:6px 8px;border-color:#e2def7;background:#fff;box-shadow:0 2px 10px rgba(33,27,79,.04)}
+.planning-selection-bar strong{min-width:max-content;font-size:11px;color:#4b3cb3}
+.planning-selection-bar>span{display:grid;flex:0 0 24px;width:24px;height:24px;place-items:center;overflow:hidden;border:1px solid #ddd8f4;border-radius:50%;background:#f7f5ff;color:#6558a7;font-size:0;cursor:help}
+.planning-selection-bar>span::after{content:'?';font-size:11px;font-weight:800}
+.planning-selection-bar button{min-height:30px;padding:5px 9px;border-color:#ddd8f4;border-radius:8px;background:#fff;color:#5142b5;font-size:10px;line-height:1.15;white-space:nowrap}
+.planning-selection-bar button:hover:not(:disabled),.planning-selection-bar button:focus-visible{border-color:#8d7cf0;background:#f4f1ff}
+.planning-selection-bar button:disabled{display:none}
+.planning-selection-bar[data-has-selection="false"]{width:max-content;max-width:100%}
+@media(max-width:800px){.planning-selection-bar{align-items:center;flex-direction:row}.planning-selection-bar strong{flex:1 1 180px}}
 .modal-head{position:sticky;top:0;z-index:3;background:#fff}
 .modal-actions{position:sticky;bottom:-20px;z-index:3;padding:14px 0 2px;border-top:1px solid var(--line);background:#fff}
 .sidebar{overflow-y:auto;overscroll-behavior:contain}
