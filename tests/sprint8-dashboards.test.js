@@ -136,8 +136,10 @@ test('S8-A expose le dashboard via HTTP avec le contrat d’erreur stable', asyn
   const base = `http://127.0.0.1:${server.address().port}`, login = await fetch(`${base}/api/v1/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'admin@northlight.fr', password: 'demo2026' }) }), session = await login.json(), cookie = login.headers.get('set-cookie').split(';', 1)[0];
   const response = await fetch(`${base}/api/v1/dashboards/direction?asOf=2026-08-23`, { headers: { cookie } }), data = await response.json();
   assert.equal(response.status, 200); assert.equal(data.dashboard, 'direction'); assert.equal(data.kpis.some(value => value.id === 'signedRevenue'), true);
-  const overviewResponse = await fetch(`${base}/api/v1/dashboard/overview?asOf=2026-08-23`, { headers: { cookie } }), overview = await overviewResponse.json();
-  assert.equal(overviewResponse.status, 200); assert.equal(overview.definitionVersion, 'DASHBOARD_OVERVIEW@1'); assert.equal(overview.history.length, 6);
+  const overviewResponse = await fetch(`${base}/api/v1/dashboard/overview?asOf=2026-08-23&comparisonMonth=2026-07`, { headers: { cookie } }), overview = await overviewResponse.json();
+  assert.equal(overviewResponse.status, 200); assert.equal(overview.definitionVersion, 'DASHBOARD_OVERVIEW@1'); assert.equal(overview.history.length, 6); assert.equal(overview.comparison.selected.month, '2026-07');
+  const invalidComparison = await fetch(`${base}/api/v1/dashboard/overview?asOf=2026-08-23&comparisonMonth=2026-08`, { headers: { cookie } }), invalidComparisonError = await invalidComparison.json();
+  assert.equal(invalidComparison.status, 422); assert.equal(invalidComparisonError.error.code, 'DASHBOARD_COMPARISON_MONTH_INVALID');
   const drilldown = await fetch(`${base}/api/v1/dashboards/direction/drilldown?asOf=2026-08-23&kpiId=signedRevenue&page=1&pageSize=10`, { headers: { cookie } }), detail = await drilldown.json();
   assert.equal(drilldown.status, 200); assert.equal(detail.dashboard, 'direction'); assert.equal(detail.kpiId, 'signedRevenue'); assert.ok(Array.isArray(detail.items)); assert.ok(detail.items.every(value => value.kpiId === 'signedRevenue'));
   const missingKpi = await fetch(`${base}/api/v1/dashboards/direction/drilldown?asOf=2026-08-23`, { headers: { cookie } }), missingKpiError = await missingKpi.json();
@@ -188,7 +190,23 @@ test('Vue d’ensemble distingue CA devisé, signé et budget non converti sans 
   assert.deepEqual(hidden.commercial, { status: 'unavailable' });
 });
 
+test('Vue d’ensemble compare le mois courant à un mois civil passé avec des montants mensuels', () => {
+  const db = makeSeed(), companyId = db.companies[0].id, project = db.projects[0], siteId = project.siteId || db.sites.find(value => value.companyId === companyId).id, document = (id, kind, status, taxDate, netHt, extra = {}) => ({ id, kind, status, taxDate, netHt, companyId, projectId: project.id, siteId, currency: 'EUR', currencyExponent: 2, createdAt: `${taxDate}T10:00:00.000Z`, lines: [], ...extra });
+  db.budgets = [document('budget_july_open', 'budget', 'clientConfirmed', '2026-07-04', '300000'), document('budget_july_converted_later', 'budget', 'converted', '2026-07-06', '500000'), document('budget_august_open', 'budget', 'clientConfirmed', '2026-08-04', '700000')];
+  db.quotes = [document('quote_july', 'quote', 'accepted', '2026-07-08', '800000', { acceptedAt: '2026-07-18T10:00:00.000Z' }), document('quote_august', 'quote', 'draft', '2026-08-08', '200000', { sourceBudgetId: 'budget_july_converted_later' })];
+  const overview = dashboardOverviewReadModel(db, authFor(db, ['quote.read', 'planning.read', 'resource.read', 'project.read']), { asOf: '2026-08-25', comparisonMonth: '2026-07' });
+  assert.deepEqual({ month: overview.comparison.selected.month, from: overview.comparison.selected.from, to: overview.comparison.selected.to }, { month: '2026-07', from: '2026-07-01', to: '2026-07-31' });
+  assert.deepEqual(overview.comparison.selected.commercial, { status: 'available', quotedRevenueMinor: '800000', signedRevenueMinor: '800000', unconvertedBudgetMinor: '800000', quoteCount: 1, signedQuoteCount: 1, unconvertedBudgetCount: 2 });
+  assert.deepEqual(overview.comparison.current.commercial, { status: 'available', quotedRevenueMinor: '200000', signedRevenueMinor: '0', unconvertedBudgetMinor: '700000', quoteCount: 1, signedQuoteCount: 0, unconvertedBudgetCount: 1 });
+  assert.deepEqual(overview.comparison.current.occupancy, overview.periods.month.global);
+});
+
+test('Vue d’ensemble refuse un mois de comparaison courant, futur ou mal formé', () => {
+  const db = makeSeed(), auth = authFor(db, ['planning.read', 'resource.read', 'project.read']);
+  for (const comparisonMonth of ['2026-08', '2026-09', '2026-7', '2026-07<script>']) assert.throws(() => dashboardOverviewReadModel(db, auth, { asOf: '2026-08-25', comparisonMonth }), error => error.status === 422 && error.code === 'DASHBOARD_COMPARISON_MONTH_INVALID');
+});
+
 test('Vue d’ensemble câble l’API et une interface progressive accessible', () => {
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'), app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8'), css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8'), openapi = fs.readFileSync(path.join(__dirname, '..', 'docs', 'api', 'openapi-v1.yaml'), 'utf8');
-  assert.match(server, /\/api\/v1\/dashboard\/overview/); assert.match(app, /data-dashboard-period/); assert.match(app, /data-dashboard-kind/); assert.match(app, /TENDANCE 6 MOIS/); assert.match(app, /Budget non converti/); assert.match(app, /aria-label="Évolution du taux d’occupation global sur six mois"/); assert.match(css, /\.overview-category-grid/); assert.match(openapi, /\/dashboard\/overview:/); assert.match(openapi, /DashboardOverview:/);
+  assert.match(server, /\/api\/v1\/dashboard\/overview/); assert.match(app, /data-dashboard-period/); assert.match(app, /data-dashboard-kind/); assert.match(app, /data-dashboard-comparison-month/); assert.match(app, /COMPARAISON MENSUELLE/); assert.match(app, /TENDANCE 6 MOIS/); assert.match(app, /Budget non converti/); assert.match(app, /aria-label="Évolution du taux d’occupation global sur six mois"/); assert.match(css, /\.overview-category-grid/); assert.match(css, /\.overview-comparison-grid/); assert.match(openapi, /\/dashboard\/overview:/); assert.match(openapi, /comparisonMonth/); assert.match(openapi, /DashboardOverview:/);
 });

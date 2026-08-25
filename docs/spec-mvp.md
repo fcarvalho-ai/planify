@@ -78,6 +78,8 @@ La vue d’ensemble affiche le taux d’occupation global selon trois lectures s
 
 La synthèse commerciale distingue explicitement le **CA devisé** (tous les Devis visibles hors archives), le **CA signé** (Devis acceptés) et les **Budgets non convertis** (Budgets visibles qui n’ont produit aucun Devis). Ces montants sont masqués lorsque l’acteur ne possède pas `quote.read`; aucun faux zéro ne remplace une donnée non autorisée.
 
+Sous la synthèse, une comparaison mensuelle permet de choisir un mois civil passé. Elle rapproche ce mois du mois courant pour l’occupation globale, le CA devisé, le CA signé et les Budgets non convertis. Les valeurs commerciales sont recalculées sur chaque mois — elles ne reprennent pas les cumuls historiques — et les mêmes permissions et scopes sont appliqués avant agrégation. Le CA signé suit la date d’acceptation ; un Budget converti plus tard reste donc visible comme non converti à la clôture du mois comparé. Le mois précédent est proposé par défaut ; un mois courant, futur ou mal formé est refusé.
+
 ## 5. Règles métier
 
 1. Une réservation a une fin strictement postérieure à son début.
