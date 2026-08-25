@@ -3297,6 +3297,7 @@ async function api(req, res, url, requestId) {
     const currencies = {}; for (const item of items) { const key = item.currency; currencies[key] ||= { currency: key, currencyExponent: item.currencyExponent, netHt: '0', vatAmount: '0', grossTtc: '0', quoteCount: 0 }; const total = currencies[key]; total.netHt = String(BigInt(total.netHt) + BigInt(item.netHt)); total.vatAmount = String(BigInt(total.vatAmount) + BigInt(item.vatAmount)); total.grossTtc = String(BigInt(total.grossTtc) + BigInt(item.grossTtc)); total.quoteCount++; }
     return send(res, 200, { from: from || null, to: to || null, recognitionRule: 'acceptedQuoteVersion', currencies: Object.values(currencies), items });
   }
+  if (route === '/api/v1/dashboard/overview' && method === 'GET') { try { return send(res, 200, dashboardOverviewReadModel(db, auth, Object.fromEntries(url.searchParams))); } catch (error) { return sendApiError(res, error, requestId); } }
   if (route === '/api/v1/dashboard/occupancy' && method === 'GET') return occupancyResponse(db, auth, url, res, requestId);
   if (route === '/api/v1/audit' && method === 'GET') { if (!has(auth, 'audit.read')) return fail(res, 403, 'FORBIDDEN', 'Action non autorisée.', requestId); return send(res, 200, list(db.auditEvents.filter(e => e.companyId === companyId).reverse().map(event => auditEventDto(auth, event)), url)); }
   if (route === '/api/v1/technical-metrics' && method === 'GET') { if (!has(auth, 'audit.read')) return fail(res, 403, 'FORBIDDEN', 'Action non autorisée.', requestId); const durations = runtimeMetrics.durationsMs.slice().sort((left, right) => left - right), percentile = ratio => durations[Math.max(0, Math.ceil(durations.length * ratio) - 1)] || 0; return send(res, 200, { startedAt: runtimeMetrics.startedAt, requests: runtimeMetrics.requests, errors: runtimeMetrics.errors, mutations: runtimeMetrics.mutations, mutationErrors: runtimeMetrics.mutationErrors, actuals: { confirmations: runtimeMetrics.actualConfirmations, corrections: runtimeMetrics.actualCorrections }, latencyMs: { p50: percentile(0.5), p95: percentile(0.95), max: durations.at(-1) || 0 }, sse: { active: sseClients.size, opened: runtimeMetrics.sseOpened, closed: runtimeMetrics.sseClosed }, domainEvents: db.domainEvents.length }); }
@@ -4117,6 +4118,37 @@ function occupancyResponse(db, auth, url, res, requestId) {
   const booked = byResource.reduce((sum, item) => sum + item.bookedCapacityHours, 0), available = byResource.reduce((sum, item) => sum + item.availableCapacityHours, 0);
   return send(res, 200, { from, to, bookedCapacityHours: booked, availableCapacityHours: available, occupancyRate: available ? Math.round(booked / available * 10000) / 100 : 0, resources: byResource.sort((left, right) => right.occupancyRate - left.occupancyRate) });
 }
+function dashboardOverviewRoomKind(resource) {
+  const text = `${resource?.name || ''} ${resource?.type || ''}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (/mix|audio|son|foley|voix|pro tools/.test(text)) return 'mixing';
+  if (/etal|grading|color|resolve/.test(text)) return 'grading';
+  if (/montage|edit|avid|remote/.test(text)) return 'editing';
+  return null;
+}
+function dashboardOverviewMonthStart(date, offset = 0) { const value = new Date(`${date.slice(0, 7)}-01T12:00:00Z`); value.setUTCMonth(value.getUTCMonth() + offset); return value.toISOString().slice(0, 10); }
+function dashboardOverviewRanges(asOf) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf || '') || new Date(`${asOf}T12:00:00Z`).toISOString().slice(0, 10) !== asOf) throw apiError(422, 'DASHBOARD_PERIOD_INVALID', 'Date de situation invalide.');
+  const date = new Date(`${asOf}T12:00:00Z`), monday = addCalendarDays(asOf, -((date.getUTCDay() + 6) % 7)), month = dashboardOverviewMonthStart(asOf);
+  return { day: { from: asOf, to: addCalendarDays(asOf, 1) }, week: { from: monday, to: addCalendarDays(monday, 7) }, month: { from: month, to: dashboardOverviewMonthStart(asOf, 1) }, history: Array.from({ length: 6 }, (_, index) => { const from = dashboardOverviewMonthStart(asOf, index - 5); return { from, to: dashboardOverviewMonthStart(from, 1), label: from.slice(0, 7) }; }) };
+}
+function dashboardOverviewOccupancy(resources, cells, range, timezone) {
+  const fromMs = Date.parse(zonedDateTimeIso(range.from, '00:00', timezone)), toMs = Date.parse(zonedDateTimeIso(range.to, '00:00', timezone)), byResource = new Map(resources.map(resource => [resource.id, { resourceId: resource.id, name: resource.name, kind: dashboardOverviewRoomKind(resource), bookedMs: 0, availableMs: Math.max(0, toMs - fromMs) * Math.max(0, Number(resource.capacity) || 0) }]));
+  for (const cell of cells) { const row = byResource.get(cell.resourceId); if (!row) continue; const overlap = Math.max(0, Math.min(toMs, cell.endMs) - Math.max(fromMs, cell.startMs)); row.bookedMs += overlap * Math.max(0, Number(cell.quantity) || 0); }
+  const rows = [...byResource.values()].map(row => ({ resourceId: row.resourceId, name: row.name, kind: row.kind, bookedCapacityHours: row.bookedMs / 3600000, availableCapacityHours: row.availableMs / 3600000, occupancyRate: row.availableMs ? Math.round(row.bookedMs / row.availableMs * 10000) / 100 : 0 }));
+  const aggregate = items => { const booked = items.reduce((sum, item) => sum + item.bookedCapacityHours, 0), available = items.reduce((sum, item) => sum + item.availableCapacityHours, 0); return { bookedCapacityHours: Math.round(booked * 10) / 10, availableCapacityHours: Math.round(available * 10) / 10, occupancyRate: available ? Math.round(booked / available * 10000) / 100 : 0, resourceCount: items.length }; };
+  return { from: range.from, to: addCalendarDays(range.to, -1), global: aggregate(rows), categories: ['editing', 'mixing', 'grading'].map(kind => ({ kind, ...aggregate(rows.filter(row => row.kind === kind)) })), resources: rows.sort((left, right) => right.occupancyRate - left.occupancyRate) };
+}
+function dashboardOverviewReadModel(db, auth, rawInput = {}) {
+  const company = (db.companies || []).find(value => value.id === auth.user.companyId), timezone = company?.defaultTimezone || 'Europe/Paris', todayParts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).filter(part => part.type !== 'literal').map(part => [part.type, part.value])), asOf = cleanString(rawInput.asOf, 10) || `${todayParts.year}-${todayParts.month}-${todayParts.day}`, ranges = dashboardOverviewRanges(asOf);
+  const resources = (db.resources || []).filter(resource => resource.active !== false && resourceAllowed(auth, resource) && (['room', 'suite'].includes(resource.type) || /salle|studio|cabine/i.test(resource.name || '')));
+  const resourceIds = new Set(resources.map(value => value.id)), visibleReservations = (db.reservations || []).filter(value => value.companyId === auth.user.companyId && ['option', 'confirmed', 'completed', 'unavailable', 'maintenance'].includes(value.status) && reservationSnapshotAllowed(db, auth, value)), optionByGroup = new Map();
+  for (const reservation of visibleReservations) if (reservation.status === 'option' && reservation.optionDecision?.state !== 'lost' && reservation.optionGroupId) { const current = optionByGroup.get(reservation.optionGroupId); if (!current || Number(reservation.optionPriority || 100) < Number(current.optionPriority || 100) || Number(reservation.optionPriority || 100) === Number(current.optionPriority || 100) && reservation.id.localeCompare(current.id) < 0) optionByGroup.set(reservation.optionGroupId, reservation); }
+  const canonicalOptions = new Set([...optionByGroup.values()].map(value => value.id)), reservations = visibleReservations.filter(value => value.status !== 'option' || value.optionDecision?.state !== 'lost' && (!value.optionGroupId || canonicalOptions.has(value.id))), cells = reservations.flatMap(planningCellIntervals).filter(cell => resourceIds.has(cell.resourceId));
+  const periods = Object.fromEntries(['day', 'week', 'month'].map(key => [key, dashboardOverviewOccupancy(resources, cells, ranges[key], timezone)]));
+  const history = ranges.history.map(range => ({ label: range.label, ...dashboardOverviewOccupancy(resources, cells, range, timezone).global }));
+  const canReadCommercial = has(auth, 'quote.read'), documents = canReadCommercial ? commercialDocuments(db).filter(value => value.companyId === auth.user.companyId && quoteAllowed(auth, value) && value.status !== 'archived' && cleanString(value.taxDate || value.createdAt, 10) <= asOf) : [], quotes = documents.filter(value => value.kind === 'quote'), budgets = documents.filter(value => value.kind === 'budget'), convertedBudgetIds = new Set(quotes.map(value => value.sourceBudgetId).filter(Boolean)), signed = quotes.filter(value => value.status === 'accepted'), unconvertedBudgets = budgets.filter(value => value.status !== 'converted' && !convertedBudgetIds.has(value.id)), sum = items => String(items.reduce((total, value) => total + BigInt(value.netHt || value.totalHt || '0'), 0n));
+  return { definitionVersion: 'DASHBOARD_OVERVIEW@1', generatedAt: now(), asOf, timezone, currency: company?.currency || 'EUR', currencyExponent: Number.isInteger(company?.currencyExponent) ? company.currencyExponent : 2, periods, history, commercial: canReadCommercial ? { status: 'available', quotedRevenueMinor: sum(quotes), signedRevenueMinor: sum(signed), unconvertedBudgetMinor: sum(unconvertedBudgets), quoteCount: quotes.length, signedQuoteCount: signed.length, unconvertedBudgetCount: unconvertedBudgets.length } : { status: 'unavailable' }, sources: { resourceCount: resources.length, reservationCount: reservations.length, documentCount: documents.length } };
+}
 function apiError(status, code, message, details) { return Object.assign(new Error(message), { status, code, details }); }
 function sendApiError(res, e, requestId) { return fail(res, e.status || 500, e.code || 'INTERNAL_ERROR', e.status ? e.message : 'Erreur interne.', requestId, e.details); }
 const STATIC_FILES = Object.freeze({
@@ -4185,6 +4217,7 @@ module.exports.financeUnbilledOverages = financeUnbilledOverages;
 module.exports.financeRateDiscounts = financeRateDiscounts;
 module.exports.dashboardReadModel = dashboardReadModel;
 module.exports.dashboardDrilldownReadModel = dashboardDrilldownReadModel;
+module.exports.dashboardOverviewReadModel = dashboardOverviewReadModel;
 module.exports.planningExportRows = planningExportRows;
 module.exports.exportXlsxBuffer = exportXlsxBuffer;
 module.exports.exportXlsxWorkbook = exportXlsxWorkbook;

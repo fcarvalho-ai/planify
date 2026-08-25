@@ -74,7 +74,9 @@ Si la capacité est dépassée, l'UI identifie la ressource, la période et les 
 
 ### P6 — Analyser l'occupation
 
-Le dashboard affiche, pour la période et le site filtrés, le taux d'occupation global, l'occupation par ressource/type et les ressources les plus chargées. Cliquer sur une donnée ouvre le planning avec les mêmes filtres.
+La vue d’ensemble affiche le taux d’occupation global selon trois lectures sélectionnables — journée civile, semaine du lundi au dimanche et mois civil — puis le détail progressif des salles de montage, de mixage et d’étalonnage. Une catégorie s’ouvre sans quitter la page ; une salle ouvre ensuite le planning sur la même période et avec la ressource filtrée. Un graphique permanent présente les six mois civils jusqu’au mois de situation.
+
+La synthèse commerciale distingue explicitement le **CA devisé** (tous les Devis visibles hors archives), le **CA signé** (Devis acceptés) et les **Budgets non convertis** (Budgets visibles qui n’ont produit aucun Devis). Ces montants sont masqués lorsque l’acteur ne possède pas `quote.read`; aucun faux zéro ne remplace une donnée non autorisée.
 
 ## 5. Règles métier
 

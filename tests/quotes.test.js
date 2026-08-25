@@ -596,7 +596,9 @@ test('l’interface limite la sélection jour au DOM visible et expose les confi
   assert.match(source, /Créer un devis depuis un planning client/);
   assert.match(source, /clientPlanningImport/);
   assert.match(source, /client-planning\/apply-lines/);
-  assert.match(source, /CA devis acceptés/);
+  assert.match(source, /CA devisé/);
+  assert.match(source, /CA signé/);
+  assert.match(source, /Budget non converti/);
   assert.match(source, /Import planning client/);
   assert.match(source, /openBudgetClientPlanningImport/);
   assert.match(source, /Ce budget ne crée aucune réservation/);

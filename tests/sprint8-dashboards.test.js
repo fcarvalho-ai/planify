@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 process.env.PLANIFY_DATA_FILE = path.join(os.tmpdir(), `planify-sprint8-dashboards-${process.pid}-${Date.now()}.json`);
-const { createServer, dashboardDrilldownReadModel, dashboardReadModel, makeSeed, resetData } = require('../server.js');
+const { createServer, dashboardDrilldownReadModel, dashboardOverviewReadModel, dashboardReadModel, makeSeed, resetData } = require('../server.js');
 
 function authFor(db, permissions, overrides = {}) {
   const companyId = db.companies[0].id;
@@ -136,6 +136,8 @@ test('S8-A expose le dashboard via HTTP avec le contrat d’erreur stable', asyn
   const base = `http://127.0.0.1:${server.address().port}`, login = await fetch(`${base}/api/v1/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'admin@northlight.fr', password: 'demo2026' }) }), session = await login.json(), cookie = login.headers.get('set-cookie').split(';', 1)[0];
   const response = await fetch(`${base}/api/v1/dashboards/direction?asOf=2026-08-23`, { headers: { cookie } }), data = await response.json();
   assert.equal(response.status, 200); assert.equal(data.dashboard, 'direction'); assert.equal(data.kpis.some(value => value.id === 'signedRevenue'), true);
+  const overviewResponse = await fetch(`${base}/api/v1/dashboard/overview?asOf=2026-08-23`, { headers: { cookie } }), overview = await overviewResponse.json();
+  assert.equal(overviewResponse.status, 200); assert.equal(overview.definitionVersion, 'DASHBOARD_OVERVIEW@1'); assert.equal(overview.history.length, 6);
   const drilldown = await fetch(`${base}/api/v1/dashboards/direction/drilldown?asOf=2026-08-23&kpiId=signedRevenue&page=1&pageSize=10`, { headers: { cookie } }), detail = await drilldown.json();
   assert.equal(drilldown.status, 200); assert.equal(detail.dashboard, 'direction'); assert.equal(detail.kpiId, 'signedRevenue'); assert.ok(Array.isArray(detail.items)); assert.ok(detail.items.every(value => value.kpiId === 'signedRevenue'));
   const missingKpi = await fetch(`${base}/api/v1/dashboards/direction/drilldown?asOf=2026-08-23`, { headers: { cookie } }), missingKpiError = await missingKpi.json();
@@ -155,4 +157,38 @@ test('S8-A câble la route, l’interface Pilotage et le contrat OpenAPI', () =>
   assert.match(openapi, /\/dashboards\/\{kind\}:/);
   assert.match(openapi, /\/dashboards\/\{kind\}\/drilldown:/);
   assert.match(openapi, /DashboardDrilldownResponse:/);
+});
+
+test('Vue d’ensemble réconcilie occupation jour, semaine, mois et tendance six mois', () => {
+  const db = makeSeed(), admin = authFor(db, ['quote.read', 'planning.read', 'resource.read', 'project.read']);
+  const overview = dashboardOverviewReadModel(db, admin, { asOf: '2026-08-25' });
+  assert.equal(overview.definitionVersion, 'DASHBOARD_OVERVIEW@1');
+  assert.deepEqual(Object.keys(overview.periods), ['day', 'week', 'month']);
+  assert.equal(overview.periods.day.from, '2026-08-25'); assert.equal(overview.periods.day.to, '2026-08-25');
+  assert.equal(overview.periods.week.from, '2026-08-24'); assert.equal(overview.periods.week.to, '2026-08-30');
+  assert.equal(overview.periods.month.from, '2026-08-01'); assert.equal(overview.periods.month.to, '2026-08-31');
+  assert.equal(overview.history.length, 6); assert.deepEqual(overview.history.map(value => value.label), ['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08']);
+  for (const period of Object.values(overview.periods)) { assert.deepEqual(period.categories.map(value => value.kind), ['editing', 'mixing', 'grading']); assert.equal(period.global.resourceCount, period.resources.length); assert.ok(period.global.occupancyRate >= 0); }
+});
+
+test('Vue d’ensemble compte une double option une seule fois après application des scopes', () => {
+  const db = makeSeed(), source = db.reservations[0], resource = db.resources.find(value => value.id === source.resources[0].resourceId); resource.name = 'Salle de montage test';
+  const option = (id, priority) => ({ ...structuredClone(source), id, status: 'option', startsAt: '2026-08-25T07:00:00.000Z', endsAt: '2026-08-25T08:00:00.000Z', optionGroupId: 'option_group_overview', optionPriority: priority, optionDecision: { state: 'open' } });
+  db.reservations = [option('option_overview_1', 1), option('option_overview_2', 2)];
+  const overview = dashboardOverviewReadModel(db, authFor(db, ['planning.read', 'resource.read', 'project.read']), { asOf: '2026-08-25' });
+  assert.equal(overview.periods.day.resources.find(value => value.resourceId === resource.id).bookedCapacityHours, 1);
+});
+
+test('Vue d’ensemble distingue CA devisé, signé et budget non converti sans contourner quote.read', () => {
+  const db = makeSeed(), companyId = db.companies[0].id, project = db.projects[0], siteId = project.siteId || db.sites.find(value => value.companyId === companyId).id, base = { companyId, projectId: project.id, siteId, currency: 'EUR', currencyExponent: 2, taxDate: '2026-08-20', createdAt: '2026-08-20T10:00:00.000Z', lines: [] };
+  db.budgets = [{ ...base, id: 'budget_open', kind: 'budget', status: 'clientConfirmed', netHt: '300000' }, { ...base, id: 'budget_converted', kind: 'budget', status: 'converted', netHt: '500000' }];
+  db.quotes = [{ ...base, id: 'quote_signed', kind: 'quote', status: 'accepted', netHt: '800000', sourceBudgetId: 'budget_converted' }, { ...base, id: 'quote_draft', kind: 'quote', status: 'draft', netHt: '200000' }];
+  const allowed = dashboardOverviewReadModel(db, authFor(db, ['quote.read', 'planning.read', 'resource.read', 'project.read']), { asOf: '2026-08-25' }), hidden = dashboardOverviewReadModel(db, authFor(db, ['planning.read', 'resource.read', 'project.read']), { asOf: '2026-08-25' });
+  assert.deepEqual(allowed.commercial, { status: 'available', quotedRevenueMinor: '1000000', signedRevenueMinor: '800000', unconvertedBudgetMinor: '300000', quoteCount: 2, signedQuoteCount: 1, unconvertedBudgetCount: 1 });
+  assert.deepEqual(hidden.commercial, { status: 'unavailable' });
+});
+
+test('Vue d’ensemble câble l’API et une interface progressive accessible', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'), app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8'), css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8'), openapi = fs.readFileSync(path.join(__dirname, '..', 'docs', 'api', 'openapi-v1.yaml'), 'utf8');
+  assert.match(server, /\/api\/v1\/dashboard\/overview/); assert.match(app, /data-dashboard-period/); assert.match(app, /data-dashboard-kind/); assert.match(app, /TENDANCE 6 MOIS/); assert.match(app, /Budget non converti/); assert.match(app, /aria-label="Évolution du taux d’occupation global sur six mois"/); assert.match(css, /\.overview-category-grid/); assert.match(openapi, /\/dashboard\/overview:/); assert.match(openapi, /DashboardOverview:/);
 });

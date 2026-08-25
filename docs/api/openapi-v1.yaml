@@ -261,6 +261,21 @@ paths:
       responses:
         '200': { description: CA issu des versions de devis acceptées, content: { application/json: { schema: { type: object } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /dashboard/overview:
+    get:
+      operationId: getDashboardOverview
+      tags: [Analytics]
+      parameters:
+        - { name: asOf, in: query, required: false, schema: { type: string, format: date }, description: Date de situation locale. }
+      responses:
+        '200':
+          description: Vue d’ensemble réconciliée — occupations jour/semaine/mois, tendance six mois et synthèse commerciale.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardOverview' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /dashboard/occupancy:
     get:
       operationId: getPlanningAnalytics
@@ -2536,6 +2551,43 @@ components:
         kpis: { type: array, maxItems: 50, items: { $ref: '#/components/schemas/DashboardKpi' } }
         alerts: { type: array, maxItems: 100, items: { type: object, additionalProperties: true } }
         sections: { type: array, maxItems: 20, items: { type: object, additionalProperties: true } }
+        sources: { type: object, additionalProperties: true }
+    DashboardOverviewMetric:
+      type: object
+      required: [bookedCapacityHours, availableCapacityHours, occupancyRate, resourceCount]
+      properties:
+        bookedCapacityHours: { type: number, minimum: 0 }
+        availableCapacityHours: { type: number, minimum: 0 }
+        occupancyRate: { type: number, minimum: 0 }
+        resourceCount: { type: integer, minimum: 0 }
+    DashboardOverviewPeriod:
+      type: object
+      required: [from, to, global, categories, resources]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        global: { $ref: '#/components/schemas/DashboardOverviewMetric' }
+        categories: { type: array, minItems: 3, maxItems: 3, items: { type: object, additionalProperties: true } }
+        resources: { type: array, items: { type: object, additionalProperties: true } }
+    DashboardOverview:
+      type: object
+      required: [definitionVersion, generatedAt, asOf, timezone, currency, currencyExponent, periods, history, commercial, sources]
+      properties:
+        definitionVersion: { type: string, const: 'DASHBOARD_OVERVIEW@1' }
+        generatedAt: { type: string, format: date-time }
+        asOf: { type: string, format: date }
+        timezone: { type: string }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        currencyExponent: { type: integer, minimum: 0, maximum: 6 }
+        periods:
+          type: object
+          required: [day, week, month]
+          properties:
+            day: { $ref: '#/components/schemas/DashboardOverviewPeriod' }
+            week: { $ref: '#/components/schemas/DashboardOverviewPeriod' }
+            month: { $ref: '#/components/schemas/DashboardOverviewPeriod' }
+        history: { type: array, minItems: 6, maxItems: 6, items: { type: object, additionalProperties: true } }
+        commercial: { type: object, additionalProperties: true }
         sources: { type: object, additionalProperties: true }
   responses:
     Unauthorized: { description: Session absente ou expirée, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } } }
