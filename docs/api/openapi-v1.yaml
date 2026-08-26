@@ -266,11 +266,11 @@ paths:
       operationId: getDashboardOverview
       tags: [Analytics]
       parameters:
-        - { name: asOf, in: query, required: false, schema: { type: string, format: date }, description: Date de situation locale. }
-        - { name: comparisonMonth, in: query, required: false, schema: { type: string, pattern: '^\d{4}-\d{2}$' }, description: Mois civil passé comparé au mois de situation. Le mois précédent est utilisé par défaut. }
+        - { name: asOf, in: query, required: false, schema: { type: string, format: date }, description: Date de situation locale et borne temporelle inclusive des indicateurs courants. }
+        - { name: comparisonMonth, in: query, required: false, schema: { type: string, pattern: '^\d{4}-\d{2}$' }, description: Mois civil passé comparé au mois de situation borné à asOf. Le mois précédent est utilisé par défaut. }
       responses:
         '200':
-          description: Vue d’ensemble réconciliée — occupations jour/semaine/mois, tendance six mois et synthèse commerciale.
+          description: Vue d’ensemble réconciliée exigeant dashboard.read — occupations jour/semaine/mois, tendance six mois et synthèse commerciale historique bornée à asOf.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DashboardOverview' }

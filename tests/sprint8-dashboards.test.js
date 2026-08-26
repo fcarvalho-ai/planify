@@ -198,7 +198,26 @@ test('Vue d’ensemble compare le mois courant à un mois civil passé avec des 
   assert.deepEqual({ month: overview.comparison.selected.month, from: overview.comparison.selected.from, to: overview.comparison.selected.to }, { month: '2026-07', from: '2026-07-01', to: '2026-07-31' });
   assert.deepEqual(overview.comparison.selected.commercial, { status: 'available', quotedRevenueMinor: '800000', signedRevenueMinor: '800000', unconvertedBudgetMinor: '800000', quoteCount: 1, signedQuoteCount: 1, unconvertedBudgetCount: 2 });
   assert.deepEqual(overview.comparison.current.commercial, { status: 'available', quotedRevenueMinor: '200000', signedRevenueMinor: '0', unconvertedBudgetMinor: '700000', quoteCount: 1, signedQuoteCount: 0, unconvertedBudgetCount: 1 });
-  assert.deepEqual(overview.comparison.current.occupancy, overview.periods.month.global);
+  assert.equal(overview.comparison.current.to, '2026-08-25');
+  assert.notEqual(overview.comparison.current.occupancy.availableCapacityHours, overview.periods.month.global.availableCapacityHours);
+});
+
+test('Vue d’ensemble respecte la date de situation, l’historique signé et dashboard.read', () => {
+  const db = makeSeed(), companyId = db.companies[0].id, project = db.projects[0], siteId = project.siteId || db.sites.find(value => value.companyId === companyId).id, document = (id, kind, status, taxDate, netHt, extra = {}) => ({ id, kind, status, taxDate, netHt, companyId, projectId: project.id, siteId, currency: 'EUR', currencyExponent: 2, createdAt: `${taxDate}T10:00:00.000Z`, lines: [], ...extra });
+  db.budgets = [document('budget_before_cutoff', 'budget', 'converted', '2026-08-02', '300000'), document('budget_historical', 'budget', 'clientConfirmed', '2026-07-02', '400000')];
+  db.quotes = [
+    document('quote_future_acceptance', 'quote', 'accepted', '2026-08-05', '100000', { acceptedAt: '2026-08-30T10:00:00.000Z' }),
+    document('quote_future_conversion', 'quote', 'draft', '2026-08-10', '200000', { sourceBudgetId: 'budget_before_cutoff', createdAt: '2026-08-30T10:00:00.000Z' }),
+    document('quote_replaced_after_acceptance', 'quote', 'replaced', '2026-07-08', '800000', { acceptedAt: '2026-07-18T10:00:00.000Z', replacedAt: '2026-08-03T10:00:00.000Z' })
+  ];
+  const authorized = authFor(db, ['quote.read', 'planning.read', 'resource.read', 'project.read']), overview = dashboardOverviewReadModel(db, authorized, { asOf: '2026-08-25', comparisonMonth: '2026-07' });
+  assert.equal(overview.comparison.current.to, '2026-08-25');
+  assert.equal(overview.comparison.current.commercial.signedRevenueMinor, '0');
+  assert.equal(overview.comparison.current.commercial.unconvertedBudgetMinor, '300000');
+  assert.equal(overview.comparison.selected.commercial.signedRevenueMinor, '800000');
+  assert.equal(overview.comparison.selected.commercial.signedQuoteCount, 1);
+  const forbidden = authFor(db, [], { effectivePermissions: [] });
+  assert.throws(() => dashboardOverviewReadModel(db, forbidden, { asOf: '2026-08-25' }), error => error.status === 403 && error.code === 'DASHBOARD_FORBIDDEN' && error.details.missingPermissions.includes('dashboard.read'));
 });
 
 test('Vue d’ensemble refuse un mois de comparaison courant, futur ou mal formé', () => {
@@ -208,5 +227,5 @@ test('Vue d’ensemble refuse un mois de comparaison courant, futur ou mal form�
 
 test('Vue d’ensemble câble l’API et une interface progressive accessible', () => {
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'), app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8'), css = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8'), openapi = fs.readFileSync(path.join(__dirname, '..', 'docs', 'api', 'openapi-v1.yaml'), 'utf8');
-  assert.match(server, /\/api\/v1\/dashboard\/overview/); assert.match(app, /data-dashboard-period/); assert.match(app, /data-dashboard-kind/); assert.match(app, /data-dashboard-comparison-month/); assert.match(app, /COMPARAISON MENSUELLE/); assert.match(app, /TENDANCE 6 MOIS/); assert.match(app, /Budget non converti/); assert.match(app, /aria-label="Évolution du taux d’occupation global sur six mois"/); assert.match(css, /\.overview-category-grid/); assert.match(css, /\.overview-comparison-grid/); assert.match(openapi, /\/dashboard\/overview:/); assert.match(openapi, /comparisonMonth/); assert.match(openapi, /DashboardOverview:/);
+  assert.match(server, /\/api\/v1\/dashboard\/overview/); assert.match(server, /La permission dashboard\.read est requise/); assert.match(app, /data-dashboard-period/); assert.match(app, /data-dashboard-kind/); assert.match(app, /data-dashboard-comparison-month/); assert.match(app, /current==null\|\|previous==null\)return'Non disponible'/); assert.match(app, /COMPARAISON MENSUELLE/); assert.match(app, /TENDANCE 6 MOIS/); assert.match(app, /Budget non converti/); assert.match(app, /aria-label="Évolution du taux d’occupation global sur six mois"/); assert.match(css, /\.overview-category-grid/); assert.match(css, /\.overview-comparison-grid/); assert.match(openapi, /\/dashboard\/overview:/); assert.match(openapi, /comparisonMonth/); assert.match(openapi, /DashboardOverview:/);
 });
