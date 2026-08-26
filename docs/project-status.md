@@ -1,11 +1,13 @@
 # État du projet — Planning Post Prod
 
 Version : `0.5.0-rc6`
-Date : 2026-08-25
+Date : 2026-08-26
 
 Organisation : gouvernance multi-agents formalisée dans `AGENTS.md`; dépôt Git initialisé sur `main`.
 
 Architecture cible : le synoptique global fourni par le Product Owner est adopté comme cible de développement. La migration reste incrémentale depuis la RC1, sans big bang.
+
+Retour DEV post-RC6 — cohérence temporelle et permissions de la comparaison mensuelle 2026-08-26 : **IMPLÉMENTÉ — re-gates indépendants requis** sur le candidat applicatif exact `db23552b898bc7fc8c75bdae11b1916daba4df0a`. Le mois courant comparé s’arrête désormais à `asOf` inclus pour l’occupation et les montants ; une acceptation ou une conversion future n’est plus anticipée. Le CA signé reste attaché à `acceptedAt` lorsqu’un Devis est ensuite remplacé. Le read-model exige explicitement `dashboard.read`, et l’interface affiche « Non disponible » au lieu d’un faux écart `0 €` sans `quote.read`. Spécification et OpenAPI sont alignés. Négatifs frais : acceptation future exclue, conversion future non appliquée, Devis remplacé encore compté, acteur sans `dashboard.read` refusé `403`. Preuves DEV : Dashboards `21/21`, ciblés Fondations+Dashboards+Devis+API `129/129`, suite complète `355/355`, lint/build/diff-check PASS. Aucun changement de persistance ni migration. REVIEW, QA puis SECURITY/PERFORMANCE doivent être rejoués sur ce hash avant Integration/E2E.
 
 Gates indépendants post-RC6 — comparaison mensuelle 2026-08-26 : **BLOQUÉ — retour DEV requis** sur le candidat exact `7b723b3ce6c43c9fb5ccc0ab9f016c2430429629`. QA est `APPROVED` (0 P0/P1) et PERFORMANCE est `APPROVED` (p95 `16,68 ms` sur 250 ressources/10 000 réservations/2 000 documents), mais REVIEW est `REJECTED` avec 2 P1 et SECURITY `REJECTED` avec 1 P1. Blocages : (1) `asOf` ne borne pas encore une acceptation ou conversion postérieure dans le mois courant ; (2) `/dashboard/overview` n’exige pas explicitement `dashboard.read` et l’UI fabrique un faux delta `0 €` sans `quote.read` ; (3) un Devis accepté puis remplacé disparaît rétroactivement du CA signé du mois historique malgré son `acceptedAt`. Preuves communes : ciblés jusqu’à `108/108`, suite complète `354/354`, lint/build/diff-check PASS. Condition de déblocage : corriger ces trois chemins et leurs négatifs, puis rejouer REVIEW, QA et SECURITY/PERFORMANCE impactés sur un nouveau candidat exact avant Integration/E2E.
 
