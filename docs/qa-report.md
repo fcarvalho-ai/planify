@@ -5088,3 +5088,62 @@ La commande exploratoire `node --test tests/openapi.test.js` n'est pas applicabl
 ## Verdict terminal
 
 Le candidat applicatif `db23552b898bc7fc8c75bdae11b1916daba4df0a` est **REJECTED / CHANGES REQUIRED** au gate QA : **1 P1 ouvert**, malgré **355/355 tests** verts et lint/build/diff/OpenAPI valides. Les acceptations et conversions futures, l'historique `replaced`, le refus `dashboard.read` et l'absence de faux delta sont partiellement ou totalement corrigés, mais un Devis créé après la date de situation continue de gonfler le CA devisé lorsque sa `taxDate` est antérieure.
+
+---
+
+# Re-QA terminale post-RC6 — correction de la date d’existence commerciale
+
+Date : 2026-08-26
+
+Commit applicatif contrôlé : `14d8ebea3019fa2a1d941eeefcb0ede24098ee38` (`fix: align dashboard document existence at cutoff`)
+
+HEAD observé : `2631ee2b2023f8bbb9d4796d23b567e9d11fcf84` ; le seul écart avec le candidat est `docs/project-status.md`, ajouté par un commit documentaire. Le code, les tests et le contrat applicatif contrôlés correspondent exactement au candidat demandé.
+
+Environnement : Node `v26.6.0`, Darwin arm64 ; package `0.5.0-rc6`.
+
+Verdict : **APPROVED — 0 P0 / 0 P1**
+
+## Scénario bloquant précédent — corrigé
+
+Sonde indépendante sur `asOf=2026-08-25`, avec un Devis brouillon de `200000` créé le `2026-08-30` mais portant une `taxDate` au `2026-08-10` :
+
+- comparaison courante : `quotedRevenueMinor: "100000"`, `quoteCount: 1` ; le Devis futur est bien exclu ;
+- comparaison courante : `signedRevenueMinor: "0"` ; l’acceptation future du Devis existant reste exclue ;
+- comparaison courante : `unconvertedBudgetMinor: "300000"`, `unconvertedBudgetCount: 1` ; la conversion future ne ferme pas le Budget ;
+- synthèse globale à la date de situation : `unconvertedBudgetMinor: "700000"`, `unconvertedBudgetCount: 2` ; elle conserve le Budget futur-converti et le Budget historique encore ouvert ;
+- mois historique juillet : `signedRevenueMinor: "800000"`, `signedQuoteCount: 1` pour le Devis ensuite passé à `replaced`.
+
+La sélection des documents visibles est désormais bornée par `createdAt || taxDate`, tandis que la période de CA devisé conserve la date métier `taxDate || createdAt`. Cette séparation empêche un document inexistant à `asOf` d’entrer dans la photographie, sans déplacer le rattachement mensuel d’un document déjà créé.
+
+## Permissions, absence de faux delta et erreurs
+
+- Sans `dashboard.read`, le read-model refuse avec `403 DASHBOARD_FORBIDDEN` et `missingPermissions: ["dashboard.read"]`.
+- Avec `dashboard.read` mais sans `quote.read`, la synthèse commerciale globale, courante et historique retourne chacune `{ status: "unavailable" }`; aucun montant ou faux zéro n’est exposé.
+- `dashboardMoneyDelta()` retourne `Non disponible` dès que la valeur courante ou comparée est absente ; la vérification frontend statique ciblée est verte.
+- Les mois courants, futurs, mal formés ou injectés restent refusés en 422 par les tests ciblés.
+
+## Commandes et résultats frais
+
+| Commande | Résultat |
+|---|---|
+| sonde Node directe de `dashboardOverviewReadModel()` sur les cas futur/replaced/permissions | PASS ; valeurs détaillées ci-dessus, `dashboard.read` absent => 403, `quote.read` absent => trois états `unavailable` |
+| `node --test tests/sprint8-dashboards.test.js` | PASS, **21/21**, 0 échec |
+| `node --test tests/quotes.test.js` | PASS, **49/49**, 0 échec |
+| `node --test tests/api.test.js` | PASS, **42/42**, 0 échec |
+| `node --test tests/foundations.test.js` | PASS, **17/17**, 0 échec |
+| total des quatre suites ciblées | PASS, **129/129**, 0 échec |
+| `npm test` | PASS, **355/355**, 0 échec/annulé/ignoré/TODO, durée `12 622 ms` |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` | PASS, code 0 |
+| parse Ruby de `docs/api/openapi-v1.yaml` | PASS : OpenAPI `3.1.0`, `/dashboard/overview`, `comparisonMonth`, réponse 403 et schéma `DashboardOverview` présents |
+
+## Limites
+
+- Aucun navigateur n’a été lancé. La présentation de `Non disponible` est couverte par le test frontend statique et l’inspection de la fonction, pas par une interaction visuelle.
+- Cette re-QA n’est pas un gate Sécurité ou Performance indépendant ; elle couvre toutefois les permissions et scopes exercés par les suites ciblées et complète.
+- Le verdict est limité au candidat applicatif exact `14d8ebea3019fa2a1d941eeefcb0ede24098ee38` et devient caduc si le read-model, ses tests, le frontend ou le contrat OpenAPI changent.
+
+## Verdict terminal
+
+Le candidat applicatif `14d8ebea3019fa2a1d941eeefcb0ede24098ee38` est **APPROVED** au gate QA avec **0 P0 et 0 P1 ouvert**. Le P1 précédent est corrigé dans la comparaison et la synthèse, les historiques `replaced`, permissions `dashboard.read` / `quote.read` et l’absence de faux delta sont conformes. Preuves terminales : ciblés **129/129**, suite complète **355/355**, lint, build, diff-check et contrôle OpenAPI verts.

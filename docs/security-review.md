@@ -1,3 +1,55 @@
+# Revalidation terminale SECURITY — existence documentaire à la date de situation
+
+Date : 2026-08-26
+
+Candidat applicatif exact : `14d8ebea3019fa2a1d941eeefcb0ede24098ee38`
+
+HEAD observé : `2631ee2b2023f8bbb9d4796d23b567e9d11fcf84` ; le commit postérieur au candidat est documentaire uniquement.
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 0 P3 sur le correctif terminal.**
+
+Le document n'existe désormais dans la lecture historique que si `createdAt <= asOf` ; `taxDate` reste ensuite la date métier d'affectation aux agrégats. La synthèse principale et la comparaison reconstruisent toutes deux « Budget non converti » à partir des seuls événements de conversion visibles. Le constat `REV-MONTHLY-03` est fermé et aucun contournement RBAC/scope ni canal de fuite n'est ajouté.
+
+## Temporalité et historique
+
+- Le préfiltre utilise `createdAt || taxDate` pour l'existence. Un Devis fiscalement daté avant la situation mais créé après celle-ci n'entre donc ni dans le CA devisé, ni dans la signature, ni dans la conversion du Budget.
+- Une fois le document existant, `documentDate` conserve `taxDate || createdAt` pour son rattachement au mois civil. La correction sépare correctement existence et date métier au lieu de substituer l'une à l'autre.
+- `visibleAt(conversionDate)` continue d'imposer `createdAt <= asOf`. Pour une lecture historique (`asOf` présent), `unconvertedBudgets` ne consulte plus le statut courant `converted` : seul un Devis source visible retire le Budget.
+- Le test de non-régression place un Budget daté du 2 août, marqué aujourd'hui `converted`, et son Devis source créé le 30 août. Au 25 août, la synthèse principale conserve le Budget; elle retourne `700000` sur les deux Budgets historiques attendus, tandis que la comparaison courante retourne `300000` sur le seul Budget du mois.
+- Le CA signé conserve la correction précédente : `acceptedAt` demeure la source historique même après `replaced`, et une acceptation future reste exclue.
+
+## Autorisation, scopes et anti-fuite
+
+- `dashboard.read` reste vérifié avant toute agrégation ; son absence produit `403 DASHBOARD_FORBIDDEN`.
+- Sans `quote.read`, le tableau `documents` n'est jamais construit : synthèse et deux blocs comparatifs restent `status:"unavailable"`, sans montant ni compteur dérivé.
+- Société, site, projet, devis et ressource continuent de passer respectivement par l'identité de session, `siteAllowed`, `projectAllowed`, `quoteAllowed`, `resourceAllowed` et `reservationSnapshotAllowed` avant calcul.
+- Les deux modifications sont des prédicats de lecture. Elles n'affectent ni mutation, ni persistance, ni audit, ni SSE, ni CSRF/session, ni exposition statique.
+- Aucun sink DOM n'est modifié par ce candidat; `app.js` est byte-identique au candidat post-RC6 déjà approuvé.
+
+## Preuves et limites
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| candidat applicatif | `14d8ebea3019fa2a1d941eeefcb0ede24098ee38` |
+| diff applicatif | 2 lignes modifiées dans `server.js`, 3 assertions ajoutées au test dashboard |
+| `node --test tests/sprint8-dashboards.test.js tests/quotes.test.js tests/foundations.test.js` | **PASS, 87/87**, durée `7 294,46 ms` |
+| contrôle fonctionnel ciblé | Devis créé après cutoff exclu; synthèse globale Budget non converti réconciliée à `700000` |
+| REVIEW / QA indépendantes | **APPROVED**, selon handoff intégrateur sur ce candidat |
+
+Hashes SHA-256 : `server.js` `4aea5ee9b9f89851f31c61a302800607e1e65da54438f01a68acf4c16ca10376`; `app.js` `bd08f1fd8f5711a1245c3084f0fad0f11f036962039b99690c84df74762da3e7`; test dashboard `7e4799d7729ec54758d53272ffb5f1f9924bc415f64c88f057f62e575eebdf8a`.
+
+Conformément à la demande terminale, ce reviewer n'a pas relancé une seconde suite complète après les 87 tests ciblés; la campagne complète appartient à la QA indépendante déjà approuvée. La revue DOM reste statique, sans navigateur. Les risques historiques non impactés consignés plus bas ne sont pas déclarés fermés.
+
+Gate SECURITY terminal : **APPROVED**. Fichier modifié : `docs/security-review.md` uniquement ; statut projet laissé à l'intégrateur.
+
+---
+
 # Re-gate SECURITY indépendant post-RC6 — cutoff et historique mensuel
 
 Date : 2026-08-26

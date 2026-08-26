@@ -1,3 +1,88 @@
+# Re-REVIEW terminale post-RC6 — existence documentaire et cutoff Vue d’ensemble
+
+Date : 2026-08-26
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `14d8ebea3019fa2a1d941eeefcb0ede24098ee38` (`fix: align dashboard document existence at cutoff`)
+
+HEAD observé pendant la revue : `2631ee2b2023f8bbb9d4796d23b567e9d11fcf84` (commit documentaire uniquement)
+
+Correctif contrôlé : `db23552b898bc7fc8c75bdae11b1916daba4df0a..14d8ebea3019fa2a1d941eeefcb0ede24098ee38`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1 ouvert.**
+
+`REV-MONTHLY-03` et le P1 QA sur les Devis créés après la date de situation sont fermés. La synthèse commerciale principale et la comparaison courante reposent maintenant sur la même existence documentaire à `asOf`; une date fiscale antérieure ne fait plus apparaître un document créé ultérieurement. Les trois fermetures précédentes restent intactes.
+
+## Fermeture de REV-MONTHLY-03
+
+- En mode historique (`asOf` fourni), `unconvertedBudgets` n’utilise plus le statut courant `converted` comme preuve suffisante. Seuls les Devis liés dont la date de création/conversion est visible à la date de situation retirent le Budget.
+- La synthèse globale `commercial` et `comparison.current.commercial` utilisent donc le même état temporel, tout en conservant leurs périmètres différents : cumul visible pour la première, mois courant borné pour la seconde.
+- Probe indépendant : pour un Budget de 3 000 € converti par un Devis créé le 30/08 et une situation au 25/08, les deux surfaces retournent `300000` pour ce Budget.
+- Le comportement sans lecture historique explicite conserve la règle de statut existante grâce à la condition `asOf || range || status !== 'converted'`.
+
+## Fermeture du P1 QA — document créé après `asOf` avec date fiscale antérieure
+
+- Le préfiltre du read-model détermine désormais l’existence du document avec `createdAt || taxDate`, et non plus `taxDate || createdAt`.
+- Un Devis créé le 30/08 mais portant `taxDate=10/08` est absent d’une situation au 25/08 : il ne contribue ni au CA devisé, ni aux conversions, ni à `sources.documentCount`.
+- Après admission par date de création, `dashboardOverviewCommercial()` continue d’affecter le CA devisé à la période de `taxDate`, ce qui sépare correctement existence historique et mois métier du document.
+- Le test pérenne attend un seul Devis courant (`100000`) et exclut le Devis futur antidaté (`200000`).
+
+## Non-régression des fermetures initiales
+
+- Le mois courant reste `[début du mois, asOf + 1 jour)` pour la comparaison ; `current.to = asOf` et l’occupation est recalculée sur cette fenêtre, pas sur le mois complet.
+- Une acceptation postérieure à `asOf` n’est pas anticipée.
+- Un Devis accepté puis `replaced` demeure compté dans son mois historique grâce à `acceptedAt`, sans utiliser la date de remplacement.
+- `dashboard.read` est exigé avant toute agrégation et retourne `403 DASHBOARD_FORBIDDEN` avec la permission manquante.
+- Sans `quote.read`, le serveur ne retourne aucun montant et les deltas UI restent « Non disponible », jamais `0 €`.
+- Les contrôles société/site/projet/entités, la validation stricte du mois, les erreurs `401/403/422`, l’OpenAPI, l’échappement DOM, l’accessibilité et le responsive ne sont pas modifiés par ce correctif minimal.
+
+## Probe cumulatif indépendant
+
+Sur une situation au `2026-08-25` avec conversion future antidatée et Devis signé puis remplacé :
+
+- `commercial.unconvertedBudgetMinor` : `300000`
+- `comparison.current.commercial.unconvertedBudgetMinor` : `300000`
+- `comparison.current.commercial.quotedRevenueMinor` : `0` pour le seul Devis créé après `asOf`
+- `comparison.selected.commercial.signedRevenueMinor` : `800000`
+- `comparison.current.to` : `2026-08-25`
+- acteur sans permissions : `403:DASHBOARD_FORBIDDEN`
+
+## Observations non bloquantes et limites
+
+- **P2 conservé :** les objets `commercial` OpenAPI restent permissifs (`additionalProperties: true`) au lieu d’une union typée `available/unavailable`.
+- La preuve UI reste structurelle et automatisée ; aucun moteur navigateur n’a été lancé pour cette re-REVIEW de code.
+- Le correctif est limité à deux lignes métier et trois assertions : aucun changement de persistance, mutation, audit, SSE ou dépendance.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- Candidat applicatif : `14d8ebea3019fa2a1d941eeefcb0ede24098ee38`; le HEAD `2631ee2` ne modifie que la documentation de statut.
+- `node --test tests/sprint8-dashboards.test.js` → **PASS, 21/21**, 0 échec/cancelled/skip/todo, 2,378 s.
+- `npm test` → **PASS, 355/355**, 0 échec/cancelled/skip/todo, 10,773 s.
+- `npm run lint` → **PASS**.
+- `npm run build` → **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check db23552b898bc7fc8c75bdae11b1916daba4df0a..14d8ebea3019fa2a1d941eeefcb0ede24098ee38` → **PASS**.
+
+Empreintes SHA-256 du candidat applicatif :
+
+- `app.js` : `bd08f1fd8f5711a1245c3084f0fad0f11f036962039b99690c84df74762da3e7`
+- `server.js` : `4aea5ee9b9f89851f31c61a302800607e1e65da54438f01a68acf4c16ca10376`
+- `docs/api/openapi-v1.yaml` : `056bddd0703ac81a720b8d30905449a77d1e420a5604e8e1ffaf60e5ade8b116`
+- `docs/spec-mvp.md` : `7f74a1078e929ca0bcb23990b5660ca8e352f4789735dff01f438eb34f24bb90`
+- `tests/sprint8-dashboards.test.js` : `7e4799d7729ec54758d53272ffb5f1f9924bc415f64c88f057f62e575eebdf8a`
+
+## Sortie de gate
+
+- Le gate REVIEW est **APPROVED** pour le candidat applicatif exact, avec **0 P0 et 0 P1**.
+- Conformément à l’ownership demandé, seul `docs/code-review.md` est modifié. Aucun code, test, autre rapport ni `docs/project-status.md` n’a été touché.
+- L’intégrateur doit figer les autres gates sur le même hash applicatif avant toute décision de release.
+
+---
+
 # Re-REVIEW indépendante post-RC6 — comparaison mensuelle Vue d’ensemble
 
 Date : 2026-08-26

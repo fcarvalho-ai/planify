@@ -1,3 +1,61 @@
+# Revalidation terminale PERFORMANCE — existence documentaire à la date de situation
+
+Date : 2026-08-26
+
+Candidat applicatif exact : `14d8ebea3019fa2a1d941eeefcb0ede24098ee38`
+
+HEAD observé : `2631ee2b2023f8bbb9d4796d23b567e9d11fcf84` ; le commit postérieur au candidat est documentaire uniquement.
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 1 P3 sur le correctif terminal.**
+
+L'impact est limité à deux prédicats constants dans le parcours documentaire déjà mesuré. La volumétrie, le nombre de parcours, les agrégats d'occupation, la taille de réponse et le DOM sont inchangés. La mesure représentative immédiatement précédente reste applicable différentiellement : 250 ressources, 10 000 réservations et 2 000 documents, p95 `20,41 ms`, très sous le seuil API `< 300 ms`.
+
+## Analyse différentielle
+
+- Le préfiltre remplace `taxDate || createdAt` par `createdAt || taxDate`. Il effectue toujours au plus deux lectures de propriété, un `cleanString(..., 10)` et une comparaison lexicographique par document : O(D), même allocation et même borne.
+- `unconvertedBudgets` remplace `(range || status !== 'converted')` par `(asOf || range || status !== 'converted')`. Dans les trois appels du read-model, `asOf` est une chaîne non vide; le court-circuit s'arrête donc au premier opérande. Le coût est O(1) par Budget et légèrement inférieur au chemin consultant le statut.
+- Les collections `documents`, `convertedBudgetIds`, `quotes`, `signed` et `budgets` ne changent ni de type ni de duplication. Aucun index, copie historique ou boucle imbriquée supplémentaire n'est ajouté.
+- Occupation, cellules Planning, 24 options mensuelles, quatre cartes de comparaison, réponse JSON et backend HTTP restent byte-identiques. `app.js` est inchangé.
+- Le test ciblé exerce maintenant simultanément existence future et réconciliation globale/comparaison sans créer de campagne ou fixture persistante supplémentaire.
+
+## Référence représentative conservée
+
+Campagne post-RC6 exécutée sur le candidat parent `db23552b…`, dont ce correctif ne change que les deux prédicats ci-dessus :
+
+| Dataset / résultat | Valeur |
+|---|---:|
+| ressources / réservations / documents | `250 / 10 000 / 2 000` |
+| itérations après warm-up | 30 |
+| min / p50 / p95 / max | `14,83 / 15,95 / 20,41 / 25,98 ms` |
+| réponse JSON | `117 358 octets` |
+| historique remplacé | 167 acceptés observés/attendus, dont 56 `replaced` |
+
+La marge au seuil de lecture API est supérieure à `279 ms`. Il n'existe aucun motif algorithmique permettant aux deux substitutions constantes de consommer cette marge.
+
+## P3 et limites
+
+**P3 — absence de nouvelle trace runtime/browser sur le commit terminal.** À la demande de finalisation, aucun benchmark supplémentaire ni nouvelle suite complète n'a été lancé après les preuves ciblées. Le verdict Performance repose sur l'analyse différentielle du diff de deux lignes et la campagne représentative du parent applicatif immédiat. Aucun navigateur n'a mesuré transfert, layout, paint, mémoire ou seuil UI `< 2 s`.
+
+## Preuves et handoff
+
+| Contrôle | Résultat |
+|---|---|
+| candidat applicatif | `14d8ebea3019fa2a1d941eeefcb0ede24098ee38` |
+| diff | 2 substitutions de prédicat serveur; aucun changement UI/CSS/API |
+| tests ciblés | **PASS, 87/87**, durée `7 294,46 ms` |
+| benchmark parent représentatif | p95 `20,41 ms`, max `25,98 ms` |
+| REVIEW / QA indépendantes | **APPROVED**, selon handoff intégrateur |
+
+Hashes SHA-256 : `server.js` `4aea5ee9b9f89851f31c61a302800607e1e65da54438f01a68acf4c16ca10376`; `app.js` `bd08f1fd8f5711a1245c3084f0fad0f11f036962039b99690c84df74762da3e7`; test dashboard `7e4799d7729ec54758d53272ffb5f1f9924bc415f64c88f057f62e575eebdf8a`.
+
+Gate PERFORMANCE terminal : **APPROVED**, avec la limite P3 explicitée. Fichier modifié : `docs/performance-report.md` uniquement ; statut projet laissé à l'intégrateur.
+
+---
+
 # Re-gate PERFORMANCE indépendant post-RC6 — cutoff et historique mensuel
 
 Date : 2026-08-26
