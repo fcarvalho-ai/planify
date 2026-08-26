@@ -212,8 +212,11 @@ test('Vue d’ensemble respecte la date de situation, l’historique signé et d
   ];
   const authorized = authFor(db, ['quote.read', 'planning.read', 'resource.read', 'project.read']), overview = dashboardOverviewReadModel(db, authorized, { asOf: '2026-08-25', comparisonMonth: '2026-07' });
   assert.equal(overview.comparison.current.to, '2026-08-25');
+  assert.equal(overview.comparison.current.commercial.quotedRevenueMinor, '100000');
+  assert.equal(overview.comparison.current.commercial.quoteCount, 1);
   assert.equal(overview.comparison.current.commercial.signedRevenueMinor, '0');
   assert.equal(overview.comparison.current.commercial.unconvertedBudgetMinor, '300000');
+  assert.equal(overview.commercial.unconvertedBudgetMinor, '700000');
   assert.equal(overview.comparison.selected.commercial.signedRevenueMinor, '800000');
   assert.equal(overview.comparison.selected.commercial.signedQuoteCount, 1);
   const forbidden = authFor(db, [], { effectivePermissions: [] });
