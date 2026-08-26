@@ -1,3 +1,65 @@
+# Gate PERFORMANCE indépendant — comparaison mensuelle Vue d'ensemble
+
+Date : 2026-08-26
+
+Candidat applicatif exact : `7b723b3ce6c43c9fb5ccc0ab9f016c2430429629`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 1 P3 sur le périmètre comparatif.**
+
+Le mois supplémentaire réutilise les cellules Planning et les documents déjà scopés. Sur le jeu contractuel de 250 ressources et 10 000 réservations, complété par 2 000 documents commerciaux, le read-model complet reste à `16,68 ms` p95, très sous le seuil de lecture API `< 300 ms`. Le coût UI ajouté est borné à 24 options et quatre cartes ; aucune boucle proportionnelle au nombre de réservations n'est ajoutée au navigateur.
+
+## Mesure fraîche représentative
+
+Benchmark Node direct de `dashboardOverviewReadModel`, cinq warm-ups puis 30 itérations, `asOf=2026-08-25`, `comparisonMonth=2026-07` :
+
+| Dataset / résultat | Valeur |
+|---|---:|
+| ressources actives | 250 |
+| réservations visibles | 10 000 |
+| devis + budgets injectés | 2 000 |
+| documents visibles à `asOf` | 1 964 |
+| latence min / p50 / p95 / max | `14,03 / 15,31 / 16,68 / 24,90 ms` |
+| réponse JSON | `118 859 octets` |
+
+Les réservations sont distribuées sur 180 jours et les 250 salles, avec états `confirmed`, `completed` et `option`; les documents couvrent six mois, devis brouillons/acceptés et budgets confirmés, avec liens de conversion. La mesure inclut jour, semaine, mois courant, tendance six mois, mois comparé et agrégats commerciaux.
+
+## Coût algorithmique et UI
+
+- Le read-model filtre une fois les ressources, réservations et documents. `planningCellIntervals` construit les cellules une fois; chaque agrégat parcourt ensuite les 250 lignes et les cellules visibles. Le mois comparé ajoute un appel d'occupation et deux agrégats commerciaux, sans seconde lecture de base ni mutation.
+- La comparaison courante réutilise `periods.month.global`. Les structures de sortie supplémentaires sont constantes : deux périodes, deux blocs occupation, deux blocs commerciaux.
+- L'interface propose exactement 24 mois passés et rend quatre cartes de comparaison. Un microbenchmark synthétique de l'assemblage de ces 28 éléments sur 10 000 répétitions donne `0,0033 ms` par assemblage. Cette mesure isole le scripting et ne prétend pas mesurer layout/paint.
+- Les contrôles `comparisonMonth` sont O(1). Aucun nouvel appel réseau, listener de scroll, observer, intervalle ou stockage croissant n'est introduit.
+- Le défaut de fidélité historique signalé par SECURITY modifie le verdict fonctionnel/sécurité, pas les coûts mesurés.
+
+## P3 et limites
+
+**P3 — profilage navigateur absent.** Aucun navigateur pilotable n'était disponible pour mesurer navigation, DOM, layout, paint, mémoire ou temps interactif réel. Le seuil UI `< 2 s` est donc étayé par la latence backend p95 `16,68 ms`, la réponse `116,1 KiB`, la taille DOM additionnelle constante et le microbenchmark de scripting, mais pas par une trace native. Une validation E2E navigateur reste recommandée avant release.
+
+Le benchmark appelle le read-model en mémoire et n'inclut pas parsing HTTP, lecture du JSON persistant, transfert ni rendu. Ces coûts n'altèrent pas la marge de plus de `283 ms` au seuil API dans cette campagne, mais doivent rester surveillés si le volume documentaire dépasse 2 000 ou si l'historique dépasse 24 mois.
+
+## Preuves fraîches et handoff
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `7b723b3ce6c43c9fb5ccc0ab9f016c2430429629` |
+| benchmark 250/10 000/2 000, 30 itérations | **PASS**, p95 `16,68 ms`, max `24,90 ms` |
+| `node --test tests/sprint8-dashboards.test.js tests/quotes.test.js tests/foundations.test.js` | **PASS, 86/86**, durée `3 618,10 ms` |
+| `npm test` | **PASS, 354/354**, durée `8 598,51 ms` |
+| `npm run lint` / `npm run build` | **PASS** |
+| `git diff HEAD^ HEAD --check` | **PASS** |
+
+Hashes SHA-256 : `server.js` `3f54a4e4b5e18601d10f5b5f6eb9492cf69edaabbf1a8b4b96f454e50635d0bb`; `app.js` `be0c9ff5c1e772b2e2f33ad6c7f800aa202c935ac6b9b8713a05f9ad085550f0`; `styles.css` `61e2a6dd342f18003d385443c22137fb1bafe926408bab3ddbf8732e2d6ee954`; OpenAPI `886adacddb00a96affbde2a9ac145d4941e73801657aa6ef60f484d4a6647518`.
+
+Gate PERFORMANCE : **APPROVED** sur le candidat exact, sous réserve de la limite navigateur P3. Fichier modifié : `docs/performance-report.md` uniquement ; `docs/project-status.md` reste à consolider par l'intégrateur.
+
+---
+
 # Revalidation PERFORMANCE d'impact — validation couleur et ResizeObserver
 
 Date : 2026-08-24

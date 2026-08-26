@@ -1,3 +1,61 @@
+# Gate SECURITY indépendant — comparaison mensuelle Vue d'ensemble
+
+Date : 2026-08-26
+
+Candidat applicatif exact : `7b723b3ce6c43c9fb5ccc0ab9f016c2430429629`
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**REJECTED — 0 P0, 1 P1, 0 P2, 0 P3 sur le périmètre comparatif.**
+
+La validation de `comparisonMonth`, le RBAC `quote.read`, les scopes société/site/projet/devis/ressource et les sorties DOM sont fermés. En revanche, le calcul historique du CA signé dépend encore du **statut courant** du devis. Un devis accepté puis remplacé conserve sa date d'acceptation, mais disparaît rétroactivement du mois où il avait été accepté. Cette altération de l'historique financier bloque le gate.
+
+## P1 ouvert
+
+### SEC-RC6-COMP-01 — CA signé historique réécrit par un statut ultérieur
+
+`dashboardOverviewCommercial()` retient un devis signé seulement lorsque `value.status === 'accepted'`, puis applique la période à `acceptedAt`. Le workflow normal de version/successeur peut ensuite passer ce devis à `replaced` sans effacer `acceptedAt`. La comparaison d'un mois passé retourne alors `0` au lieu du montant réellement accepté ce mois-là.
+
+Reproducteur frais sur le read-model : un devis `netHt=800000`, `acceptedAt=2026-07-18T10:00:00.000Z`, désormais `status=replaced`, comparé depuis août 2026 donne :
+
+```json
+{"acceptedAt":"2026-07-18T10:00:00.000Z","currentStatus":"replaced","selectedSignedRevenueMinor":"0","selectedSignedQuoteCount":0}
+```
+
+Attendu : `selectedSignedRevenueMinor="800000"` et `selectedSignedQuoteCount=1`, conformément à la règle « CA signé suit la date d'acceptation ». La correction doit reconstruire l'acceptation à partir d'un événement/version immuable ou, au minimum, de `acceptedAt` avec une règle de supersession explicite, puis couvrir le cas accepté → remplacé par un test de non-régression.
+
+## Contrôles de sécurité satisfaisants
+
+- `comparisonMonth` n'accepte que `YYYY-MM`, vérifie un vrai mois civil et refuse mois courant/futur ; `2026-7` et `2026-07<script>` échouent en `422 DASHBOARD_COMPARISON_MONTH_INVALID`. Le contrat OpenAPI reprend la forme stricte.
+- Sans `quote.read`, `commercial`, `comparison.current.commercial` et `comparison.selected.commercial` restent `status:"unavailable"`; aucun montant ni compteur n'est calculé ou divulgué.
+- Les ressources passent par `resourceAllowed`; les réservations par `reservationSnapshotAllowed`; les documents par société de session, `quoteAllowed`, scopes projet/devis et site. Le client ne fournit aucune autorité `companyId`.
+- La reconstruction des budgets convertis est temporelle : un devis source créé après la fin du mois ne convertit pas rétroactivement le budget du mois comparé. Le défaut P1 concerne spécifiquement l'acceptation ensuite remplacée.
+- Les mois proposés par l'interface sont générés localement. Mois, libellés et valeurs rendus sont soit des constantes, soit normalisés en nombres/`Intl`, soit échappés par `esc()`; aucun nouveau sink HTML/CSS exécutable n'a été identifié.
+- Cette lecture n'ajoute ni mutation, ni audit, ni SSE, ni fichier statique. Auth/session/CSRF et exposition statique sont inchangés.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git rev-parse HEAD` | `7b723b3ce6c43c9fb5ccc0ab9f016c2430429629` |
+| `node --test tests/sprint8-dashboards.test.js tests/quotes.test.js tests/foundations.test.js` | **PASS, 86/86**, durée `3 618,10 ms` |
+| `npm test` | **PASS, 354/354**, 0 échec/skip/todo, durée `8 598,51 ms` |
+| `npm run lint` / `npm run build` | **PASS** ; 5 actifs runtime vérifiés |
+| `git diff HEAD^ HEAD --check` | **PASS** |
+| reproducteur accepté → remplacé | **FAIL fonctionnel confirmé** : signé `0/0` au lieu de `800000/1` |
+
+Hashes SHA-256 : `server.js` `3f54a4e4b5e18601d10f5b5f6eb9492cf69edaabbf1a8b4b96f454e50635d0bb`; `app.js` `be0c9ff5c1e772b2e2f33ad6c7f800aa202c935ac6b9b8713a05f9ad085550f0`; OpenAPI `886adacddb00a96affbde2a9ac145d4941e73801657aa6ef60f484d4a6647518`; test dashboard `0887e296605bb2a3d31b4ba34321b00a826a423970ff4003e22510a7829b69a5`.
+
+## Limites et handoff
+
+La revue DOM/XSS est statique et couverte par les tests structurels ; aucun navigateur pilotable n'a été utilisé. Le décompte ci-dessus porte sur le périmètre de comparaison mensuelle ; les risques non bloquants historiques déjà consignés plus bas ne sont ni déclarés fermés ni réévalués par ce lot. Gate SECURITY : **REJECTED** jusqu'à fermeture de `SEC-RC6-COMP-01`. Fichier modifié : `docs/security-review.md` uniquement ; `docs/project-status.md` reste à consolider par l'intégrateur.
+
+---
+
 # Revalidation SECURITY d'impact — validation couleur et ResizeObserver
 
 Date : 2026-08-24

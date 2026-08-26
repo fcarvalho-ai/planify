@@ -1,3 +1,87 @@
+# Gate REVIEW indépendant — comparaison mensuelle Vue d’ensemble
+
+Date : 2026-08-26
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat exact : `7b723b3ce6c43c9fb5ccc0ab9f016c2430429629` (`feat: add monthly overview comparison`)
+
+Diff fonctionnel contrôlé : `a9a3942..7b723b3ce6c43c9fb5ccc0ab9f016c2430429629`
+
+## Verdict
+
+**REJECTED — 0 P0, 2 P1 ouverts.**
+
+Le choix du mois, les agrégats d’un mois passé, les scopes d’entités, le contrat d’entrée et la présentation responsive sont correctement structurés. Le candidat n’est toutefois pas publiable : une lecture à date historique incorpore des acceptations/conversions futures, et l’endpoint Vue d’ensemble ne contrôle pas son droit de lecture tout en affichant un faux delta commercial aux utilisateurs privés de `quote.read`.
+
+## Constats bloquants
+
+### REV-MONTHLY-01 — P1 — La date de situation n’est pas une borne pour les événements commerciaux du mois courant
+
+- `dashboardOverviewReadModel()` préfiltre tous les documents avec la seule date `taxDate || createdAt <= asOf`, puis passe la plage civile complète du mois courant à `dashboardOverviewCommercial()`.
+- Le CA signé est ensuite filtré sur `acceptedAt || updatedAt || createdAt`, sans borne supplémentaire à `asOf`. Un devis daté avant le 25 août mais accepté le 30 août est donc compté dans une vue `asOf=2026-08-25`.
+- La détection de conversion repose sur `quote.createdAt || quote.taxDate` et compare uniquement à la fin du mois. Une conversion intervenue après `asOf`, mais avant la fin du mois, peut donc retirer rétroactivement un Budget du compteur « non converti » de la situation demandée.
+- La réponse annonce `current.to = 2026-08-31` tandis que l’UI présente explicitement « août 2026 — au 25/08/2026 ». Cette divergence rend les montants commerciaux impossibles à interpréter comme une photographie à date.
+- Preuve indépendante : avec un Devis `taxDate=2026-08-01`, `acceptedAt=2026-08-30`, statut courant `accepted` et `asOf=2026-08-25`, le modèle retourne `signedRevenueMinor="10000"`, `signedQuoteCount=1` et `comparison.current.to="2026-08-31"`.
+- Le test métier ajouté couvre correctement juillet versus août, mais pas une acceptation ou conversion postérieure à `asOf` dans le mois courant.
+
+Correction attendue : calculer chaque événement avec sa date métier propre et borner le mois courant à la date de situation incluse (`toExclusive = asOf + 1 jour`) pour le devisé, le signé et l’état de conversion ; conserver le mois passé sur sa clôture civile complète. Ajouter des cas frontière avant/à/après `asOf`, dont une conversion ultérieure et une acceptation ultérieure.
+
+### REV-MONTHLY-02 — P1 — Le droit Dashboard n’est pas imposé et l’état commercial masqué produit un faux delta
+
+- La route `GET /api/v1/dashboard/overview` appelle directement `dashboardOverviewReadModel()` après authentification générale. Ni la route ni le read-model n’exigent `dashboard.read` (ou une permission de lecture équivalente).
+- `resourceAllowed()`, `reservationSnapshotAllowed()` et les scopes société/site/projet bornent les entités, mais ne remplacent pas un contrôle de permission. Un utilisateur authentifié avec `effectivePermissions=[]` reçoit encore les compteurs de **75 ressources** et **4 réservations** du seed au lieu du `403` annoncé par OpenAPI.
+- La protection commerciale serveur par `quote.read` est correcte (`status: unavailable`). En revanche, l’UI construit toujours les quatre cartes et `dashboardMoneyDelta(undefined, undefined)` transforme l’absence autorisée en `0 €`. Les deux valeurs sont libellées « Non disponible », mais le delta divulgue un faux zéro, en contradiction directe avec la spécification « aucun faux zéro ne remplace une donnée non autorisée ».
+- Aucun test négatif HTTP ne couvre l’absence de `dashboard.read`, et le test sans `quote.read` ne vérifie pas le rendu des deltas de comparaison.
+
+Correction attendue : appliquer un contrôle serveur explicite cohérent avec le contrat `403`, conserver ensuite les scopes actuels, et ne rendre aucun montant/delta commercial lorsque `commercial.status !== 'available'`. Ajouter les tests négatifs read-model/HTTP/UI correspondants.
+
+## Points conformes vérifiés
+
+- `comparisonMonth` est normalisé et strictement validé ; mois courant, futur, mois inexistant et suffixe injecté sont refusés avec `DASHBOARD_COMPARISON_MONTH_INVALID` et une enveloppe d’erreur stable.
+- Le mois précédent est sélectionné par défaut. Les plages du mois passé sont semi-ouvertes côté calcul et exposées avec une fin civile inclusive.
+- Pour un mois passé cohérent, le CA devisé suit la date du document, le CA signé suit `acceptedAt`, et un Budget converti ultérieurement reste visible à la clôture comparée grâce à la date de création du Devis lié.
+- Les documents commerciaux sont isolés par société et `quoteAllowed`; les ressources et réservations réutilisent les filtres site/projet/entités. Sans `quote.read`, le serveur ne renvoie aucun montant commercial.
+- Le contrat OpenAPI documente le paramètre, la réponse de comparaison et les statuts `401/403/422`. La réponse conserve les chaînes d’unités mineures côté runtime.
+- Le sélecteur est associé à un libellé, les mises à jour sont dans une région `aria-live`, les valeurs et écarts sont textuels, et les media queries passent la grille à une colonne puis réorganisent les cartes sous 700 px.
+- Les valeurs injectées dans le HTML sont échappées ; le sélecteur n’accepte que les 24 mois générés localement et l’API reste l’autorité.
+
+## Observations non bloquantes
+
+- **P2 — contrat commercial trop permissif :** `DashboardOverviewComparisonMonth.commercial` reste un objet à propriétés libres. Un schéma discriminé `available/unavailable` rendrait l’absence de montants vérifiable par les consommateurs.
+- **P2 — erreur UI silencieuse :** `loadDashboardMetrics()` transforme toute erreur réseau/API en `null`, sans message ni restauration explicite du sélecteur. Le choix proposé est valide en fonctionnement normal, mais une panne efface temporairement la synthèse sans explication.
+- **Limite de preuve visuelle :** la revue responsive/accessibilité repose sur le DOM/CSS et les tests structurels ; aucun moteur navigateur n’a été lancé pour ce gate de code.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- `git rev-parse HEAD` → `7b723b3ce6c43c9fb5ccc0ab9f016c2430429629`.
+- `node --test tests/sprint8-dashboards.test.js` → **PASS, 20/20**, 0 échec/cancelled/skip/todo, 2,243 s.
+- `npm test` → **PASS, 354/354**, 0 échec/cancelled/skip/todo, 8,970 s.
+- `npm run lint` → **PASS**.
+- `npm run build` → **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check 7b723b3^..7b723b3` → **PASS**.
+- Probe temporelle indépendante → `{ "asOf":"2026-08-25", "currentTo":"2026-08-31", "signed":"10000", "count":1 }` pour une acceptation au `2026-08-30`.
+- Probe RBAC indépendante → `{ "allowed":true, "resources":75, "reservations":4 }` avec `effectivePermissions=[]`.
+
+Empreintes SHA-256 contrôlées :
+
+- `app.js` : `be0c9ff5c1e772b2e2f33ad6c7f800aa202c935ac6b9b8713a05f9ad085550f0`
+- `server.js` : `3f54a4e4b5e18601d10f5b5f6eb9492cf69edaabbf1a8b4b96f454e50635d0bb`
+- `styles.css` : `61e2a6dd342f18003d385443c22137fb1bafe926408bab3ddbf8732e2d6ee954`
+- `docs/api/openapi-v1.yaml` : `886adacddb00a96affbde2a9ac145d4941e73801657aa6ef60f484d4a6647518`
+- `docs/spec-mvp.md` : `4f8089873e775018bf07388b8f0bda166b87c4f7dd306709f9277389318af463`
+- `tests/sprint8-dashboards.test.js` : `0887e296605bb2a3d31b4ba34321b00a826a423970ff4003e22510a7829b69a5`
+
+## Sortie de gate
+
+- Le gate REVIEW est **REJECTED** pour ce hash exact et doit être rejoué après correction des deux P1.
+- Conformément à l’ownership demandé, seul `docs/code-review.md` est modifié par cette revue. `docs/project-status.md` reste à mettre à jour par l’intégrateur.
+- Le fichier `docs/qa-report.md` était déjà modifié par son owner pendant la revue ; il n’a pas été touché ici.
+
+---
+
 # Re-REVIEW terminale post-RC5 — recalcul responsive et contrat Client
 
 Date : 2026-08-24

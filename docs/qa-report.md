@@ -4962,3 +4962,62 @@ Version    0.5.0-rc5
 ## Verdict terminal
 
 La re-QA terminale post-RC5 sur `e39b9b0e2eecf7a0c9abeb0f20ec27650778b09f` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Le recalcul responsive de la scrollbar est protégé, la couleur Client est validée, persistée et rendue sans dépendance exclusive à la couleur, les invalides sont refusés sans mutation et les permissions restent fermées. Preuves terminales : ciblés **74/74**, suite complète **345/345**, lint, build et diff-check verts. Limite explicite : aucune recette navigateur contrôlée ni probe additionnel avec redémarrage n'a pu être finalisé.
+
+---
+
+# Gate QA indépendant RC6 — comparaison mensuelle de la Vue d’ensemble
+
+Date : 2026-08-26 09:12 CEST
+
+Verdict : **APPROVED — aucun P0/P1 QA ouvert**
+
+Périmètre : candidat exact `7b723b3ce6c43c9fb5ccc0ab9f016c2430429629`, menu des 24 mois passés, mois précédent par défaut, changement de comparaison sans navigation, occupation globale, CA devisé, CA signé, Budgets non convertis, historique de conversion tardive, `quote.read`, scopes, erreurs 422, responsive, accessibilité, contrat OpenAPI et non-régression.
+
+Indépendance : aucun code, test, autre rapport ni `docs/project-status.md` modifié ; seul `docs/qa-report.md` est actualisé.
+
+## Environnement
+
+```text
+Node       v26.6.0
+Système    Darwin arm64
+Commit     7b723b3ce6c43c9fb5ccc0ab9f016c2430429629
+Version    0.5.0-rc6
+```
+
+## Preuves fraîches
+
+| Commande / contrôle | Résultat observé |
+|---|---|
+| `node --test tests/sprint8-dashboards.test.js` | PASS, **20/20**, 0 échec |
+| `node --test tests/quotes.test.js` | PASS, 0 échec |
+| `node --test tests/api.test.js` | PASS, **42/42**, 0 échec |
+| `node --test tests/foundations.test.js` | PASS, **17/17**, 0 échec ; contrat OpenAPI V1 couvert |
+| `node --test --test-reporter=dot tests/sprint8-dashboards.test.js tests/quotes.test.js tests/api.test.js tests/foundations.test.js` | PASS, **108/108**, code 0 |
+| `npm test` | PASS, **354/354**, 0 échec/annulé/ignoré/TODO, 8 670,69 ms |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` | PASS, code 0 |
+| navigateur contrôlable | indisponible : liste d’instances `[]` |
+
+## Résultats fonctionnels
+
+- **Menu et valeur par défaut** : `dashboardComparisonMonths` produit exactement 24 mois civils antérieurs, du plus récent au plus ancien. Sans paramètre, le serveur choisit le mois civil précédent ; la sélection renvoyée devient la valeur active du menu.
+- **Changement sans navigation** : l’événement `change` met à jour uniquement `dashboardComparisonMonth`, recharge `/api/v1/dashboard/overview` et rerend la vue ; il ne modifie ni `location.hash` ni la route. Le sélecteur est désactivé pendant la requête puis recréé avec la nouvelle valeur sélectionnée.
+- **Occupation** : le mois choisi et le mois courant utilisent le même agrégateur capacité/occupation et les mêmes ressources, Réservations visibles, options canonisées et cellules planifiées. La valeur courante se réconcilie avec `periods.month.global`.
+- **CA devisé / CA signé / Budget non converti** : les montants sont recalculés par mois, sans réutiliser les cumuls globaux. Le scénario ciblé obtient pour juillet `800000 / 800000 / 800000` et pour août `200000 / 0 / 700000` en unités monétaires mineures, avec compteurs cohérents.
+- **Conversion tardive** : un Budget créé en juillet puis converti par un Devis créé en août reste compté non converti à la clôture de juillet. La conversion réelle crée le Devis avec un nouvel `createdAt` et conserve `sourceBudgetId`, ce qui correspond au critère historique.
+- **Permission et scopes** : sans `quote.read`, la synthèse commerciale globale et les deux côtés de la comparaison valent `{ status: 'unavailable' }` ; aucun faux zéro autorisé n’est émis. Les documents sont filtrés par société et `quoteAllowed` avant agrégation. Les ciblés confirment aussi le masquage hors scope Projet/Site et les identifiants invisibles en 404.
+- **Erreurs** : mois courant, futur, non normalisé ou injecté sont refusés en **422** avec `DASHBOARD_COMPARISON_MONTH_INVALID`. Le test HTTP confirme également le contrat d’erreur stable.
+- **OpenAPI** : `/dashboard/overview` documente `comparisonMonth` au format `YYYY-MM`, son défaut métier et la réponse structurée `DashboardOverview`; les réponses 401, 403 et 422 sont déclarées. Le ciblé OpenAPI et le build sont verts.
+- **Responsive et accessibilité** : la comparaison passe de deux colonnes à une sous 1100 px, puis réorganise entête, périodes et cartes sous 700 px. Le sélecteur possède un libellé visible et un `aria-label`; la grille de résultats porte `aria-live="polite"`; les données sont textuelles et ne reposent pas sur la couleur.
+
+## Limites
+
+- aucune instance de navigateur contrôlable n’était exposée ; aucun clic réel, contrôle visuel aux breakpoints, focus clavier réel ni inspection console n’est revendiqué par ce gate ;
+- le changement sans navigation, le responsive et l’accessibilité sont validés par inspection des contrats DOM/CSS et par les tests ciblés, pas par une capture navigateur indépendante ;
+- aucune campagne de performance n’est revendiquée ici : elle relève du gate Performance ;
+- le verdict porte exclusivement sur le hash exact ci-dessus et devient caduc si le read-model, le client, les styles, l’OpenAPI ou les tests couverts changent.
+
+## Verdict terminal
+
+Le gate QA indépendant RC6 sur `7b723b3ce6c43c9fb5ccc0ab9f016c2430429629` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Les 24 mois, le défaut au mois précédent, le changement local, les quatre comparatifs, la conversion tardive, les permissions/scopes, les 422 et les contrats responsive/accessibles sont conformes. Preuves terminales : ciblés **108/108**, suite complète **354/354**, lint, build et diff-check verts. Limite explicite : aucune recette navigateur contrôlée n’a pu être exécutée.
