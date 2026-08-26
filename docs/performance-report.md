@@ -1,3 +1,68 @@
+# Re-gate PERFORMANCE indépendant post-RC6 — cutoff et historique mensuel
+
+Date : 2026-08-26
+
+Candidat applicatif exact : `db23552b898bc7fc8c75bdae11b1916daba4df0a`
+
+HEAD observé : `68f16f47201e21c16f9b5eefbf35ddd3bc657770` ; l'unique différence après le candidat est documentaire.
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 1 P3 sur le correctif post-RC6.**
+
+Sur 250 ressources, 10 000 réservations et 2 000 documents, la Vue d'ensemble complète avec cutoff courant et historique `replaced` mesure `20,41 ms` p95, sous le seuil API `< 300 ms` avec plus de `279 ms` de marge. Le nouvel agrégat d'occupation courante ajoute un passage borné sur les cellules déjà construites; aucune lecture de persistance, requête réseau ou structure cumulative supplémentaire n'est introduite.
+
+## Mesure fraîche représentative
+
+Benchmark direct de `dashboardOverviewReadModel`, cinq warm-ups puis 30 itérations, situation `2026-08-25`, comparaison `2026-06` :
+
+| Dataset / résultat | Valeur |
+|---|---:|
+| ressources | 250 |
+| réservations | 10 000 |
+| devis + budgets injectés | 2 000 |
+| documents visibles à `asOf` | 1 964 |
+| acceptés historiques juin | 167, dont 56 `replaced` |
+| latence min / p50 / p95 / max | `14,83 / 15,95 / 20,41 / 25,98 ms` |
+| réponse JSON | `117 358 octets` |
+
+La campagne couvre six mois de documents et 180 jours de réservations distribuées sur les 250 salles, avec états `confirmed`, `completed` et `option`; les documents incluent devis brouillons/acceptés/remplacés, budgets confirmés et liens de conversion.
+
+## Analyse du coût ajouté
+
+- Les ressources, réservations, cellules et documents sont toujours produits une seule fois après scopes. `visibleAt` ajoute une comparaison de chaîne ISO O(1) par document.
+- Le mois courant ne peut plus réutiliser `periods.month.global`, car sa disponibilité doit s'arrêter à `asOf`. Il exécute donc un agrégat `dashboardOverviewOccupancy` supplémentaire sur les 250 ressources et cellules déjà matérialisées. La mémoire de sortie reste constante.
+- Le mois historique réutilise les mêmes documents; compter les devis remplacés repose sur `acceptedAt` et ne crée ni index, ni historique copié, ni boucle imbriquée additionnelle.
+- Le correctif frontend de delta est une garde `null` O(1). Il n'ajoute aucun nœud, listener, observer, reflow ou requête.
+- La campagne précédente sur `7b723b3` mesurait `16,68 ms` p95 sur le même volume nominal. Les campagnes ne sont pas un A/B isolé strict, mais le nouveau p95 `20,41 ms` reste du même ordre et très loin du seuil contractuel.
+
+## P3 et limites
+
+**P3 — profilage navigateur absent.** Aucun navigateur pilotable n'était disponible pour mesurer le temps interactif, layout/paint, mémoire ou FPS. Le HTML additionnel est inchangé par le correctif et le scripting UI ajouté est constant; l'E2E release devra néanmoins confirmer le seuil UI `< 2 s` sur une machine cible.
+
+Le benchmark appelle le read-model en mémoire : parsing HTTP, lecture du fichier JSON, transfert des `114,6 KiB` et rendu navigateur ne sont pas inclus. La marge API observée demeure importante, mais le comportement au-delà de 2 000 documents n'a pas été extrapolé.
+
+## Preuves fraîches et handoff
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| candidat applicatif | `db23552b898bc7fc8c75bdae11b1916daba4df0a` |
+| benchmark 250/10 000/2 000, 30 itérations | **PASS**, p95 `20,41 ms`, max `25,98 ms` |
+| `node --test tests/sprint8-dashboards.test.js tests/quotes.test.js tests/foundations.test.js` | **PASS, 87/87**, durée `3 556,73 ms` |
+| `npm test` | **PASS, 355/355**, durée `8 382,89 ms` |
+| `npm run lint` / `npm run build` | **PASS** |
+| `git diff db23552^ db23552 --check` | **PASS** |
+
+Hashes SHA-256 : `server.js` `f8fb1691fb1cd2fc172c8c8531d9682f2ffa53eaa1489c80993a517c88d5b78e`; `app.js` `bd08f1fd8f5711a1245c3084f0fad0f11f036962039b99690c84df74762da3e7`; `styles.css` `61e2a6dd342f18003d385443c22137fb1bafe926408bab3ddbf8732e2d6ee954`; OpenAPI `056bddd0703ac81a720b8d30905449a77d1e420a5604e8e1ffaf60e5ade8b116`.
+
+Gate PERFORMANCE post-RC6 : **APPROVED**, avec la limite navigateur P3. Fichier modifié : `docs/performance-report.md` uniquement ; mise à jour de `docs/project-status.md` laissée à l'intégrateur.
+
+---
+
 # Gate PERFORMANCE indépendant — comparaison mensuelle Vue d'ensemble
 
 Date : 2026-08-26

@@ -1,3 +1,60 @@
+# Re-gate SECURITY indépendant post-RC6 — cutoff et historique mensuel
+
+Date : 2026-08-26
+
+Candidat applicatif exact : `db23552b898bc7fc8c75bdae11b1916daba4df0a`
+
+HEAD observé : `68f16f47201e21c16f9b5eefbf35ddd3bc657770` ; l'unique différence après le candidat est `docs/project-status.md`, sans impact applicatif.
+
+Reviewer : agent indépendant `g8_sec_perf_final`
+
+## Verdict terminal
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 0 P3 sur le correctif post-RC6.**
+
+`SEC-RC6-COMP-01` est fermé. Le CA signé est désormais reconstruit depuis `acceptedAt` sans dépendre du statut courant : un devis ensuite `replaced` demeure acquis à son mois d'acceptation. La borne `asOf` interdit simultanément d'anticiper une acceptation ou une conversion future. `dashboard.read` ferme toute la Vue d'ensemble et `quote.read` masque les trois agrégats commerciaux sans faux zéro ni compteur indirect.
+
+## Temporalité et intégrité historique
+
+- `signedDate` utilise `acceptedAt`; le fallback `updatedAt/createdAt` est limité aux anciens devis encore `accepted`. Un document remplacé avec son `acceptedAt` reste donc historique, tandis qu'un brouillon sans acceptation n'est jamais signé.
+- `visibleAt(date)` exige une date non vide et `date <= asOf`. Le mois courant utilise l'intervalle semi-ouvert `[premier jour, asOf + 1 jour)`, ce qui inclut la journée de situation sans lire le futur du mois.
+- Les conversions utilisent leur date de création, doivent être visibles à `asOf` et antérieures à la fin de la période. Un budget converti le 30 août reste ainsi non converti au cutoff du 25 août et à la clôture d'un mois antérieur.
+- Reproducteur volumétrique indépendant sur juin : **167** devis acceptés attendus, dont **56** désormais `replaced`; le read-model restitue **167/167**. Le test ciblé confirme aussi qu'une acceptation au 30 août n'entre pas dans la situation du 25 août.
+- `SEC-RC6-COMP-01` passe donc de P1 ouvert à **fermé**.
+
+## RBAC, scopes et absence de fuite
+
+- Sans `dashboard.read`, le read-model échoue avant agrégation avec `403 DASHBOARD_FORBIDDEN` et `missingPermissions:["dashboard.read"]`.
+- Avec `dashboard.read` mais sans `quote.read`, `commercial`, `comparison.current.commercial` et `comparison.selected.commercial` renvoient uniquement `status:"unavailable"`. Le JSON ne contient aucun champ `RevenueMinor`; `sources.documentCount` vaut zéro.
+- Les ressources restent filtrées par société, site et entité via `resourceAllowed`; les réservations par société, site, projet, réservation et chaque ressource via `reservationSnapshotAllowed`; les documents par société, projet, devis et site via `quoteAllowed`.
+- Le stress scopé Paris ne restitue que les 125 ressources autorisées; les compteurs sont recalculés après scopes (`3 000` réservations, `590` documents dans le dataset synthétique), pas filtrés après agrégation.
+- La route demeure en lecture authentifiée. Elle n'ajoute ni mutation, ni audit, ni SSE, ni données persistées, secret ou fichier statique.
+- Le correctif UI transforme seulement un delta absent en texte constant « Non disponible ». Les libellés/mois passent toujours par les générateurs internes et `esc()`; aucun sink XSS ou donnée financière masquée conservée dans le DOM n'est ajouté.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| candidat applicatif | `db23552b898bc7fc8c75bdae11b1916daba4df0a` |
+| `node --test tests/sprint8-dashboards.test.js tests/quotes.test.js tests/foundations.test.js` | **PASS, 87/87**, durée `3 556,73 ms` |
+| `npm test` | **PASS, 355/355**, 0 échec/skip/todo, durée `8 382,89 ms` |
+| `npm run lint` / `npm run build` | **PASS** ; 5 actifs runtime vérifiés |
+| `git diff db23552^ db23552 --check` | **PASS** |
+| historique synthétique | **PASS**, 167 acceptés attendus/observés, dont 56 remplacés |
+| permissions | `dashboard.read` absent → `403`; `quote.read` absent → trois blocs indisponibles, aucun montant |
+
+Hashes SHA-256 : `server.js` `f8fb1691fb1cd2fc172c8c8531d9682f2ffa53eaa1489c80993a517c88d5b78e`; `app.js` `bd08f1fd8f5711a1245c3084f0fad0f11f036962039b99690c84df74762da3e7`; OpenAPI `056bddd0703ac81a720b8d30905449a77d1e420a5604e8e1ffaf60e5ade8b116`; spécification `7f74a1078e929ca0bcb23990b5660ca8e352f4789735dff01f438eb34f24bb90`; test dashboard `0a3708a19cc4ee1f30d34108cabe83a69e6b3748ea774704e4513df0f48a0cd1`.
+
+## Limites et handoff
+
+La vérification XSS/DOM est statique et automatisée; aucun navigateur pilotable n'a été utilisé. Le dataset synthétique vérifie les scopes Site/Projet/Devis/Ressource et les compteurs, sans constituer un test exhaustif de toutes les combinaisons RBAC héritées. Les risques non bloquants historiques consignés dans les sections antérieures ne sont pas déclarés fermés par ce re-gate d'impact.
+
+Gate SECURITY post-RC6 : **APPROVED**. Fichier modifié : `docs/security-review.md` uniquement ; mise à jour de `docs/project-status.md` laissée à l'intégrateur conformément à l'ownership imposé.
+
+---
+
 # Gate SECURITY indépendant — comparaison mensuelle Vue d'ensemble
 
 Date : 2026-08-26

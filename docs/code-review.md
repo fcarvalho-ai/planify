@@ -1,3 +1,96 @@
+# Re-REVIEW indépendante post-RC6 — comparaison mensuelle Vue d’ensemble
+
+Date : 2026-08-26
+
+Reviewer : agent indépendant `g8_review_final`
+
+Candidat applicatif exact : `db23552b898bc7fc8c75bdae11b1916daba4df0a` (`fix: reconcile monthly dashboard cutoff and permissions`)
+
+HEAD observé pendant la revue : `68f16f47201e21c16f9b5eefbf35ddd3bc657770` (commit documentaire uniquement)
+
+Correctif contrôlé : `7b723b3ce6c43c9fb5ccc0ab9f016c2430429629..db23552b898bc7fc8c75bdae11b1916daba4df0a`
+
+## Verdict
+
+**REJECTED — 0 P0, 1 P1 ouvert.**
+
+Les trois axes explicitement corrigés sont désormais conformes dans la comparaison mensuelle : le mois courant est borné à `asOf` pour l’occupation et les événements commerciaux, `dashboard.read` est imposé, les deltas commerciaux masqués ne deviennent plus zéro, et un devis accepté puis remplacé reste compté à sa date d’acceptation. Une incohérence bloquante subsiste toutefois dans la synthèse commerciale principale affichée juste au-dessus : son Budget non converti reste déterminé par le statut courant et non par l’état à `asOf`.
+
+## Constat bloquant
+
+### REV-MONTHLY-03 — P1 — Le total commercial principal n’est pas réconcilié avec la comparaison à la date de situation
+
+- Le read-model appelle `dashboardOverviewCommercial(documents, null, asOf)` pour la synthèse principale `commercial`.
+- La détection des Devis liés y respecte bien `conversionDate <= asOf`, mais `unconvertedBudgets` conserve la condition `(range || value.status !== 'converted')`.
+- Lorsque `range` vaut `null`, un Budget dont le statut courant est `converted` est donc exclu même si le Devis de conversion a été créé **après** la date de situation. La comparaison courante, qui fournit une plage, ignore à juste titre ce statut actuel et conserve le même Budget.
+- Preuve indépendante : Budget de 3 000 € daté du 02/08 et converti par un Devis créé le 30/08, lecture `asOf=25/08` → `commercial.unconvertedBudgetMinor="0"` mais `comparison.current.commercial.unconvertedBudgetMinor="300000"`.
+- L’utilisateur voit ainsi simultanément deux valeurs incompatibles pour « Budget non converti » sur la même Vue d’ensemble. Le contrat et la spécification qualifient pourtant la synthèse de donnée historique bornée à `asOf`.
+- Le nouveau test vérifie seulement la valeur dans `comparison.current`; il ne la réconcilie pas avec `overview.commercial`, ce qui laisse passer cette divergence.
+
+Correction attendue : pour une lecture historique, déterminer l’état non converti uniquement à partir des événements de conversion visibles à `asOf`, y compris lorsque la plage est globale. Conserver la règle basée sur le statut courant seulement pour un éventuel appel explicitement non historique. Ajouter une assertion de réconciliation entre la synthèse principale et le cas de conversion future.
+
+## Fermetures vérifiées
+
+### Cutoff `asOf`, `current.to` et occupation
+
+- La plage courante est maintenant `[début du mois, asOf + 1 jour)` et expose `current.to = asOf`.
+- `current.occupancy` est recalculée sur cette plage au lieu de reprendre l’occupation du mois civil complet.
+- `visibleAt()` borne séparément date du Devis, date d’acceptation et date de conversion. Le probe qui comptait auparavant une acceptation du 30/08 dans la situation du 25/08 retourne désormais zéro.
+- Le mois passé conserve sa clôture civile complète et les intervalles restent semi-ouverts en interne.
+
+### `dashboard.read` et masquage sans `quote.read`
+
+- `dashboardOverviewReadModel()` refuse maintenant avant agrégation l’absence de `dashboard.read` avec `403 DASHBOARD_FORBIDDEN` et `missingPermissions` stable.
+- Les scopes société/site/projet/entités sont toujours appliqués après cette autorisation.
+- `dashboardMoneyDelta()` renvoie « Non disponible » dès qu’une des deux valeurs manque ; il ne transforme plus deux absences en `0 €`.
+- Le serveur conserve `commercial: { status: 'unavailable' }` sans montant lorsque `quote.read` manque.
+
+### CA signé historique après remplacement
+
+- `signedDate()` utilise `acceptedAt` indépendamment du statut courant ; un Devis `replaced` muni de son horodatage d’acceptation reste donc compté dans le mois historique correct.
+- Le fallback `updatedAt/createdAt` n’est utilisé que pour un Devis encore `accepted`, ce qui évite de prendre la date de remplacement comme date de signature.
+- Le test couvre explicitement une acceptation en juillet suivie d’un remplacement en août et obtient 8 000 € / un Devis signé en juillet.
+
+## Contrats, consommateurs et non-régression
+
+- La spécification et OpenAPI décrivent désormais `asOf` comme borne inclusive, la permission `dashboard.read` et l’indisponibilité commerciale sans faux zéro.
+- Les statuts `401/403/422`, le schéma de comparaison et les paramètres restent cohérents avec le runtime.
+- L’interface continue d’échapper les valeurs, de proposer uniquement des mois passés, d’annoncer la grille via `aria-live` et de conserver ses adaptations responsive.
+- Les agrégats restent en unités mineures sérialisées et aucune dépendance, mutation, audit ou SSE n’est introduit par ce correctif de lecture.
+
+## Observations non bloquantes et limites
+
+- **P2 — schéma commercial permissif :** les blocs `commercial` OpenAPI restent des objets à propriétés libres, sans union typée `available/unavailable`.
+- Les tests UI de masquage et de responsive restent structurels ; aucun moteur navigateur n’a été lancé pour cette re-REVIEW de code.
+- Les preuves automatisées vertes ne couvrent pas encore la divergence `overview.commercial` / `comparison.current.commercial` démontrée par le probe indépendant.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+- Candidat applicatif : `db23552b898bc7fc8c75bdae11b1916daba4df0a`; le commit HEAD `68f16f4` ne modifie que la documentation de statut.
+- `node --test tests/sprint8-dashboards.test.js` → **PASS, 21/21**, 0 échec/cancelled/skip/todo, 2,395 s.
+- `npm test` → **PASS, 355/355**, 0 échec/cancelled/skip/todo, 8,538 s.
+- `npm run lint` → **PASS**.
+- `npm run build` → **PASS**, 5 actifs runtime vérifiés.
+- `git diff --check 7b723b3ce6c43c9fb5ccc0ab9f016c2430429629..db23552b898bc7fc8c75bdae11b1916daba4df0a` → **PASS**.
+- Probe de réconciliation indépendante → `{ "top":"0", "current":"300000" }` pour une conversion créée cinq jours après `asOf`.
+
+Empreintes SHA-256 du candidat applicatif :
+
+- `app.js` : `bd08f1fd8f5711a1245c3084f0fad0f11f036962039b99690c84df74762da3e7`
+- `server.js` : `f8fb1691fb1cd2fc172c8c8531d9682f2ffa53eaa1489c80993a517c88d5b78e`
+- `docs/api/openapi-v1.yaml` : `056bddd0703ac81a720b8d30905449a77d1e420a5604e8e1ffaf60e5ade8b116`
+- `docs/spec-mvp.md` : `7f74a1078e929ca0bcb23990b5660ca8e352f4789735dff01f438eb34f24bb90`
+- `tests/sprint8-dashboards.test.js` : `0a3708a19cc4ee1f30d34108cabe83a69e6b3748ea774704e4513df0f48a0cd1`
+
+## Sortie de gate
+
+- Le gate REVIEW reste **REJECTED** pour le candidat applicatif exact ; il doit être rejoué après correction de `REV-MONTHLY-03`.
+- Conformément à l’ownership demandé, seul `docs/code-review.md` est modifié. Aucun code, test, autre rapport ni `docs/project-status.md` n’a été touché.
+
+---
+
 # Gate REVIEW indépendant — comparaison mensuelle Vue d’ensemble
 
 Date : 2026-08-26

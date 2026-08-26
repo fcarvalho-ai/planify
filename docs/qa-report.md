@@ -5021,3 +5021,70 @@ Version    0.5.0-rc6
 ## Verdict terminal
 
 Le gate QA indépendant RC6 sur `7b723b3ce6c43c9fb5ccc0ab9f016c2430429629` est **APPROVED** avec **0 P0 et 0 P1 QA ouvert**. Les 24 mois, le défaut au mois précédent, le changement local, les quatre comparatifs, la conversion tardive, les permissions/scopes, les 422 et les contrats responsive/accessibles sont conformes. Preuves terminales : ciblés **108/108**, suite complète **354/354**, lint, build et diff-check verts. Limite explicite : aucune recette navigateur contrôlée n’a pu être exécutée.
+
+---
+
+# Re-QA indépendante post-RC6 — date de situation et historique commercial
+
+Date : 2026-08-26
+
+Commit applicatif contrôlé : `db23552b898bc7fc8c75bdae11b1916daba4df0a` (`fix: reconcile monthly dashboard cutoff and permissions`)
+
+HEAD observé : `68f16f47201e21c16f9b5eefbf35ddd3bc657770` ; le seul écart avec le candidat est `docs/project-status.md` (documentation uniquement). L'état applicatif testé correspond donc exactement au commit demandé.
+
+Environnement : Node `v26.6.0`, Darwin arm64 ; package `0.5.0-rc6`.
+
+Verdict : **CHANGES REQUIRED — 0 P0 / 1 P1**
+
+## Constat bloquant
+
+### P1 — un Devis créé après `asOf` est compté dans le CA devisé du mois courant
+
+La sonde indépendante reprend le négatif de conversion future du test ajouté : date de situation `2026-08-25`, Devis brouillon daté fiscalement du `2026-08-10` mais créé le `2026-08-30`, montant `200000`, lié à un Budget de `300000`.
+
+Résultat observé dans `comparison.current.commercial` :
+
+- `quotedRevenueMinor: "300000"`, `quoteCount: 2` ;
+- `signedRevenueMinor: "0"` ;
+- `unconvertedBudgetMinor: "300000"`, `unconvertedBudgetCount: 1`.
+
+Le correctif empêche bien cette conversion future de retirer prématurément le Budget, mais le Devis qui n'existe pas encore à la date de situation reste inclus dans le CA devisé. La valeur attendue est `quotedRevenueMinor: "100000"`, `quoteCount: 1` : seul le Devis de `100000` déjà créé au 25 août doit exister dans la photographie, même si son acceptation est future.
+
+Cause localisée : `dashboardOverviewReadModel()` préfiltre et date les documents avec `taxDate || createdAt`, puis `dashboardOverviewCommercial()` emploie également `taxDate || createdAt` pour les Devis (`server.js`, lignes 4147–4161). Une date fiscale antérieure masque donc un `createdAt` postérieur à `asOf`. Le test automatisé « respecte la date de situation » vérifie le CA signé et le Budget non converti, mais n'asserte ni `quotedRevenueMinor` ni `quoteCount` dans ce cas.
+
+Impact : la comparaison historique peut afficher un faux CA devisé et un faux nombre de Devis, ce qui fausse directement l'indicateur métier demandé. Le gate ne peut pas être approuvé tant que l'existence du document n'est pas bornée par `createdAt` et couverte par un négatif automatisé.
+
+## Négatifs et corrections confirmés
+
+- Acceptation future : exclue du CA signé courant (`signedRevenueMinor: "0"`).
+- Conversion future : n'enlève plus le Budget avant sa création (`unconvertedBudgetMinor: "300000"`).
+- Devis `replaced` historiquement accepté : conservé dans juillet (`signedRevenueMinor: "800000"`, `signedQuoteCount: 1`).
+- Permission `dashboard.read` absente : refus synchrone `403 DASHBOARD_FORBIDDEN`, détail `missingPermissions: ["dashboard.read"]`.
+- Faux delta UI : la garde `current == null || previous == null` retourne `Non disponible`; le ciblé frontend correspondant est vert.
+
+## Commandes et résultats frais
+
+| Commande | Résultat |
+|---|---|
+| sonde Node directe de `dashboardOverviewReadModel()` sur le scénario futur/replaced/permission | **P1 reproduit** : courant devisé `300000`, 2 Devis ; signé `0` ; Budget non converti `300000`; juillet signé `800000`; permission absente `403` |
+| `node --test tests/sprint8-dashboards.test.js` | PASS, **21/21**, 0 échec |
+| `node --test tests/quotes.test.js` | PASS, **49/49**, 0 échec |
+| `node --test tests/api.test.js` | PASS, **42/42**, 0 échec |
+| `node --test tests/foundations.test.js` | PASS, **17/17**, 0 échec |
+| `npm test` | PASS, **355/355**, 0 échec/annulé/ignoré/TODO, durée `8 326 ms` |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| `git diff --check` | PASS, code 0 |
+| parse Ruby de `docs/api/openapi-v1.yaml` | PASS : OpenAPI `3.1.0`, route `/dashboard/overview`, paramètre `comparisonMonth`, réponse 403 et schéma `DashboardOverview` présents |
+
+La commande exploratoire `node --test tests/openapi.test.js` n'est pas applicable : ce fichier n'existe pas. La couverture OpenAPI réelle a été rejouée dans `tests/api.test.js`, `tests/foundations.test.js` et `tests/sprint8-dashboards.test.js`, complétée par le parse sémantique ci-dessus.
+
+## Limites
+
+- Aucun navigateur n'a été lancé : le delta « Non disponible » est couvert par le test frontend statique et l'inspection de la fonction, pas par une interaction visuelle.
+- Cette re-QA ne revendique aucune campagne Performance ou Sécurité, hors contrôles permissions/scopes inclus dans les suites ciblées et complète.
+- Le verdict porte sur l'état applicatif exact `db23552b898bc7fc8c75bdae11b1916daba4df0a`; toute correction du P1 exige une nouvelle QA sur le nouveau hash.
+
+## Verdict terminal
+
+Le candidat applicatif `db23552b898bc7fc8c75bdae11b1916daba4df0a` est **REJECTED / CHANGES REQUIRED** au gate QA : **1 P1 ouvert**, malgré **355/355 tests** verts et lint/build/diff/OpenAPI valides. Les acceptations et conversions futures, l'historique `replaced`, le refus `dashboard.read` et l'absence de faux delta sont partiellement ou totalement corrigés, mais un Devis créé après la date de situation continue de gonfler le CA devisé lorsque sa `taxDate` est antérieure.
