@@ -80,6 +80,8 @@ La synthèse commerciale distingue explicitement le **CA devisé** (tous les Dev
 
 Sous la synthèse, une comparaison mensuelle permet de choisir un mois civil passé. Elle rapproche ce mois du mois courant, borné à la date de situation incluse, pour l’occupation globale, le CA devisé, le CA signé et les Budgets non convertis. Les valeurs commerciales sont recalculées sur chaque période — elles ne reprennent pas les cumuls historiques — et les mêmes permissions et scopes sont appliqués avant agrégation. Le CA signé suit la date d’acceptation et demeure acquis à cette date si le Devis est remplacé ensuite ; une acceptation future n’est jamais anticipée. Un Budget converti plus tard reste donc visible comme non converti à la clôture du mois comparé ou à la date de situation courante. Le mois précédent est proposé par défaut ; un mois courant, futur ou mal formé est refusé. La Vue d’ensemble exige toujours `dashboard.read` ; sans `quote.read`, les indicateurs et écarts commerciaux sont explicitement indisponibles, jamais remplacés par zéro.
 
+Les bornes exactes sont affichées dans l’interface : du premier au dernier jour civil du mois passé choisi, et du premier jour à la date de situation pour le mois courant.
+
 ## 5. Règles métier
 
 1. Une réservation a une fin strictement postérieure à son début.
