@@ -2224,3 +2224,143 @@ tests/foundations.test.js           0a09c42af8028fa4676ec9f984c8aa01cb1a4854494b
 
 - Gate PERFORMANCE G8 overlays : **APPROVED** sur `08595fc`, 0 P0/0 P1/0 nouveau P2/1 P3 (`PERF-G8-07`).
 - Fichier modifié par cet axe : `docs/performance-report.md` uniquement ; `docs/project-status.md` reste à consolider par l'intégrateur.
+## Gate PERFORMANCE indépendant — Catalogue articles SAGE — 2026-08-26
+
+Candidat observé : HEAD `231abf5aaf8641dad1229bb98db3a451c05bf694`, avec lot Catalogue articles SAGE non commité identifié par les empreintes ci-dessous.
+
+Reviewer : agent indépendant `article_performance`.
+
+### Verdict
+
+**APPROVED sur l’état mesuré — 0 P0, 0 P1, 0 P2 performance, 1 P3.**
+
+Deux campagnes HTTP fraîches sur 10 071 articles respectent largement les seuils contractuels : lecture/recherche p95 maximal observé `41,93 ms` pour un seuil `< 300 ms`, mutation versionnée avec persistance p95 maximal `56,06 ms` pour un seuil `< 250 ms`. Le P1 fonctionnel/sécurité signalé en parallèle sur le wrapper `finance.read` ne modifie pas ces chemins, mais son correctif DEV exigera une revalidation d’impact avant de réutiliser ce verdict pour la release.
+
+### Méthodologie et résultats frais
+
+Commande : `npm run benchmark:article-catalog`, exécutée deux fois sur macOS arm64, Node `v26.6.0`. Chaque campagne crée un fichier isolé dans le répertoire temporaire, démarre un serveur HTTP sur loopback puis supprime automatiquement le jeu et ses fichiers associés.
+
+Jeu : 10 000 articles synthétiques auxquels s’ajoutent les 71 articles SAGE migrés ; 50 recherches HTTP authentifiées `q=benchmark&pageSize=100`, chacune vérifiant un total de 10 000 résultats ; 20 `PATCH` HTTP successifs sur le même article avec version optimiste, idempotence, audit, révision et écriture atomique du fichier JSON.
+
+| Campagne | Échantillons lecture | p95 lecture | Échantillons écriture | p95 écriture |
+|---|---:|---:|---:|---:|
+| 2026-08-26 10:06:24 UTC | 50 | `41,93 ms` | 20 | `56,06 ms` |
+| 2026-08-26 10:06:44 UTC | 50 | `40,21 ms` | 20 | `51,94 ms` |
+
+La lecture filtre puis trie les correspondances avant pagination : coût O(N log N) dans le pire cas de recherche large, mesuré ici sur 10 000 correspondances. L’écriture met à jour l’article, ajoute audit/révision puis sérialise atomiquement la base locale : coût O(N) sur ce backend JSON. Les marges minimales observées sont de `258,07 ms` en lecture et `193,94 ms` en écriture.
+
+### Impact UI et limites
+
+Le chargement métier actuel demande une page API de 500 éléments au maximum et rend cette page côté navigateur ; le catalogue réel approuvé contient 71 lignes. La recherche ensuite effectuée dans la page est linéaire sur les éléments chargés et un rendu recrée les lignes filtrées. Aucun polling, listener par ligne, dépendance externe ou accès réseau supplémentaire n’est introduit.
+
+**P3 — mesure UI interrompue et non revendiquée.** Le serveur utilisateur sur 8080 était arrêté. Une instance temporaire isolée a été démarrée sur 8230, mais la tentative de mesure navigateur a été interrompue avant navigation et ne constitue aucune preuve. Le seuil UI exploitable `< 2 s` reste donc à confirmer en E2E sur les 71 lignes réelles. Le comportement DOM à 500 lignes n’a pas été profilé ; au-delà de 500 articles, l’interface actuelle ne propose pas de pagination vers les pages suivantes.
+
+Le benchmark n’isole pas min/p50/max, débit concurrent, consommation mémoire, croissance sur plusieurs milliers de révisions ni contention de deux écritures simultanées. Les p95 incluent toutefois HTTP, auth de session, validation, filtrage/tri, sérialisation de réponse et, pour les mutations, persistance atomique.
+
+### Empreintes et handoff
+
+| Fichier mesuré | SHA-256 |
+|---|---|
+| `server.js` | `e80a84366429127c2cd4ec8190159ff238aaa3896b5ce780d4986ccbac6f58fd` |
+| `app.js` | `ea6f0fbc933690cb771802d31ddb274445321c4784d88a4c258f87c2ede1f705` |
+| `scripts/benchmark-article-catalog.js` | `797762d839a0331e53029df049a3fac03c005e38e1810fa885b725a06d971cb9` |
+| `tests/article-catalog.test.js` | `748bdb364a2b7ae5bd1e642ddf3f52c70b74667cbca6e491e6e1d96aa60ceb2b` |
+
+Gate PERFORMANCE Catalogue articles SAGE : **APPROVED sur cette empreinte**, avec limite UI P3 et revalidation d’impact obligatoire après le correctif P1 parallèle. Fichier modifié : `docs/performance-report.md` uniquement ; consolidation de `docs/project-status.md` laissée à l’intégrateur.
+
+---
+
+## Re-gate PERFORMANCE indépendant — Catalogue articles SAGE corrigé et gelé — 2026-08-26
+
+Candidat observé : HEAD `231abf5aaf8641dad1229bb98db3a451c05bf694`, lot non commité gelé identifié par les empreintes de fichiers ci-dessous.
+
+Reviewer : agent indépendant `article_performance`.
+
+### Verdict
+
+**APPROVED sur l’empreinte finale mesurée — 0 P0, 0 P1, 1 P2 de montée en charge UI, 1 P3.**
+
+La campagne HTTP fraîche sur 10 071 articles mesure un p95 lecture de `39,33 ms` (`< 300 ms`) et un p95 écriture de `70,22 ms` (`< 250 ms`). Les correctifs fonctionnels postérieurs au premier gate n’ont donc pas dégradé les seuils serveur. Le chargement exhaustif `apiAll` corrige la complétude fonctionnelle et la pagination d’affichage borne le DOM à 100 lignes ; sa stratégie séquentielle doit toutefois être surveillée si le catalogue croît de 71 à plusieurs milliers d’articles.
+
+### Preuve serveur fraîche
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+Commande : `npm run benchmark:article-catalog`.
+
+| Date UTC | Jeu | Lecture | Écriture |
+|---|---:|---:|---:|
+| 2026-08-26 10:32:26 | 10 000 synthétiques + 71 SAGE | 50 échantillons, p95 `39,33 ms` | 20 échantillons, p95 `70,22 ms` |
+
+Chaque lecture est un GET HTTP authentifié avec recherche large sur 10 000 résultats et page de 100 lignes. Chaque écriture est un PATCH HTTP versionné avec contrôle optimiste, idempotence, audit, révision et persistance atomique. Les marges sont de `260,67 ms` en lecture et `179,78 ms` en écriture.
+
+### Analyse `apiAll` et pagination UI
+
+- `apiAll` demande des pages de 200 lignes, séquentiellement, jusqu’au total annoncé ou 100 pages. Pour les 71 articles réels, une seule requête suffit. Pour 10 071 articles, 51 requêtes sont nécessaires ; chacune refiltre et retrie actuellement la collection complète côté serveur.
+- Une extrapolation prudente à partir du p95 unitaire `39,33 ms` donne environ `2 006 ms` pour 51 pages, avant parsing, assemblage et rendu. Ce n’est pas une mesure bout-en-bout et ne constitue pas un dépassement observé, mais montre que le seuil UI `< 2 s` n’est pas garanti à 10 071 articles avec ce protocole.
+- Le DOM est désormais borné à 100 lignes par `articleCatalogModule.pageSize`. Les boutons Précédent/Suivant ne déclenchent pas d’appel réseau et rendent uniquement la tranche locale.
+- La recherche locale reste O(N) sur tous les éléments chargés. Le calcul des codes SAGE partagés utilise un `filter` avec `findIndex`, donc O(N²) dans le pire cas, même si seules 100 lignes sont rendues.
+- Microbenchmark reproductible du calcul exact des doublons, cinq passages : 71 éléments `0,06 ms` p50, `0,16 ms` max ; 10 071 éléments `33,47 ms` p50, `107,86 ms` max. Ce coût est faible au volume métier actuel, mais évitable avec un comptage O(N).
+- Le listener SSE est unique et le rechargement est temporisé à 250 ms. Il n’ajoute pas de polling ni de travail proportionnel au nombre de lignes entre deux invalidations.
+
+**P2 — montée en charge du chargement exhaustif.** À 10k articles, les 51 requêtes séquentielles et le recalcul O(N²) des doublons risquent de dépasser le budget interactif, même si le DOM reste borné. Avant d’approcher ce volume, paginer/rechercher côté serveur ou fournir un endpoint de catalogue compact, et calculer les doublons en O(N).
+
+**P3 — absence de trace navigateur bout-en-bout.** Aucun temps vers contenu visible, layout, paint, mémoire ou interaction n’a été capturé sur l’état final. Le seuil UI `< 2 s` reste à confirmer en E2E sur le catalogue métier de 71 lignes. Les mesures Node du calcul local n’incluent pas le DOM.
+
+### Empreinte finale et handoff
+
+| Fichier mesuré | SHA-256 |
+|---|---|
+| `server.js` | `a9260004c8132404d0bc1dd58c8da89a1b915d8a21fc99b9ae7e9eb6199673e6` |
+| `app.js` | `6d13b444eb0b16082df366b1900773e9fa33d735577be2fb8d6510f9e0943860` |
+| `scripts/benchmark-article-catalog.js` | `797762d839a0331e53029df049a3fac03c005e38e1810fa885b725a06d971cb9` |
+| `tests/article-catalog.test.js` | `428dabf11a95bb328268c837c26c150d9d9a3b220ad05103601dc262a13ff2ad` |
+
+Gate PERFORMANCE final Catalogue articles SAGE : **APPROVED sur cette empreinte**, avec P2 de scalabilité UI et P3 navigateur explicités. Toute modification ultérieure de ces quatre fichiers impose une nouvelle analyse d’impact. Fichier modifié : `docs/performance-report.md` uniquement ; consolidation de `docs/project-status.md` laissée à l’intégrateur.
+
+---
+
+## Re-PERFORMANCE différentielle — synchronisation du shell Articles SAGE — 2026-08-26
+
+Empreinte applicative corrigée : `app.js` SHA-256 `4e827ab58f77d412fe62740956a12cfe032b448c911cd52593e103192657d8c5`.
+
+Reviewer : agent indépendant `article_performance`.
+
+### Verdict
+
+**APPROVED — 0 P0, 0 P1, 0 nouveau P2, limites P2/P3 antérieures maintenues.**
+
+Le correctif ajoute uniquement `syncAuthenticatedSurfaces(true)` au chemin direct du wrapper `render` lorsque la route est `#articles` et qu’une session existe. Il restaure la visibilité du shell avant le rendu du catalogue, sans requête, boucle dépendante des données, création de nœud, listener, timer ni recalcul du catalogue.
+
+### Analyse d’impact exacte
+
+Sur l’argument constant `true`, `syncAuthenticatedSurfaces` :
+
+- récupère `#appShell`, affecte `hidden=false`, `aria-hidden="false"` et `inert=false` ;
+- parcourt une liste fixe de trois overlays (`modalBackdrop`, `commandPalette`, `stockDrawerBackdrop`) et affecte seulement `inert=false` ;
+- n’exécute pas les branches `overlay.hidden=true` ni `app.replaceChildren()`, réservées à l’état non authentifié ;
+- ne contient aucun appel à `api`, `apiAll`, `fetch`, `EventSource`, `render`, `articleCatalogPage` ou `loadArticleCatalog`.
+
+Le coût est donc O(1) : quatre `getElementById`, trois propriétés sur le shell et trois propriétés sur les overlays. L’appel s’exécute une fois par rendu de la route Articles, y compris recherche et pagination, mais reste indépendant des 71 articles métier, des 100 lignes DOM affichées et du cas de stress 10 071 articles. Les écritures `hidden`/`inert` peuvent invalider un style, sans lecture géométrique synchrone ni boucle susceptible de provoquer du layout thrashing.
+
+`server.js` et `scripts/benchmark-article-catalog.js` restent bit-identiques à l’empreinte du gate précédent. Les mesures serveur approuvées restent donc applicables : lecture p95 `39,33 ms` (`< 300 ms`) et écriture p95 `70,22 ms` (`< 250 ms`) sur 10 071 articles.
+
+### Preuves proportionnées
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| inspection statique du wrapper `#articles` et de `syncAuthenticatedSurfaces` | appel constant, aucune requête/loop data/rendu lourd supplémentaire |
+| `node --test tests/article-catalog.test.js` | **PASS, 5/5**, durée `524,24 ms` |
+| contrat de non-régression ciblé | présence de `syncAuthenticatedSurfaces(true)` sur le chemin direct Articles vérifiée |
+| `git diff --check -- app.js docs/performance-report.md` avant rapport | **PASS** |
+
+Empreintes : `server.js` `a9260004c8132404d0bc1dd58c8da89a1b915d8a21fc99b9ae7e9eb6199673e6`; benchmark `797762d839a0331e53029df049a3fac03c005e38e1810fa885b725a06d971cb9`; test Catalogue après correctif `b0438e085c278b890b4514f8a445c8d6985c89514dfe3c5f251853e8d966b4b7`.
+
+### Limites maintenues
+
+- **P2 hérité :** `apiAll` reste séquentiel à forte volumétrie et le calcul des codes SAGE partagés reste O(N²). Ce correctif ne touche ni ces fonctions ni leur coût.
+- **P3 hérité :** aucune trace navigateur de layout/paint ou temps interactif `< 2 s` n’est ajoutée. Le correctif est constant et ne change pas la nécessité du smoke E2E navigateur sur 71 articles.
+
+Gate PERFORMANCE différentiel du correctif E2E : **APPROVED sur l’empreinte `app.js` `4e827ab…`**. Fichier modifié : `docs/performance-report.md` uniquement ; mise à jour de `docs/project-status.md` laissée à l’intégrateur.

@@ -24,6 +24,7 @@ tags:
   - name: Actuals
   - name: Finance
   - name: Dashboards
+  - name: ArticleCatalog
 paths:
   /auth/login:
     post:
@@ -914,6 +915,8 @@ paths:
         - { name: salesOwnerId, in: query, schema: { type: string } }
         - { name: resourceId, in: query, schema: { type: string } }
         - { name: resourceCategoryId, in: query, schema: { type: string } }
+        - { name: sageArticleCode, in: query, schema: { type: string } }
+        - { name: articleAnalyticsCode, in: query, schema: { type: string } }
         - { name: dimension, in: query, schema: { type: string } }
         - { name: groupBy, in: query, schema: { type: string, enum: [day, week, month] } }
       responses:
@@ -932,7 +935,7 @@ paths:
     get:
       operationId: getAnalyticsDimensions
       tags: [Analytics]
-      description: Contrat des neuf dimensions et des étapes de la chaîne de revenus. Requiert finance.read.
+      description: Contrat des onze dimensions, dont les deux axes Article SAGE, et des étapes de la chaîne de revenus. Requiert finance.read.
       responses:
         '200':
           description: Dimensions, étapes disponibles et définition du CA reconnu
@@ -1233,6 +1236,61 @@ paths:
         '200': { description: Marges calculées uniquement sur le sous-ensemble autorisé, content: { application/json: { schema: { $ref: '#/components/schemas/MarginAnalytics' } } } }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /article-catalog:
+    get:
+      operationId: listArticleCatalog
+      tags: [ArticleCatalog]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { name: q, in: query, schema: { type: string, maxLength: 160 } }
+        - { name: family, in: query, schema: { type: string, maxLength: 120 } }
+        - { name: category1, in: query, schema: { type: string, maxLength: 120 } }
+        - { name: active, in: query, schema: { type: boolean } }
+      responses:
+        '200': { description: Catalogue articles visible, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/ArticleCatalogItem' } }, page: { type: integer }, pageSize: { type: integer }, total: { type: integer } } } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createArticleCatalogItem
+      tags: [ArticleCatalog]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ArticleCatalogCreateCommand' } } } }
+      responses:
+        '201': { description: Article créé, content: { application/json: { schema: { $ref: '#/components/schemas/ArticleCatalogItem' } } } }
+        '200': { description: Rejeu idempotent, content: { application/json: { schema: { $ref: '#/components/schemas/ArticleCatalogItem' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /article-catalog/{articleId}:
+    parameters: [{ name: articleId, in: path, required: true, schema: { type: string } }]
+    get:
+      operationId: getArticleCatalogItem
+      tags: [ArticleCatalog]
+      responses:
+        '200': { description: Article courant, content: { application/json: { schema: { $ref: '#/components/schemas/ArticleCatalogItem' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateArticleCatalogItem
+      tags: [ArticleCatalog]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ArticleCatalogUpdateCommand' } } } }
+      responses:
+        '200': { description: Nouvelle version de l'article, content: { application/json: { schema: { $ref: '#/components/schemas/ArticleCatalogItem' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /article-catalog/{articleId}/revisions:
+    get:
+      operationId: listArticleCatalogRevisions
+      tags: [ArticleCatalog]
+      parameters:
+        - { name: articleId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200': { description: Historique append-only, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/ArticleCatalogRevision' } } } } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 components:
   parameters:
     IdempotencyKey:
@@ -1244,6 +1302,91 @@ components:
     Page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
     PageSize: { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
   schemas:
+    ArticleSnapshot:
+      type: object
+      additionalProperties: false
+      required: [articleId, sageCode, normalizedCode, analyticsCode, designation, family, category1, category2, version, capturedAt]
+      properties:
+        articleId: { type: string }
+        sageCode: { type: string, maxLength: 40 }
+        normalizedCode: { type: string, pattern: '^[A-Z0-9][A-Z0-9._-]{1,63}$' }
+        analyticsCode: { type: string, pattern: '^[A-Z0-9][A-Z0-9._-]{1,63}$' }
+        designation: { type: string, maxLength: 240 }
+        family: { type: string, maxLength: 120 }
+        category1: { type: string, maxLength: 120 }
+        category2: { type: string, maxLength: 120 }
+        version: { type: integer, minimum: 1 }
+        capturedAt: { type: string, format: date-time }
+    ArticleQuoteLineSource:
+      type: object
+      additionalProperties: true
+      description: Champs figés dans une ligne de Budget/Devis créée depuis le catalogue articles ; le snapshot reste immuable après toute évolution du catalogue.
+      required: [sourceType, sourceId, articleSnapshot]
+      properties:
+        sourceType: { type: string, const: article }
+        sourceId: { type: string, description: Identifiant opaque de l'article source au moment de la création de la ligne. }
+        articleSnapshot: { $ref: '#/components/schemas/ArticleSnapshot' }
+    ArticleCatalogCreateCommand:
+      type: object
+      additionalProperties: false
+      required: [sageCode, normalizedCode, analyticsCode, family, category1, category2, designation]
+      properties:
+        sageCode: { type: string, minLength: 1, maxLength: 40 }
+        normalizedCode: { type: string, pattern: '^[A-Z0-9][A-Z0-9._-]{1,63}$' }
+        analyticsCode: { type: string, pattern: '^[A-Z0-9][A-Z0-9._-]{1,63}$' }
+        family: { type: string, minLength: 1, maxLength: 120 }
+        category1: { type: string, minLength: 1, maxLength: 120 }
+        category2: { type: string, minLength: 1, maxLength: 120 }
+        designation: { type: string, minLength: 1, maxLength: 240 }
+        sourceDesignation: { type: string, maxLength: 500 }
+        active: { type: boolean, default: true }
+        reason: { type: string, maxLength: 200 }
+    ArticleCatalogUpdateCommand:
+      type: object
+      additionalProperties: false
+      required: [version, reason]
+      properties:
+        version: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 3, maxLength: 200 }
+        sageCode: { type: string, minLength: 1, maxLength: 40 }
+        normalizedCode: { type: string, pattern: '^[A-Z0-9][A-Z0-9._-]{1,63}$' }
+        analyticsCode: { type: string, pattern: '^[A-Z0-9][A-Z0-9._-]{1,63}$' }
+        family: { type: string, minLength: 1, maxLength: 120 }
+        category1: { type: string, minLength: 1, maxLength: 120 }
+        category2: { type: string, minLength: 1, maxLength: 120 }
+        designation: { type: string, minLength: 1, maxLength: 240 }
+        sourceDesignation: { type: string, maxLength: 500 }
+        active: { type: boolean }
+    ArticleCatalogItem:
+      type: object
+      additionalProperties: false
+      required: [id, companyId, sageCode, normalizedCode, analyticsCode, family, category1, category2, designation, active, version, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        companyId: { type: string, readOnly: true }
+        sageCode: { type: string, minLength: 1, maxLength: 40 }
+        normalizedCode: { type: string, pattern: '^[A-Z0-9][A-Z0-9._-]{1,63}$' }
+        analyticsCode: { type: string, pattern: '^[A-Z0-9][A-Z0-9._-]{1,63}$' }
+        family: { type: string, minLength: 1, maxLength: 120 }
+        category1: { type: string, minLength: 1, maxLength: 120 }
+        category2: { type: string, minLength: 1, maxLength: 120 }
+        designation: { type: string, minLength: 1, maxLength: 240 }
+        sourceDesignation: { type: string, maxLength: 500 }
+        active: { type: boolean }
+        version: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ArticleCatalogRevision:
+      type: object
+      additionalProperties: true
+      required: [id, articleId, version, snapshot, createdAt]
+      properties:
+        id: { type: string }
+        articleId: { type: string }
+        version: { type: integer, minimum: 1 }
+        snapshot: { $ref: '#/components/schemas/ArticleCatalogItem' }
+        reason: { type: string }
+        createdAt: { type: string, format: date-time }
     ActualValueFields:
       type: object
       properties:
@@ -1620,7 +1763,7 @@ components:
       required: [rateCardId, sourceType, sourceId, unit, costUnitMinor, saleUnitMinor]
       properties:
         rateCardId: { type: string }
-        sourceType: { type: string, enum: [resource, serviceOffering, manual, freeLine] }
+        sourceType: { type: string, enum: [resource, serviceOffering, article, manual, freeLine] }
         sourceId: { type: string }
         projectId: { type: string, description: Définit un tarif projet prioritaire. }
         clientId: { type: string, description: Définit un tarif client prioritaire. }
@@ -1658,7 +1801,7 @@ components:
             id: { type: string }
             companyId: { type: string, readOnly: true }
             rateCardId: { type: string }
-            sourceType: { type: string, enum: [resource, serviceOffering, manual, freeLine] }
+            sourceType: { type: string, enum: [resource, serviceOffering, article, manual, freeLine] }
             sourceId: { type: string }
             projectId: { type: string }
             clientId: { type: string }
@@ -1703,7 +1846,7 @@ components:
         types: { type: array, uniqueItems: true, items: { type: string, enum: [client, project, quote, resource, person, serviceOffering] } }
     AnalyticsDimensionName:
       type: string
-      enum: [date, clientId, projectId, serviceOfferingId, resourceId, siteId, legalEntityId, salesOwnerId, userId]
+      enum: [date, clientId, projectId, serviceOfferingId, resourceId, sageArticleCode, articleAnalyticsCode, siteId, legalEntityId, salesOwnerId, userId]
     RevenueStageName:
       type: string
       enum: [budgeted, quoted, signed, planned, actual, billable, invoiced, collected]
@@ -1715,8 +1858,8 @@ components:
         definitionVersion: { type: string, const: revenue-chain-g7-v1 }
         dimensions:
           type: array
-          minItems: 9
-          maxItems: 9
+          minItems: 11
+          maxItems: 11
           items:
             type: object
             additionalProperties: false

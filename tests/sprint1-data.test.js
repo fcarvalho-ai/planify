@@ -330,10 +330,10 @@ test('S1-B résout l’unité avant la priorité et refuse le scope d’une gril
   assert.equal(mismatch.data.error.code, 'RATE_SCOPE_MISMATCH');
 });
 
-test('S1-D réconcilie budget, devis et CA signé sur neuf dimensions sans inventer les étapes futures', async () => {
+test('S1-D réconcilie budget, devis et CA signé sur onze dimensions sans inventer les étapes futures', async () => {
   const dimensions = await request('/api/v1/analytics/dimensions');
   assert.equal(dimensions.response.status, 200);
-  assert.deepEqual(dimensions.data.dimensions.map(value => value.name), ['date', 'clientId', 'projectId', 'serviceOfferingId', 'resourceId', 'siteId', 'legalEntityId', 'salesOwnerId', 'userId']);
+  assert.deepEqual(dimensions.data.dimensions.map(value => value.name), ['date', 'clientId', 'projectId', 'serviceOfferingId', 'resourceId', 'sageArticleCode', 'articleAnalyticsCode', 'siteId', 'legalEntityId', 'salesOwnerId', 'userId']);
   assert.equal(dimensions.data.recognizedRevenueStage, 'signed');
   const forbidden = await request('/api/v1/analytics/revenue-chain', {}, viewer);
   assert.equal(forbidden.response.status, 403);

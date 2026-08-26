@@ -11,9 +11,9 @@ npm start
 
 Puis ouvrir <http://localhost:8080>.
 
-## Release locale V1 — 0.5.0-rc6
+## Release locale V1 — 0.6.0-rc1
 
-La release locale `0.5.0-rc6` conserve les quatre vues Planning de RC5 — Jour, Semaine, Mois détaillé sur trois mois glissants et 3 mois compact — et corrige l'accrochage en fin de scroll vertical. La colonne Ressources retranche la hauteur native de la barre horizontale et recalcule cet alignement lors des changements responsive. Chaque Client peut désormais recevoir une couleur hexadécimale choisie par l'opérateur ; elle apparaît comme liseré sur ses réservations, tandis que le nom et le statut restent présents et accessibles. Le contrat API, la persistance, les permissions et le rejeu après redémarrage sont validés. Tous les gates techniques, l’intégration et la recette E2E sont approuvés sans P0/P1. Le détail des preuves, limites P2 et empreintes est conservé dans `docs/project-status.md` et les rapports indépendants `docs/code-review.md`, `docs/qa-report.md`, `docs/security-review.md`, `docs/performance-report.md`, `docs/integration-report.md` et `docs/e2e-report.md`.
+La release locale `0.6.0-rc1` ajoute le Catalogue articles SAGE au socle Planning de RC6. Northlight dispose de 71 articles nettoyés, administrables et isolés par société, avec code SAGE source, code analytique Planify unique, permissions dédiées, audit, contrôle de version et actualisation SSE. Les lignes et PDF de Devis conservent un snapshot immuable de la référence ; Finance et Analytics exposent les deux dimensions Article. Tous les gates techniques, l’intégration et la recette E2E sont approuvés sans P0/P1. Le détail des preuves, limites P2 et empreintes est conservé dans `docs/project-status.md` et les rapports indépendants `docs/code-review.md`, `docs/qa-report.md`, `docs/security-review.md`, `docs/performance-report.md`, `docs/integration-report.md` et `docs/e2e-report.md`.
 
 Le runtime RC1 reste local et autonome. Les contrats V1 sont introduits de façon additive dans `packages/` : erreurs/enveloppes, RBAC et scopes, idempotence, audit, événements, planning, pricing et consommation Devis/Planning. Les décisions structurantes sont dans `docs/adr/` et l'API candidate dans `docs/api/openapi-v1.yaml`.
 
@@ -27,7 +27,7 @@ npm run build
 node scripts/generate-performance-dataset.js --output /tmp/planify-performance.json
 ```
 
-État de référence de la release : `npm test` exécute 345 tests. Les fichiers `data/*.json`, `output/` et `tmp/` restent locaux et sont exclus de Git afin qu'aucune donnée de travail, export client ou artefact temporaire n'entre dans la release.
+État de référence de la release : `npm test` exécute 360 tests. Les fichiers `data/*.json`, `output/` et `tmp/` restent locaux et sont exclus de Git afin qu'aucune donnée de travail, export client ou artefact temporaire n'entre dans la release.
 
 Le générateur produit un jeu déterministe de 250 ressources et 10 000 réservations sur six mois. Il n'écrit jamais dans les données métier sans chemin `--output` explicite.
 
@@ -37,6 +37,26 @@ Compte administrateur de démonstration :
 - mot de passe : `demo2026`
 
 L'application ne requiert aucune dépendance npm externe. Le serveur fournit l’API et le frontend, et conserve les données localement dans `data/planify.json`. Si les fichiers statiques sont servis sans API, l’interface bascule explicitement en mode prototype avec stockage navigateur.
+
+## Catalogue articles SAGE — intégré à 0.6.0-rc1
+
+Le menu **Articles SAGE** administre le référentiel commercial local de Northlight Post. Le catalogue initial contient 71 prestations : chaque ligne conserve son code SAGE et reçoit un code analytique Planify unique. Une ligne de devis créée depuis ce catalogue capture un snapshot immuable de la référence et de la désignation ; une modification ultérieure du catalogue ne réécrit donc ni le devis ni son PDF historique.
+
+Les analyses commerciales et financières peuvent filtrer et regrouper les lignes avec `sageArticleCode` ou `articleAnalyticsCode`. Cette fondation prépare un futur module de facturation, mais ce candidat ne communique pas encore avec SAGE et ne crée aucune facture.
+
+Le benchmark isolé du catalogue se lance avec `npm run benchmark:article-catalog`. Il génère 10 000 articles temporaires, mesure 50 recherches et 20 écritures versionnées, puis supprime son jeu de données.
+
+La migration est additive et sauvegarde l’état précédent. Pour restaurer cette sauvegarde, arrêter le serveur, choisir un nouveau fichier privé pour l’export de récupération, puis exécuter :
+
+```bash
+PLANIFY_DATA_FILE=/chemin/vers/planify.json \
+PLANIFY_ARTICLE_CATALOG_RECOVERY_FILE=/chemin/vers/recovery-article-catalog.json \
+npm run rollback:article-catalog
+```
+
+Le rollback vérifie la sauvegarde et exporte d’abord l’état courant. Il retire les écritures réalisées depuis la migration ; il faut ensuite remettre en service une version applicative antérieure à ce lot pour éviter sa réapplication au démarrage.
+
+Pour revenir de `0.6.0-rc1` à `0.5.0-rc6`, utiliser cette procédure de rollback Catalogue avant le retour applicatif. L’export de récupération doit être conservé séparément : il contient les créations et modifications Article intervenues depuis la migration. Remettre ensuite en service le tag `v0.5.0-rc6` depuis un clone ou worktree dédié, redémarrer sur le fichier restauré et vérifier connexion, Devis, Finance, Analytics et Planning. Ne pas redémarrer `0.6.0-rc1` sur l’état restauré, car sa migration Catalogue serait réappliquée.
 
 ## Parc matériel et salles
 

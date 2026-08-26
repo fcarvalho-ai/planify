@@ -5,6 +5,7 @@ node_modules/
 coverage/
 dist/
 output/
+outputs/
 tmp/
 data/*.json
 !data/.gitkeep

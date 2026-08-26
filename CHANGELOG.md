@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0-rc1 — 2026-08-26
+
+- référentiel local Northlight de 71 articles nettoyés, avec code SAGE conservé et code analytique Planify unique ;
+- administration des articles dans Planify avec recherche, création, modification, désactivation logique, permissions dédiées, audit et contrôle de version ;
+- snapshot immuable de l’article sur chaque ligne de devis, référence SAGE affichée à gauche de la désignation dans l’éditeur et le PDF ;
+- dimensions `sageArticleCode` et `articleAnalyticsCode` disponibles dans les analyses commerciales et financières ;
+- migration additive, sauvegarde privée et rollback explicite, sans connexion réseau ni synchronisation SAGE ;
+- correction E2E de l’ouverture directe de `#articles` après reconnexion : le shell authentifié est désormais synchronisé avant le rendu du catalogue ;
+- REVIEW, QA, SECURITY, PERFORMANCE, INTEGRATION et E2E approuvés sans P0/P1 sur le candidat final ; test Catalogue 5/5, suite complète 360/360, lint/build/OpenAPI/diff-check PASS ; benchmark 10 071 articles à 39,33 ms p95 en lecture et 70,22 ms p95 en écriture.
+
 ## 0.5.0-rc6 — 2026-08-25
 
 - correction de l'alignement vertical du Planning : la colonne Ressources retranche désormais la hauteur réelle de la barre horizontale et atteint exactement la même dernière ligne que la grille ;

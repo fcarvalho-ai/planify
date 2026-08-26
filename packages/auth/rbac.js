@@ -14,12 +14,12 @@ const ROLES = Object.freeze([
 
 const ROLE_PERMISSIONS = Object.freeze({
   ADMIN: ['*'],
-  PLANNING_MANAGER: ['planning.read', 'planning.write', 'planning.validate', 'planning.override_conflict', 'project.read', 'resource.read', 'quote.read', 'actual.read', 'actual.confirm'],
-  PLANNER: ['planning.read', 'planning.write', 'project.read', 'resource.read', 'quote.read', 'actual.read', 'actual.confirm'],
-  SALES: ['client.read', 'client.manage', 'project.read', 'project.manage', 'quote.read', 'quote.manage'],
-  PROJECT_MANAGER: ['client.read', 'project.read', 'project.manage', 'planning.read', 'quote.read'],
-  FINANCE: ['client.read', 'project.read', 'quote.read', 'actual.read', 'finance.read', 'audit.read'],
-  READ_ONLY: ['client.read', 'project.read', 'planning.read', 'resource.read', 'quote.read'],
+  PLANNING_MANAGER: ['planning.read', 'planning.write', 'planning.validate', 'planning.override_conflict', 'project.read', 'resource.read', 'quote.read', 'article.read', 'actual.read', 'actual.confirm'],
+  PLANNER: ['planning.read', 'planning.write', 'project.read', 'resource.read', 'quote.read', 'article.read', 'actual.read', 'actual.confirm'],
+  SALES: ['client.read', 'client.manage', 'project.read', 'project.manage', 'quote.read', 'quote.manage', 'article.read'],
+  PROJECT_MANAGER: ['client.read', 'project.read', 'project.manage', 'planning.read', 'quote.read', 'article.read'],
+  FINANCE: ['client.read', 'project.read', 'quote.read', 'article.read', 'actual.read', 'finance.read', 'audit.read'],
+  READ_ONLY: ['client.read', 'project.read', 'planning.read', 'resource.read', 'quote.read', 'article.read'],
 });
 
 function permissionsForRoles(roleCodes) {

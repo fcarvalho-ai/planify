@@ -1995,3 +1995,217 @@ tests/foundations.test.js           0a09c42af8028fa4676ec9f984c8aa01cb1a4854494b
 - Gate SECURITY G8 overlays : **APPROVED** sur `08595fc`, 0 P0/0 P1/1 P2 (`SEC-G8-05`)/0 P3.
 - `SEC-G8-04` est fermé ; aucune reprise DEV bloquante demandée sur cet axe.
 - Fichier modifié par cet axe : `docs/security-review.md` uniquement ; `docs/project-status.md` reste à consolider par l'intégrateur.
+## Pré-SECURITY — Catalogue articles SAGE — 2026-08-26
+
+Statut : **0 P0/P1 connu — verdict SECURITY indépendant requis**.
+
+Contrôles effectués : permission serveur `article.read`/`article.manage`, CSRF et origine via garde globale, `companyId` issu de session, identifiant autre société retourné 404, payload tenant refusé, champs bornés, booléen strict, code analytique unique par société, données UI échappées, référentiel non servi par la liste statique, idempotence liée acteur/société/commande, contrôle optimiste, audit puis SSE après succès.
+
+Migration/rollback : sauvegarde privée `0600`, nom borné au répertoire des données, digest complet dans le marqueur, altération détectée avant restauration, export de récupération distinct obligatoire et créé en `0600`. Aucun secret, réseau, SaaS ou nouvelle dépendance.
+
+Preuves négatives dans `tests/article-catalog.test.js` : non-administrateur 403, type `active` forgé 422, tenant forgé 400, autre société 404/liste vide, version obsolète 409, sauvegarde altérée `MIGRATION_BACKUP_CONFLICT`, rollback sans export `ROLLBACK_EXPORT_REQUIRED`.
+
+Limite P2 : l’interface doit encore être exercée dans un vrai navigateur avec des désignations contenant des caractères HTML afin de confirmer visuellement l’échappement et le focus du tiroir.
+
+---
+
+# Gate SECURITY indépendant — Catalogue articles SAGE
+
+Date : 2026-08-26
+
+Reviewer : agent indépendant `article_security`
+
+Candidat : arbre de travail basé sur `231abf5aaf8641dad1229bb98db3a451c05bf694` ; empreintes du périmètre testé consignées ci-dessous.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1, 1 P2 de validation E2E, 0 vulnérabilité critique ou élevée identifiée.**
+
+Le lot conserve l’autorité serveur et l’isolation par société. Les mutations du catalogue passent par l’authentification, la permission `article.manage`, la garde globale Origin/CSRF, la validation fermée des champs, l’écriture atomique, l’audit puis l’invalidation SSE après succès. Les lecteurs dotés de `article.read` ne peuvent pas muter.
+
+## Threat-check
+
+- **Auth/session/CSRF/origine :** les routes `/api/v1/article-catalog*` passent par `requireAuth`; toute méthode non sûre passe par `mutationGuard`. Les cookies restent `HttpOnly`, `SameSite=Lax` et `Secure` en production. La politique Origin locale reste fail-closed pour un client navigateur.
+- **RBAC et tenant :** `article.read` et `article.manage` sont distincts. Le `companyId` effectif vient exclusivement de la session ; `assertNoTenantFields` refuse un tenant injecté dans le corps. Les listes, lectures, révisions, mutations, devis et SSE filtrent la société ; un identifiant d’un autre tenant retourne `404`.
+- **Validation et abus :** liste blanche de champs ; chaînes bornées de 40 à 500 caractères ; formats des codes validés ; booléen `active` strict ; code analytique unique par société ; corps HTTP borné par la limite globale ; pagination bornée. Le code SAGE peut volontairement être dupliqué conformément à la spécification.
+- **Concurrence/idempotence :** création idempotente liée à la société, l’acteur, la commande, la clé et le digest du contenu. Une réutilisation divergente est refusée. Les mises à jour exigent la version courante et un motif.
+- **XSS et documents :** toutes les données catalogue insérées dans la vue utilisent `esc`/`inputValue`. Le PDF normalise en ASCII et échappe `\\`, `(` et `)`, ce qui empêche l’injection dans le flux PDF. Le snapshot d’article est construit côté serveur ; le client ne peut pas forger les codes historiques.
+- **Audit et SSE :** création et modification sont auditées dans la même mutation atomique. L’événement `articleCatalog.updated.v1` n’est émis qu’après succès ; sa permission est `article.read` et son scope exige la société active.
+- **Analytique :** les codes proviennent du snapshot immuable de la ligne de devis. Les datasets conservent leurs permissions `quote.read`/`finance.read` et leur scope existant ; les nouveaux filtres sont bornés et appliqués après construction du read-model scoped.
+- **Statiques/secrets/réseau :** le JSON référentiel, les données, scripts, tests et sources ne figurent pas dans la liste blanche statique. Aucun connecteur SAGE, SaaS, télémétrie, dépendance ou accès réseau d’exécution n’est ajouté. Les identifiants de démo des tests ne sont pas des secrets réels.
+- **Migration/sauvegarde/rollback :** migration additive et rejouable ; sauvegarde placée dans le répertoire des données avec mode `0600`, chemin de restauration réduit par `basename`, digest vérifié avant restauration. Le rollback exige un export de récupération distinct, créé avec `wx`/`0600` et vérifié avant l’écriture atomique de la sauvegarde.
+
+## Constat non bloquant
+
+### P2 — SEC-ART-01 — validation navigateur dynamique à rejouer en E2E
+
+L’échappement HTML est explicite dans les chemins de rendu et les contrats statiques passent, mais le gate SECURITY n’a pas injecté une désignation hostile dans un navigateur réel ni exercé le focus du tiroir et l’actualisation SSE entre deux sessions. Ce manque de preuve E2E n’indique pas une faille constatée ; il doit rester dans le parcours E2E avant release.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --test tests/article-catalog.test.js` | **PASS, 5/5**, 0 échec |
+| `node --test tests/sprint8-security.test.js` | **PASS, 4/4**, 0 échec |
+| `node --test --test-name-pattern='login émet\|mutation sans CSRF\|fichiers serveur' tests/api.test.js` | **PASS, 3/3**, cookie/CSRF et refus des fichiers sensibles couverts |
+| `npm run lint` | **PASS** |
+| `git diff --check` avant rapport | **PASS** |
+| inspection ciblée | RBAC, tenant, Origin/CSRF, validation, XSS/PDF, idempotence, audit/SSE, statiques, analytics, migration et rollback relus |
+
+Empreintes SHA-256 du candidat contrôlé :
+
+```text
+server.js                              e80a84366429127c2cd4ec8190159ff238aaa3896b5ce780d4986ccbac6f58fd
+app.js                                 ea6f0fbc933690cb771802d31ddb274445321c4784d88a4c258f87c2ede1f705
+packages/auth/rbac.js                  397ea28934c89233ed6901acd2ea06ed2a90df82ad92d968b968506b0b088f57
+scripts/rollback-article-catalog.js    b12700a14844c98f8ff738eb0f0f7440f57d8c6a26750c22369ff48c60ab78fd
+tests/article-catalog.test.js          748bdb364a2b7ae5bd1e642ddf3f52c70b74667cbca6e491e6e1d96aa60ceb2b
+referentials/article-catalog-sage-v1.json 6f460ddfb2527900b5db48853b706094ecca93bf0f8e03f9028aabc18a3ef5f6
+docs/api/openapi-v1.yaml               180cea31cb6d28dc62e656e567e7e24ddd4db03d0a839eb351d23d646c89af48
+```
+
+## Handoff
+
+- Gate SECURITY Catalogue articles SAGE : **APPROVED**.
+- Aucun retour DEV bloquant sur cet axe ; `SEC-ART-01` est à couvrir au gate E2E.
+- Fichier modifié par le reviewer : `docs/security-review.md` uniquement.
+- `docs/project-status.md` reste à consolider par l’intégrateur conformément à l’ownership confié.
+
+## Rectificatif SECURITY après constat REVIEW croisé
+
+Le verdict `APPROVED` ci-dessus est **annulé et remplacé** par :
+
+**REJECTED — 0 P0, 1 P1 ouvert, 1 P2 ouvert.**
+
+### P1 — SEC-ART-02 — le wrapper article contourne le masquage financier du devis
+
+Le constat REVIEW a été reproduit dans la composition des wrappers de `app.js` :
+
+1. le wrapper historique `quoteWorkspacePage` retire `<details class="quote-editor-internals">...</details>` lorsque l’acteur ne possède pas `finance.read` ;
+2. le lot article encapsule ensuite directement `quoteA4Workspace`, puis exécute `quoteWorkspacePage=quoteA4Workspace` ;
+3. cette réaffectation terminale contourne le wrapper de confidentialité et les wrappers d’édition déjà composés.
+
+La défense serveur `restrictedFinancialDto` retire bien les clés financières des réponses destinées aux acteurs sans `finance.read`, ce qui limite l’exposition API. Elle ne rend toutefois pas acceptable la régression UI : la surface « Outils internes / Coûts / marge » redevient visible sans la permission requise et peut consommer un objet déjà présent en mémoire dans certains enchaînements de contexte. Le contrat de confidentialité n’est plus garanti par la composition frontend.
+
+Correction attendue : ajouter la référence SAGE autour du `quoteWorkspacePage` terminal déjà composé, sans réassigner celui-ci à une implémentation de base ; ajouter un test pour un rôle `quote.read` sans `finance.read` vérifiant l’absence des outils internes/coûts/marges et la présence de la référence article.
+
+Conséquence gate : retour **DEV**, puis REVIEW, QA et SECURITY/PERFORMANCE aval impactés sur le candidat corrigé. `SEC-ART-01` reste non bloquant mais ne peut pas compenser ce P1.
+
+---
+
+# Re-gate SECURITY indépendant — Correctifs Catalogue articles SAGE
+
+Date : 2026-08-26
+
+Reviewer : agent indépendant `article_security`
+
+Candidat : arbre de travail courant ; empreintes du périmètre contrôlé consignées ci-dessous. Le dernier changement reçu avant verdict borne le rendu local du catalogue à 100 lignes par page et ne modifie ni l'autorité API ni les données retournées.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1, 2 P2 ouverts ; aucune vulnérabilité critique ou élevée identifiée.**
+
+`SEC-ART-02` est fermé sur ce candidat. Un helper idempotent ajoute la référence SAGE à `quoteA4Workspace` et enveloppe explicitement le `quoteWorkspacePage` terminal déjà composé. Sa base est donc le wrapper de confidentialité Finance, qui continue de retirer les outils internes pour un acteur sans `finance.read`; aucune réaffectation à l'implémentation A4 de base ne le contourne. La défense en profondeur serveur reste active : `restrictedFinancialDto` supprime récursivement les clés de coût et de marge des listes, détails et versions de devis avant émission. Le test ciblé confirme à la fois le masquage des DTO et le refus des mutations financières sans permission.
+
+## Revalidation ciblée
+
+- **Auth/session/CSRF/origine et RBAC :** les routes catalogue restent derrière `requireAuth`; les mutations passent par `mutationGuard` et exigent `article.manage`. Les lecteurs `article.read` ne peuvent pas muter. Les cookies de session, le jeton CSRF et le refus des mutations sans CSRF ont été rejoués.
+- **Isolation société et changement de contexte :** le serveur tire `companyId` de la session, refuse les champs tenant forgés et répond `404` pour l'identifiant d'une autre société. Côté client, chaque chargement capture la société et un `requestToken`; une réponse ou erreur tardive est ignorée si la société ou le jeton a changé. `resetArticleCatalogContext()` invalide les requêtes, vide le cache et annule le timer SSE lors du changement de société, de la fin de session et du logout.
+- **SSE et courses asynchrones :** l'invalidation catalogue est filtrée par type, permission et société côté serveur puis à nouveau par `payload.companyId` côté client. Elle intervient après écriture atomique et audit. Le debounce est annulé au reset. Une saisie sale du même tenant n'est pas écrasée silencieusement ; l'utilisateur est averti. Les réponses API tardives ne peuvent pas repeupler le catalogue d'un ancien contexte.
+- **Validation, XSS et pagination :** champs en liste blanche, formats et longueurs bornés, booléen strict, unicité analytique par société, version optimiste et motif contrôlé. Les valeurs catalogue passent par `esc`/`inputValue`; le PDF échappe ses métacaractères. La pagination ajoutée borne le DOM à 100 lignes mais conserve l'échappement de chaque cellule et n'élargit aucun droit.
+- **Idempotence, audit et analytique :** la création reste liée à la société, l'acteur, la commande, la clé et le digest. Les snapshots article des lignes sont construits côté serveur, immuables dans les versions, et alimentent l'analytique sans accepter de code historique forgé du client. Les datasets financiers conservent `finance.read`.
+- **Statiques, secrets et réseau :** la liste blanche statique continue de refuser sources serveur, données et variables d'environnement. Aucun secret, connecteur distant, SaaS, télémétrie, accès réseau d'exécution ou dépendance n'est ajouté.
+- **Migration/sauvegarde/rollback :** migration additive et rejouable, sauvegarde privée `0600`, digest vérifié, chemin réduit au répertoire de données et export de récupération distinct obligatoire avant restauration. Les tests couvrent l'altération de sauvegarde et le conflit de version.
+
+## Constats non bloquants
+
+### P2 — SEC-ART-01 — preuve navigateur hostile/focus toujours à produire
+
+Le rendu utilise les fonctions d'échappement attendues et les contrats statiques passent, mais ce re-gate n'a pas injecté une désignation hostile dans un navigateur réel ni vérifié au clavier le focus du tiroir. Cette limite de preuve reste à fermer au gate E2E.
+
+### P2 — SEC-ART-03 — tiroir article ancien tenant non purgé au changement de société
+
+`resetArticleCatalogContext()` invalide correctement le cache, les requêtes et le timer SSE, mais ne ferme pas `stockDrawerBackdrop` et n'efface pas `activeStockEditor`/le formulaire article. Si l'utilisateur change de société avec ce tiroir ouvert, les valeurs de l'article de l'ancien contexte peuvent rester visibles localement au-dessus du nouveau contexte. La soumission ne permet pas d'écriture inter-tenant : elle utilise la nouvelle session et l'ancien identifiant est refusé `404`; le serveur reste l'autorité. Il s'agit néanmoins d'une confusion de contexte et d'une rémanence UI à corriger en fermant et purgeant explicitement le tiroir article lors du reset. Ajouter aussi ce tiroir au contrôle de modifications non enregistrées avant changement d'organisation.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --test tests/article-catalog.test.js` | **PASS, 5/5**, 0 échec, durée `548,01 ms` sur l'état final gelé |
+| `node --test --test-name-pattern='les DTO commerciaux masquent' tests/sprint7-finance.test.js` | **PASS, 1/1**, 0 échec ; DTO sans coûts/marges et mutations financières refusées |
+| `node --test --test-name-pattern='login émet\|mutation sans CSRF\|fichiers serveur' tests/api.test.js` | **PASS, 3/3**, 0 échec |
+| `node --test tests/sprint8-security.test.js` | **PASS, 4/4**, 0 échec, durée `2 096,15 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` avant rapport | **PASS** |
+| inspection ciblée | composition des wrappers Finance/article, reset tenant, jetons async, SSE, auth/RBAC/CSRF, isolation, XSS, rollback et analytics relus |
+
+Empreintes SHA-256 du candidat contrôlé :
+
+```text
+app.js                                 6d13b444eb0b16082df366b1900773e9fa33d735577be2fb8d6510f9e0943860
+server.js                              a9260004c8132404d0bc1dd58c8da89a1b915d8a21fc99b9ae7e9eb6199673e6
+tests/article-catalog.test.js          428dabf11a95bb328268c837c26c150d9d9a3b220ad05103601dc262a13ff2ad
+docs/api/openapi-v1.yaml               e79c0d5a946e7eda56ef868dce08f0d2ddba9ea6b7a842679ea4d5a5f2fbc37f
+```
+
+## Handoff
+
+- Gate SECURITY corrigé Catalogue articles SAGE : **APPROVED** ; `SEC-ART-02` fermé.
+- Aucun retour DEV bloquant sur cet axe. `SEC-ART-03` et la preuve E2E `SEC-ART-01` restent visibles comme P2.
+- Fichier modifié par le reviewer : `docs/security-review.md` uniquement.
+- `docs/project-status.md` reste à consolider par l'intégrateur conformément à l'ownership confié.
+
+---
+
+# Re-SECURITY différentiel — route directe `#articles`
+
+Date : 2026-08-26
+
+Reviewer : agent indépendant `article_security`
+
+## Verdict différentiel
+
+**APPROVED — 0 P0, 0 P1 ; les deux P2 `SEC-ART-01` et `SEC-ART-03` du re-gate précédent restent ouverts et inchangés.**
+
+Le correctif appelle `syncAuthenticatedSurfaces(true)` au début du rendu authentifié propre à `#articles`, avant de masquer l'écran de connexion et avant d'injecter le contenu du catalogue. Il restaure ainsi le shell privé, `aria-hidden=false` et `inert=false` sur une ouverture directe après connexion, sans contourner les contrôles d'authentification, de permission ou de tenant.
+
+## Analyse des transitions
+
+- **Chargement initial sans session :** `index.html` livre `#appShell` avec `hidden` et `aria-hidden=true`. Le wrapper Articles délègue au rendu de base lorsque `state.user` est absent; `syncAuthenticatedSurfaces(false)` maintient le shell caché et inerte, ferme les overlays privés, purge `#app`, puis affiche la connexion. Aucune donnée privée n'est chargée ni rendue.
+- **Connexion sur `#articles` :** le shell reste caché pendant l'authentification et `hydrateFromApi()`. Une fois la session et son contexte société établis, le rendu Articles active synchroniquement le shell puis masque la connexion dans la même tâche JavaScript. Le contenu n'est injecté qu'après ces mutations et uniquement si `article.read` est présent; sinon une page « Accès refusé » remplace le contenu.
+- **Logout et `401` :** les deux chemins invalident le contexte catalogue, ferment le flux d'événements, retirent l'utilisateur puis rappellent `render()`. Le wrapper Articles délègue alors au rendu non authentifié, qui cache/inert le shell, ferme les overlays et purge le contenu métier avant d'afficher la connexion. Sur `401`, `endSession()` est appelé synchroniquement avant la propagation de l'erreur API; aucune réponse tardive ne peut repeupler le catalogue grâce au `requestToken` et au contrôle de société.
+- **Tenant :** le correctif ne modifie pas le contexte ni le chargement. Le catalogue reste chargé pour le `companyId` de session, avec cache vidé au changement de société et réponses tardives rejetées si le tenant ou le jeton change. `SEC-ART-03` reste néanmoins applicable au tiroir déjà ouvert, que ce patch ne purge pas.
+- **Surfaces privées et absence d'exposition transitoire :** le shell est masqué par défaut dans le HTML et le rendu hors session est fail-closed. Lors de l'authentification, l'activation du shell et le masquage du login sont des mutations synchrones sans point d'attente ni frame intermédiaire. Les overlays ne sont pas ouverts par `syncAuthenticatedSurfaces(true)` : ils deviennent seulement non inertes et conservent leur attribut `hidden` jusqu'à une action autorisée.
+- **Impact performance :** non impacté de manière mesurable. Le patch ajoute un appel DOM O(1) portant sur le shell et trois overlays, sans requête, parcours du catalogue, changement de pagination, sérialisation ni mutation serveur. Le benchmark 10k n'a donc pas été rejoué pour ce différentiel; les limites P2/P3 du rapport Performance restent inchangées.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| `node --test tests/article-catalog.test.js` | **PASS, 5/5**, 0 échec, durée `533,84 ms` |
+| `node --test tests/foundations.test.js` | **PASS, 17/17**, 0 échec, durée `332,66 ms` |
+| `node --test --test-name-pattern='login émet\|mutation sans CSRF\|fichiers serveur' tests/api.test.js` | **PASS, 3/3**, 0 échec, durée `444,92 ms` |
+| `npm run lint` | **PASS** |
+| `git diff --check` avant rapport | **PASS** |
+| inspection d'ordre | shell initial fermé; branche sans session déléguée; branche authentifiée synchronisée avant contenu; logout/401 fail-closed; tenant/token inchangés |
+
+Empreintes SHA-256 du candidat différentiel :
+
+```text
+app.js                                 4e827ab58f77d412fe62740956a12cfe032b448c911cd52593e103192657d8c5
+index.html                             d2d7615a191578b7398db6cab75e9d77dd7cfd4a31494bb74c848e833bb874c5
+tests/article-catalog.test.js          b0438e085c278b890b4514f8a445c8d6985c89514dfe3c5f251853e8d966b4b7
+tests/foundations.test.js              81af03baa607a81fc66e210c3cda032f240b7e37abbe47c08606a3816db96abf
+```
+
+## Handoff
+
+- Re-SECURITY route directe `#articles` : **APPROVED**, aucun nouveau P0/P1/P2.
+- Le verdict du re-gate Catalogue reste **APPROVED — 0 P0, 0 P1, 2 P2**.
+- Fichier modifié : `docs/security-review.md` uniquement; aucun code ni statut projet modifié.

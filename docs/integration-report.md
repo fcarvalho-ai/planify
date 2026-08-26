@@ -1,3 +1,21 @@
+# Rapport d’intégration — Catalogue articles SAGE
+
+Date : 2026-08-26
+Environnement : macOS arm64, Node.js v26.6.0, navigateur intégré
+Candidat : `app.js 4e827ab58f77d412…`, `server.js a9260004c8132404…`, OpenAPI `e79c0d5a946e7eda…`, tests Catalogue `b0438e085c278b89…`
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+Le frontend, l’API, le SSE et la persistance JSON ont été rejoués sur une instance isolée (`PORT=8231`, `/private/tmp/planify-article-integration-e2e.json`). La connexion administrateur charge 71 articles Northlight et une recherche exacte restitue la référence longue `66-iIMPORT A`. La création UI de `E2E-ARTICLE` porte le total à 72 et l’invalidation SSE actualise le catalogue. Le changement de contexte vers Eliote Props Prod affiche zéro article, puis le retour Northlight restitue 72 articles sans mélange inter-sociétés. Le lecteur consulte le catalogue sans commande Nouveau/Modifier.
+
+Le premier redémarrage a révélé un P1 de composition : une reconnexion directe sur `#articles` rendait le contenu mais laissait `#appShell` masqué. Le routeur Article appelle désormais `syncAuthenticatedSurfaces(true)` avant son rendu spécialisé. Après correction, reconnexion directe et redémarrage affichent le shell (`hidden=false`) et retrouvent `E2E-ARTICLE` avec 72 actifs.
+
+Preuves fraîches : Catalogue 5/5, suite complète 360/360, syntaxe/lint/build/diff-check PASS. Le devis reste correctement bloqué sur la fixture navigateur tant que son profil fiscal n’est pas complété ; le snapshot Article, la référence UI/PDF et les droits Finance sont couverts par les tests HTTP et les gates indépendants. Aucun accès réseau externe ni donnée de développement n’a été utilisé.
+
+---
+
 # Rapport d’intégration post-RC5 — Scroll vertical et couleur Client
 
 Date : 2026-08-25

@@ -17,9 +17,9 @@ function authFor(db, permissions, overrides = {}) {
 test('S8-C produit des pages BI stables à partir des moteurs canoniques', () => {
   const db = makeSeed(), finance = authFor(db, ['finance.read', 'quote.read', 'project.read', 'client.read', 'planning.read', 'resource.read', 'actual.read']);
   const signed = analyticsDatasetReadModel(db, finance, 'signed-revenue', { page: '1', pageSize: '2' });
-  assert.equal(signed.dataset, 'signed-revenue'); assert.equal(signed.definitionVersion, 'BI_SIGNED_REVENUE@1'); assert.equal(signed.page, 1); assert.equal(signed.pageSize, 2); assert.equal(signed.items.length <= 2, true); assert.equal(signed.total >= signed.items.length, true); assert.ok(signed.fields.includes('quoteVersionId'));
+  assert.equal(signed.dataset, 'signed-revenue'); assert.equal(signed.definitionVersion, 'BI_SIGNED_REVENUE@2'); assert.equal(signed.page, 1); assert.equal(signed.pageSize, 2); assert.equal(signed.items.length <= 2, true); assert.equal(signed.total >= signed.items.length, true); assert.ok(signed.fields.includes('quoteVersionId')); assert.ok(signed.fields.includes('articleAnalyticsCode'));
   const backlog = analyticsDatasetReadModel(db, finance, 'backlog', { asOf: '2026-08-23', page: '1', pageSize: '10' });
-  assert.equal(backlog.definitionVersion, 'FINANCE_BACKLOG@1'); assert.equal(backlog.total >= backlog.items.length, true); assert.equal(backlog.items.every(value => typeof value.backlogMinor === 'string'), true);
+  assert.equal(backlog.definitionVersion, 'FINANCE_BACKLOG@2'); assert.equal(backlog.total >= backlog.items.length, true); assert.equal(backlog.items.every(value => typeof value.backlogMinor === 'string'), true);
 });
 
 test('S8-C applique les scopes avant les lignes et masque les coûts sans finance.read', () => {

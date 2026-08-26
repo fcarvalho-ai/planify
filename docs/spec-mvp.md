@@ -28,6 +28,7 @@ Le MVP est livré comme une application locale de démonstration complète. Le G
 - dashboard d'occupation ;
 - rafraîchissement entre onglets/utilisateurs locaux ;
 - permissions, isolation société/site et audit des mutations sensibles.
+- catalogue articles SAGE local et versionné : références dans les devis, snapshots historiques et dimensions analytiques stables ; la connexion effective au module de facturation SAGE reste hors périmètre.
 
 ### Hors périmètre
 

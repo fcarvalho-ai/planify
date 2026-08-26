@@ -1,3 +1,29 @@
+# Rapport E2E — Catalogue articles SAGE
+
+Date : 2026-08-26
+Environnement : macOS arm64, Node.js v26.6.0, navigateur intégré
+Candidat : `app.js 4e827ab58f77d412…`, `server.js a9260004c8132404…`, tests Catalogue `b0438e085c278b89…`
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+| Scénario | Résultat observé |
+|---|---|
+| Connexion administrateur | Authentification locale réussie sur la base isolée ; catalogue Northlight 71/71. |
+| Recherche et focus | `66-iIMPORT A` retourne une ligne exacte et le focus reste dans la recherche après rendu. |
+| Création et SSE | Création de `E2E-ARTICLE`, total 72, toast de rafraîchissement temps réel et ligne immédiatement retrouvée. |
+| Isolation société | Eliote Props Prod affiche 0 article ; retour Northlight affiche 72, sans donnée transitoire de l’autre société. |
+| Lecteur | Catalogue visible, aucun bouton « Nouvel article » ou « Modifier ». |
+| Redémarrage/persistance | Après arrêt complet, redémarrage sur le même fichier et reconnexion, `E2E-ARTICLE` et les 72 actifs sont conservés. |
+| Route directe après reconnexion | Le premier essai a trouvé le shell masqué ; après correctif, `#articles` réactive `#appShell`, affiche le catalogue et conserve les données. |
+
+Le parcours de création Devis s’arrête volontairement sur le garde-fou fiscal de la fixture (« compléter le profil fiscal »). La ligne de devis Article, son snapshot immuable, la référence longue dans le PDF et le masquage Finance sont couverts dynamiquement par les tests HTTP 360/360 ; aucune donnée réelle n’a été touchée.
+
+Limites P2 non bloquantes : reprise guidée après conflit 409 et focus des boutons de pagination à perfectionner. Ces points n’empêchent ni la consultation, ni l’isolation, ni les mutations autorisées.
+
+---
+
 # Rapport E2E post-RC5 — Scroll vertical et repérage Client
 
 Date : 2026-08-25

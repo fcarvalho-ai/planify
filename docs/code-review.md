@@ -7219,3 +7219,232 @@ tests/sprint8-dashboards.test.js        d9a0b681dcc21b53807c4559301bd9a676227814
 Seul `docs/code-review.md` est modifié par cette REVIEW. Le candidat RC5 `b715f4ba1453ed9a73db3fd2f32e996957a700d2` est **REJECTED** avec 0 P0 et 1 P1. Retour DEV ciblé requis sur la définition/réconciliation de `occupancyGap`, ajout du cas de non-régression, puis re-REVIEW et gates aval impactés sur un nouveau hash exact.
 
 ---
+## Pré-REVIEW — Catalogue articles SAGE — 2026-08-26
+
+Statut : **PRÊT POUR REVIEW INDÉPENDANTE — aucun P0/P1 connu**. Ce contrôle est réalisé dans le lot auteur et ne constitue donc pas le verdict indépendant exigé par `AGENTS.md`.
+
+Périmètre inspecté : migration et rollback, API/RBAC/SSE, snapshots Devis et PDF, dimensions analytiques, interface, OpenAPI, référentiel, tests et documentation.
+
+Constats fermés pendant la pré-revue :
+
+- `REV-ARTICLE-01` — P1 fermé : `active` acceptait une valeur non booléenne. La validation serveur refuse désormais le type forgé avec 422 et un test négatif protège le contrat.
+- `REV-ARTICLE-02` — P1 fermé : le rollback vérifiait l’export de récupération, mais pas l’intégrité cryptographique de sa sauvegarde. Le marqueur conserve maintenant `backupDigest` et toute altération bloque avant export/restauration.
+- `REV-ARTICLE-03` — P2 fermé : le tiroir Articles ne réinitialisait pas explicitement l’état sale et l’élément d’ouverture. Il suit désormais le même cycle focus/dirty que les autres tiroirs.
+
+Preuves : Catalogue 5/5, suite 360/360, lint/build/OpenAPI/diff-check PASS. Empreintes applicatives : `app.js ea6f0fbc…`, `server.js e80a8436…`, test `748bdb36…`, OpenAPI `180cea31…`.
+
+Limite : contrôle navigateur interactif reporté au gate E2E ; la REVIEW formelle doit être rendue par un reviewer distinct.
+
+---
+
+## REVIEW indépendante — Catalogue articles SAGE — 2026-08-26
+
+Verdict : **CHANGES REQUESTED — 0 P0 / 4 P1 / 2 P2 / 0 P3**.
+
+Reviewer : agent indépendant `article_review`. Aucun code applicatif n'a été modifié pendant cette revue ; seul ce rapport relève de son ownership.
+
+### Candidat inspecté
+
+- base Git : `231abf5aaf8641dad1229bb98db3a451c05bf694` ;
+- `app.js` : `ea6f0fbc933690cb771802d31ddb274445321c4784d88a4c258f87c2ede1f705` ;
+- `server.js` : `e80a84366429127c2cd4ec8190159ff238aaa3896b5ce780d4986ccbac6f58fd` ;
+- OpenAPI : `180cea31cb6d28dc62e656e567e7e24ddd4db03d0a839eb351d23d646c89af48` ;
+- tests Catalogue : `748bdb364a2b7ae5bd9e642ddf3f52c70b74667cbca6e491e6e1d96aa60ceb2b` ;
+- référentiel SAGE : `6f460ddfb2527900b5db48853b706094ecca93bf0f8e03f9028aabc18a3ef5f6` ;
+- rollback : `b12700a14844c98f8ff738eb0f0f7440f57d8c6a26750c22369ff48c60ab78fd`.
+
+### Constats bloquants
+
+#### REV-ARTICLE-04 — P1 — Le rendu final du Devis contourne le masquage Finance
+
+À `app.js:1173-1175`, l'ajout de la colonne Référence enveloppe directement `quoteA4Workspace`, puis réassigne globalement `quoteWorkspacePage=quoteA4Workspace`. Cette réassignation remplace le wrapper de permission défini à `app.js:773-777`, qui supprimait les outils internes pour un utilisateur sans `finance.read`. Le gabarit A4 brut contient notamment `quote.costTotal`, `quote.marginAmount` et `quote.marginBps` : un profil commercial autorisé à lire les Devis mais pas la Finance retrouve donc les coûts et marges dans l'interface. C'est une régression de confidentialité et de compatibilité RBAC. L'injection de la référence doit envelopper le `quoteWorkspacePage` courant, sans court-circuiter la chaîne de wrappers, et un test négatif de rendu sans `finance.read` doit vérifier l'absence des données internes.
+
+#### REV-ARTICLE-05 — P1 — Les articles d'une société précédente restent affichés pendant un changement de contexte
+
+`articleCatalogModule.items` n'est jamais vidé lors de `switchOrganization`. À `app.js:1172`, une société différente déclenche seulement un chargement différé ; à `app.js:1159`, l'écran de chargement n'est rendu que lorsque `items.length === 0`. Les 71 articles Northlight sont donc immédiatement réaffichés depuis la mémoire locale dans le contexte Eliote jusqu'à la fin de la requête suivante. Le serveur isole correctement ses réponses, mais l'interface divulgue transitoirement le catalogue du tenant précédent. Le cache doit être invalidé atomiquement au changement de société, ou le rendu doit échouer fermé tant que `loadedForCompany !== state.user.companyId`. Ajouter un test de transition Northlight → Eliote avant résolution réseau.
+
+#### REV-ARTICLE-06 — P1 — Plusieurs références SAGE approuvées sont tronquées dans le PDF
+
+Le référentiel contient des références de 10 à 12 caractères, dont `66-iIMPORT A` (12). À `server.js:2786`, le PDF applique systématiquement `pdfShort(articleReference, 9)`, qui rend cette valeur sous la forme `66-iIM...`. La référence exacte exigée par la spécification n'apparaît donc pas dans le document et ne peut pas servir de clé fiable pour la future continuité SAGE. Le test PDF ne couvre que `66-MONT`, qui tient dans la limite. Le PDF doit afficher le code complet, par largeur/retour à la ligne/taille adaptée, et tester au moins la référence la plus longue du référentiel.
+
+#### REV-ARTICLE-07 — P1 — Le contrat OpenAPI publié ne correspond pas aux nouvelles réponses et entrées analytiques
+
+Trois divergences contractuelles sont regroupées :
+
+- `ArticleSnapshot` exige `normalizedCode` (`openapi-v1.yaml:1303-1317`) alors que `articleCatalogSnapshot()` ne le produit pas (`server.js:312-313`) ;
+- les filtres `sageArticleCode` et `articleAnalyticsCode` acceptés par `/analytics/datasets/{dataset}` ne figurent pas parmi ses paramètres (`openapi-v1.yaml:894-919`) ;
+- `/analytics/dimensions` annonce encore « neuf dimensions » (`openapi-v1.yaml:936`) alors que le serveur en expose onze.
+
+La simple présence textuelle des schémas, actuellement testée, ne valide pas leur compatibilité. Aligner implémentation et OpenAPI, relier explicitement le snapshot au contrat de ligne de Devis concerné, puis ajouter des assertions sémantiques sur champs requis et paramètres.
+
+### Constats non bloquants
+
+#### REV-ARTICLE-08 — P2 — L'interface rend au maximum 500 articles sans pagination serveur
+
+`loadArticleCatalog()` demande `pageSize=500`, puis recherche, compteurs et tableau travaillent uniquement sur cette page. Le benchmark démontre 10 071 articles, mais l'administrateur n'en voit alors que les 500 premiers et obtient des KPI incomplets. Brancher recherche et pagination sur l'API ou annoncer explicitement la limite.
+
+#### REV-ARTICLE-09 — P2 — L'invalidation SSE Catalogue n'est pas consommée par l'interface
+
+Le serveur publie correctement `articleCatalog.updated.v1` avec `article.read`, mais aucun écouteur frontend ne recharge le module. Un administrateur conserve donc une liste obsolète après la mutation d'un autre opérateur ; un conflit optimiste affiche seulement l'erreur sans action de rechargement. Ajouter une invalidation bornée à la société et une récupération explicite après `409`.
+
+### Points conformes vérifiés
+
+- migration additive déterministe : 71 articles Northlight, 71 codes analytiques uniques, doublons SAGE conservés ;
+- sauvegarde privée et rollback avec export obligatoire, digest vérifié et restauration byte-exacte ;
+- RBAC serveur, isolation des routes, refus de champs tenant forgés, CSRF et contrôle de version ;
+- création idempotente, désactivation logique, audit, révisions append-only et SSE serveur ;
+- snapshot Devis construit exclusivement côté serveur et conservé dans les versions historiques ;
+- propagation des deux codes dans la chaîne de revenus et les datasets commerciaux/financiers concernés ;
+- échappement HTML des valeurs du catalogue, focus initial et piège à focus du tiroir, état textuel en plus de la couleur ;
+- exécution locale autonome, aucune dépendance ou connexion SAGE ajoutée.
+
+### Preuves exécutées
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-26.
+
+- `node --test tests/article-catalog.test.js` hors sandbox pour autoriser le port local : **5/5 PASS** ;
+- `npm run lint` : **PASS** ;
+- `git diff --check` : **PASS** ;
+- contrôle statique reproductible : code SAGE maximal `66-iIMPORT A` longueur 12, rendu courant `66-iIM...` ; garde de société dans `articleCatalogPage` absente ; réassignation finale `quoteWorkspacePage=quoteA4Workspace` présente ; filtres analytiques article absents d'OpenAPI.
+
+La première tentative sandboxée des tests ciblés a échoué uniquement avec `listen EPERM 127.0.0.1`; le rejeu autorisé a passé les cinq tests. Ces tests verts ne ferment pas les quatre P1 ci-dessus, car leurs scénarios n'y figurent pas.
+
+### Conclusion et condition de déblocage
+
+Le candidat est **REJECTED au gate REVIEW**. Retour DEV requis pour fermer `REV-ARTICLE-04` à `REV-ARTICLE-07`, avec tests négatifs correspondants. Les P2 doivent être corrigés ou explicitement acceptés et suivis. Toute correction modifiant le candidat impose une nouvelle REVIEW et le rejeu de tous les gates aval impactés sur les nouvelles empreintes.
+
+---
+
+## Re-REVIEW indépendante — Catalogue articles SAGE — 2026-08-26
+
+Verdict : **APPROVED — 0 P0 / 0 P1 / 2 P2 / 0 P3**.
+
+Reviewer : agent indépendant `article_review`. Aucun code applicatif n'a été modifié pendant cette relecture ; seul `docs/code-review.md` relève de son ownership.
+
+### Candidat corrigé inspecté
+
+- base Git : `231abf5aaf8641dad1229bb98db3a451c05bf694` ;
+- `app.js` : `6d13b444eb0b16082df366b1900773e9fa33d735577be2fb8d6510f9e0943860` ;
+- `server.js` : `a9260004c8132404d0bc1dd58c8da89a1b915d8a21fc99b9ae7e9eb6199673e6` ;
+- OpenAPI : `e79c0d5a946e7eda56ef868dce08f0d2ddba9ea6b7a842679ea4d5a5f2fbc37f` ;
+- tests Catalogue : `428dabf11a95bb328268c837c26c150d9d9a3b220ad05103601dc262a13ff2ad` ;
+- référentiel SAGE : `6f460ddfb2527900b5db48853b706094ecca93bf0f8e03f9028aabc18a3ef5f6` ;
+- rollback : `b12700a14844c98f8ff738eb0f0f7440f57d8c6a26750c22369ff48c60ab78fd`.
+
+### Revalidation des constats REV-ARTICLE-04 à 09
+
+#### REV-ARTICLE-04 — P1 fermé — La chaîne de rendu conserve `finance.read`
+
+La réassignation fautive `quoteWorkspacePage=quoteA4Workspace` en fin de module a disparu. Le helper idempotent `quoteArticleReferenceHtml()` enveloppe désormais le `quoteWorkspacePage` courant : sa base est capturée après le wrapper Finance, qui continue à supprimer les outils internes pour un utilisateur sans `finance.read`. La colonne Réf. est donc ajoutée sans court-circuiter le masquage des coûts et marges. `quoteA4Workspace` reçoit la même transformation séparément, sans double insertion grâce à la garde sur l'en-tête.
+
+#### REV-ARTICLE-05 — P1 fermé — Le changement de société échoue fermé et neutralise les courses
+
+`resetArticleCatalogContext()` vide articles, recherche, pagination et état de chargement au changement de contexte, à la déconnexion et à l'expiration de session. Chaque chargement capture à la fois la société demandée et un jeton monotone ; une réponse ou une erreur tardive d'une société précédente est ignorée. L'écran ne peut donc plus réafficher le cache Northlight dans le contexte Eliote pendant la requête suivante.
+
+#### REV-ARTICLE-06 — P1 fermé — La référence PDF est complète
+
+Le PDF n'applique plus la troncature à neuf caractères. `pdfArticleReference()` répartit la valeur ASCII sur trois lignes de quinze caractères, soit 45 caractères disponibles pour une entrée serveur bornée à 40. Le test utilise désormais la référence la plus longue du référentiel approuvé, `66-iIMPORT A`, et exige sa présence exacte dans le contenu PDF.
+
+#### REV-ARTICLE-07 — P1 fermé — Implémentation et OpenAPI sont alignés
+
+Le snapshot serveur produit maintenant `normalizedCode`. OpenAPI décrit ce champ requis, la relation `ArticleQuoteLineSource.articleSnapshot`, les filtres de dataset `sageArticleCode` et `articleAnalyticsCode`, et les onze dimensions analytiques avec bornes `minItems/maxItems: 11`. Les tests ciblés vérifient ces éléments sémantiques, ainsi que la propagation des codes dans les versions de Devis et la chaîne de revenus.
+
+#### REV-ARTICLE-08 — P2 fermé — Chargement complet et pagination UI bornée
+
+`loadArticleCatalog()` utilise `apiAll()` et agrège les pages serveur de 200 éléments ; recherche et KPI travaillent sur l'ensemble chargé. Le rendu visible est limité à 100 lignes avec compteur, page courante et boutons natifs Précédent/Suivant désactivés aux bornes. Le jeu représentatif de 10 071 articles tient dans la garde actuelle de 100 pages, soit 20 000 articles maximum par chargement.
+
+#### REV-ARTICLE-09 — P2 partiellement fermé — SSE consommé, reprise après conflit perfectible
+
+L'interface consomme maintenant les invalidations `articleCatalog.*`, vérifie `companyId`, temporise les rafraîchissements et recharge la liste lorsqu'aucun tiroir sale n'est ouvert. Un `409` déclenche aussi un rechargement du catalogue. En revanche, le tiroir conserve l'objet/version obsolète et ne propose pas d'action de rechargement : une nouvelle soumission répète le conflit jusqu'à fermeture puis réouverture. La donnée reste protégée par le contrôle optimiste ; ce défaut d'accompagnement demeure **P2 non bloquant**.
+
+### Nouveau constat non bloquant
+
+#### REV-ARTICLE-10 — P2 — La pagination ne restitue pas le focus
+
+Les boutons Précédent/Suivant appellent directement `render()`, qui remplace le contenu de `app` et retire le bouton actif sans restaurer le focus sur le nouveau contrôle ou sur le tableau. La pagination est fonctionnelle à la souris et au clavier, mais une navigation clavier perd son point de reprise après activation. Ajouter une restitution de focus explicite, de préférence sur le bouton équivalent ou le titre du tableau.
+
+### Points conformes reconfirmés
+
+- migration additive déterministe, sauvegarde privée, digest et rollback byte-exact ;
+- RBAC serveur, isolation société/site, champs tenant refusés, contrôle optimiste, audit et SSE après succès ;
+- snapshots Devis immuables, référence visible dans le Devis et complète dans le PDF ;
+- codes SAGE/analytiques disponibles dans les analyses et filtres documentés ;
+- échappement des données injectées, états textuels distincts de la couleur et exécution locale autonome.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-26.
+
+- `node --check app.js && node --check server.js && node --check tests/article-catalog.test.js` : **PASS** ;
+- `node --test tests/article-catalog.test.js tests/sprint1-data.test.js tests/sprint8-bi.test.js` : **26/26 PASS**, 0 échec/skip/todo, `836,55 ms` ;
+- `npm test` : **360/360 PASS**, 0 échec/cancelled/skip/todo, `8 815,97 ms` ;
+- `npm run lint` : **PASS** ;
+- `npm run build` : **PASS**, cinq actifs runtime vérifiés ;
+- `git diff --check` avant rapport : **PASS** ;
+- inspection statique des compositions de rendu, gardes société/jeton, pagination, SSE/conflit, helper PDF et contrats OpenAPI : **PASS**, avec les deux limites P2 ci-dessus.
+
+Limite de REVIEW : aucun parcours navigateur interactif n'est revendiqué. La lisibilité visuelle du retour à la ligne PDF, le changement de société en conditions réseau lentes, la restitution de focus et les invalidations SSE multi-opérateurs doivent rester dans les preuves QA/E2E du même candidat.
+
+### Handoff
+
+La gate REVIEW du lot Catalogue articles SAGE est **APPROVED** sur les empreintes exactes ci-dessus : aucun P0/P1 ouvert. `REV-ARTICLE-09` reste partiellement ouvert en P2 et `REV-ARTICLE-10` est ajouté en P2 ; ils ne bloquent pas l'intégration mais doivent rester visibles jusqu'à correction ou acceptation produit. L'intégrateur doit reporter ce verdict dans `docs/project-status.md` et s'assurer que QA, SECURITY, PERFORMANCE, INTEGRATION et E2E portent sur ce même état applicatif. Toute modification ultérieure de `app.js`, `server.js`, OpenAPI ou des tests concernés invalide cette approbation.
+
+---
+
+## Re-REVIEW différentielle — Route directe Articles SAGE — 2026-08-26
+
+Verdict : **APPROVED — 0 P0 / 0 P1 nouveau**. Les deux P2 déjà documentés (`REV-ARTICLE-09` et `REV-ARTICLE-10`) restent inchangés.
+
+Reviewer : agent indépendant `article_review`. Périmètre différentiel : correctif de surface authentifiée dans `app.js`, assertion de non-régression dans `tests/article-catalog.test.js` et cohérence de `docs/project-status.md`. Aucun code n'a été modifié pendant cette revue ; seul ce rapport relève de son ownership.
+
+### Candidat inspecté
+
+- base Git : `231abf5aaf8641dad1229bb98db3a451c05bf694` ;
+- `app.js` : `4e827ab58f77d412fe62740956a12cfe032b448c911cd52593e103192657d8c5` ;
+- tests Catalogue : `b0438e085c278b890b4514f8a445c8d6985c89514dfe3c5f251853e8d966b4b7` ;
+- statut opérationnel inspecté : `72395394b345f797a2d2f6aae386cfb4ca5881cf0c211e4913be1db744a27392` ;
+- backend inchangé : `a9260004c8132404d0bc1dd58c8da89a1b915d8a21fc99b9ae7e9eb6199673e6` ;
+- OpenAPI inchangé : `e79c0d5a946e7eda56ef868dce08f0d2ddba9ea6b7a842679ea4d5a5f2fbc37f`.
+
+### Analyse différentielle
+
+#### Route directe et rechargement
+
+Le wrapper Article appelle maintenant `syncAuthenticatedSurfaces(true)` après avoir confirmé simultanément `state.user` et la route `#articles`, puis avant tout rendu du catalogue. Il réactive donc `#appShell`, retire `aria-hidden` et `inert`, et réactive les overlays après une reconnexion ou une restauration de session sur la route directe. L'appel est idempotent et ne dépend pas de l'état du chargement Catalogue.
+
+#### Login, logout et expiration 401
+
+- sans utilisateur, le wrapper Article délègue sans exécuter le nouvel appel ; la chaîne de base atteint le rendu commun, qui applique `syncAuthenticatedSurfaces(false)`, masque le shell et affiche l'écran de connexion ;
+- après authentification/hydratation, le rendu de `#articles` prend la branche corrigée et réactive le shell ;
+- logout et `endSession()` ferment le SSE, purgent le contexte Article, mettent `state.user` à `null`, puis rendent via la délégation commune masquée ;
+- sur un 401 Catalogue, `api()` appelle `endSession()` avant de propager l'erreur. Les gardes société/jeton empêchent ensuite le `catch/finally` du chargement interrompu de réafficher un état Article obsolète.
+
+#### Composition des wrappers et non-régression Finance/Article
+
+Le changement est contenu dans le wrapper final `render` Article et ne réassigne ni `quoteWorkspacePage` ni `quoteA4Workspace`. Le wrapper Réf. continue d'envelopper le `quoteWorkspacePage` déjà protégé par `finance.read`, et sa garde idempotente reste présente. Pour toutes les routes différentes de `articles`, le wrapper délègue exactement à `renderArticleCatalogBase()` ; les wrappers Finance, Commercial, Planning et Pilotage conservent donc leur ordre et leur comportement.
+
+Le test statique exige désormais la séquence de branche `route !== 'articles'` → délégation → `syncAuthenticatedSurfaces(true)` et reconfirme l'absence de la réassignation fautive du workspace Devis ainsi que la présence du wrapper Finance. Cette preuve protège la composition exacte, mais ne remplace pas le rejeu navigateur demandé au gate E2E.
+
+### Statut documentaire
+
+`docs/project-status.md` décrit fidèlement le défaut E2E observé, le retour DEV, le correctif appliqué et la nécessité d'une revalidation ciblée, complète et E2E avant release. L'intégrateur devra remplacer cet état transitoire après les nouveaux verdicts ; aucune affirmation prématurée de release n'a été relevée dans l'entrée concernée.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-26.
+
+- `node --check app.js && node --check tests/article-catalog.test.js` : **PASS** ;
+- `node --test tests/article-catalog.test.js` : **5/5 PASS**, 0 échec/skip/todo, `914,83 ms` ;
+- `npm test` : **360/360 PASS**, 0 échec/cancelled/skip/todo, `8 896,12 ms` ;
+- `npm run lint` : **PASS** ;
+- `npm run build` : **PASS**, cinq actifs runtime vérifiés ;
+- `git diff --check` avant rapport : **PASS** ;
+- inspection statique des wrappers, transitions utilisateur, purge Article et composition Finance/Réf. : **PASS**.
+
+Limite : cette re-REVIEW différentielle ne revendique pas de preuve navigateur. Le scénario exact redémarrage/reconnexion directe sur `#articles`, ainsi que logout et expiration 401 visibles, doit être rejoué par E2E sur l'empreinte `app.js` ci-dessus.
+
+### Handoff
+
+La gate REVIEW différentielle est **APPROVED**, sans P0/P1. Le P1 E2E « shell masqué après reconnexion directe » est fermé par inspection et tests automatisés ; sa clôture terminale reste conditionnée au rejeu E2E navigateur sur ce même candidat. Les P2 antérieurs de reprise après conflit et de restitution du focus ne sont ni aggravés ni fermés. Toute nouvelle modification applicative invalide ce verdict.
+
+---

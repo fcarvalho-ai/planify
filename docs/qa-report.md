@@ -1,3 +1,98 @@
+# Re-QA différentielle — accès direct `#articles`
+
+Date : 2026-08-26
+
+Base Git : `231abf5aaf8641dad1229bb98db3a451c05bf694` avec candidat non commité identifié par les empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64, package `0.5.0-rc6`
+
+Verdict : **APPROVED — 0 P0 / 0 P1**
+
+Ce re-gate couvre exclusivement le correctif E2E de l'accès direct authentifié à `#articles`, le test statique qui protège la synchronisation du shell et la non-régression complète du candidat Catalogue articles SAGE. Aucun code produit ni test n'a été modifié par cette QA.
+
+## État exact contrôlé
+
+```text
+app.js                         4e827ab58f77d412fe62740956a12cfe032b448c911cd52593e103192657d8c5
+tests/article-catalog.test.js  b0438e085c278b890b4514f8a445c8d6985c89514dfe3c5f251853e8d966b4b7
+```
+
+## Vérifications différentielles
+
+- `syncAuthenticatedSurfaces(true)` est exécuté par le renderer Article avant l'affichage de la page lorsque l'utilisateur authentifié ouvre directement `#articles` ; le shell passe donc explicitement à `hidden=false`, `aria-hidden=false` et `inert=false` ;
+- le test statique cible précisément la chaîne `route !== 'articles'` puis `syncAuthenticatedSurfaces(true)` et empêche la régression de ce chemin direct ;
+- le compteur « Articles actifs » est recalculé depuis `articleCatalogModule.items.filter(item => item.active)` après le chargement API complet ; l'observation navigateur fournie — `shellHidden=false`, puis `72` articles actifs après création et redémarrage — est cohérente avec le renderer et avec la persistance couverte par les tests HTTP ;
+- les garde-fous précédents restent couverts : isolation Société, chargement paginé, snapshot de Devis, PDF, dimensions analytiques, conflit optimiste et rollback.
+
+## Commandes et résultats frais
+
+- `node --test tests/article-catalog.test.js` hors sandbox : **5/5 réussis**, 0 échec, 0 annulé, 0 ignoré, durée `503 ms`.
+- `npm test` hors sandbox : **360/360 réussis**, 0 échec, 0 annulé, 0 ignoré, durée `8,589 s`.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, code 0 ; `5 actifs runtime` vérifiés.
+- `git diff --check` : **PASS**, code 0.
+
+## Limite non bloquante
+
+La capture d'état navigateur (`shellHidden=false`, compteur actif `72` après redémarrage) a été fournie par l'intégrateur et confrontée au code et aux tests par cette QA ; elle n'a pas été rejouée dans une seconde session navigateur indépendante. Les contrôles automatisés et statiques du même chemin sont verts.
+
+Conclusion : le défaut d'accès direct est couvert par un correctif fail-closed compatible avec l'authentification, sa preuve navigateur est cohérente et la suite complète ne révèle aucune régression. Le correctif `#articles` identifié ci-dessus est **APPROVED — 0 P0 / 0 P1**. Toute modification ultérieure de `app.js` ou du test ciblé invalide ce verdict ; `docs/project-status.md` reste à actualiser par l'intégrateur.
+
+---
+
+# Re-QA indépendante — Catalogue articles SAGE
+
+Date : 2026-08-26
+
+Base Git : `231abf5aaf8641dad1229bb98db3a451c05bf694` avec candidat non commité contrôlé par empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64, package `0.5.0-rc6`
+
+Verdict : **APPROVED — 0 P0 / 0 P1**
+
+Ce gate couvre le candidat corrigé du Catalogue articles SAGE après les constats indépendants REVIEW/SECURITY : migration et référentiel local, API et RBAC, isolation Société, instantané immuable dans les lignes de Budget/Devis, référence intégrale dans le PDF, dimensions analytiques, contrats OpenAPI et comportement statique de l'interface. Aucun code produit ni test n'a été modifié par cette QA.
+
+## État exact contrôlé
+
+```text
+app.js                              6d13b444eb0b16082df366b1900773e9fa33d735577be2fb8d6510f9e0943860
+server.js                           a9260004c8132404d0bc1dd58c8da89a1b915d8a21fc99b9ae7e9eb6199673e6
+docs/api/openapi-v1.yaml            e79c0d5a946e7eda56ef868dce08f0d2ddba9ea6b7a842679ea4d5a5f2fbc37f
+tests/article-catalog.test.js        428dabf11a95bb328268c837c26c150d9d9a3b220ad05103601dc262a13ff2ad
+```
+
+## Critères vérifiés
+
+- migration additive et déterministe de 71 articles, codes analytiques uniques, révisions initiales et rejeu idempotent ;
+- lecture accordée avec `article.read`, mutations réservées à `article.manage`, refus des champs forgés et isolation stricte lors d'un changement de Société ;
+- snapshot de ligne complet avec `normalizedCode`, immuable après modification du catalogue et conservé dans les versions du Devis ;
+- référence SAGE complète `66-iIMPORT A` présente sans troncature dans le PDF client ;
+- chaîne analytique portée à 11 dimensions, dont `sageArticleCode` et `articleAnalyticsCode`, avec filtres correspondants sur les datasets BI ;
+- OpenAPI cohérent : `ArticleSnapshot`, lien `ArticleQuoteLineSource`, filtres datasets et cardinalité exacte des dimensions ;
+- interface statique : chargement paginé complet par `apiAll`, pagination locale de 100 lignes, état fail-closed et réponse asynchrone liée à la Société demandée, invalidation SSE, rechargement après conflit, conservation du masque Finance et injection idempotente de la colonne Réf. ;
+- rollback refusé sans export, vérification de l'intégrité du backup et export de récupération privé.
+
+## Commandes et résultats frais
+
+- `node --test tests/article-catalog.test.js tests/quotes.test.js tests/sprint1-data.test.js tests/sprint8-bi.test.js` hors sandbox : **75/75 réussis**, 0 échec, 0 annulé, 0 ignoré, durée `3,779 s`.
+- `npm test` hors sandbox : **360/360 réussis**, 0 échec, 0 annulé, 0 ignoré, durée `8,905 s`.
+- `npm run lint` : **PASS**, code 0 ; syntaxe backend, frontend, modules partagés, benchmark et rollback contrôlée.
+- `npm run build` : **PASS**, code 0 ; `5 actifs runtime` vérifiés.
+- `git diff --check` : **PASS**, code 0.
+- validation sémantique Ruby/Psych de `docs/api/openapi-v1.yaml` : **PASS** — OpenAPI `3.1.0`, 76 chemins, 101 schémas, 400 références locales (105 distinctes) toutes résolues, 93 `operationId` uniques et 11 dimensions analytiques.
+
+La première exécution ciblée dans le sandbox a reçu `listen EPERM` sur `127.0.0.1` avant les tests HTTP ; elle est exclue du verdict. Les campagnes ciblée et complète ont été rejouées hors sandbox sur les empreintes ci-dessus et sont intégralement vertes.
+
+## Limites non bloquantes
+
+1. Aucun parcours navigateur réel n'est revendiqué. La pagination, le focus après recherche, l'invalidation SSE et la chaîne d'enveloppement Devis/Finance sont vérifiés par tests et inspection statiques ; leur rendu visuel et leur interaction clavier restent à rejouer au gate E2E.
+2. Les benchmarks de 10 071 articles relèvent du gate Performance indépendant et ne sont pas revendiqués par cette QA.
+3. Le répertoire est volontairement non propre pendant l'intégration ; les empreintes ci-dessus identifient le candidat effectivement testé. Toute modification ultérieure de ces fichiers invalide ce verdict.
+
+Conclusion : tous les critères QA ciblés et la non-régression complète sont verts, sans P0/P1 ouvert. Le candidat Catalogue articles SAGE identifié ci-dessus est **APPROVED — 0 P0 / 0 P1**. `docs/project-status.md` reste à actualiser par l'intégrateur conformément à la limite d'ownership de ce lot.
+
+---
+
 # QA indépendante G8 — Dashboards, exports et sécurité finale
 
 Date : 2026-08-24
@@ -5147,3 +5242,68 @@ La sélection des documents visibles est désormais bornée par `createdAt || ta
 ## Verdict terminal
 
 Le candidat applicatif `14d8ebea3019fa2a1d941eeefcb0ede24098ee38` est **APPROVED** au gate QA avec **0 P0 et 0 P1 ouvert**. Le P1 précédent est corrigé dans la comparaison et la synthèse, les historiques `replaced`, permissions `dashboard.read` / `quote.read` et l’absence de faux delta sont conformes. Preuves terminales : ciblés **129/129**, suite complète **355/355**, lint, build, diff-check et contrôle OpenAPI verts.
+## Pré-QA — Catalogue articles SAGE — 2026-08-26
+
+Statut : **PREUVES VERTES — verdict QA indépendant requis**.
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande | Résultat |
+|---|---|
+| `node --test tests/article-catalog.test.js` | PASS, 5/5 |
+| `npm test` | PASS, 360/360, 0 échec/skip/todo, durée 9,357 s |
+| `npm run lint` | PASS |
+| `npm run build` | PASS, 5 actifs runtime |
+| parse YAML OpenAPI 3.1 | PASS, routes et schéma ArticleCatalog présents |
+| `git diff --check` | PASS |
+
+Cas couverts : 71 articles et unicité analytique ; doublons SAGE autorisés ; RBAC lecture/gestion ; idempotence ; validation négative ; champ tenant forgé ; isolation inter-sociétés par liste et identifiant deviné ; conflit de version ; historique append-only ; snapshot Devis/PDF immuable ; dimensions analytiques ; sauvegarde altérée ; export privé et rollback.
+
+Limite : ce passage n’inclut pas encore la recette navigateur complète création/modification/désactivation → nouveau Devis → PDF après rechargement.
+
+---
+
+# Gate QA indépendant — Catalogue articles SAGE
+
+Date : 2026-08-26
+
+Environnement : Node `v26.6.0`, Darwin arm64 ; package `0.5.0-rc6`.
+
+État contrôlé : working tree non commité reposant sur HEAD `231abf5aaf8641dad1229bb98db3a451c05bf694`. Empreinte SHA-256 agrégée des fichiers applicatifs, contrat, référentiel et tests du lot : `4d2388985b26fbf84a774f63b8e421b8cd7f08774c48b8850da8c82edd59632a`. Toute modification ultérieure de ces fichiers invalide ce verdict.
+
+Verdict : **APPROVED — 0 P0 / 0 P1 ouvert**.
+
+## Résultats fonctionnels et négatifs
+
+- Migration additive et idempotente : **71 articles** Northlight, **71 codes analytiques uniques**, **10 prestations** partageant légalement le code SAGE `T TECH`, 71 révisions initiales et un seul marqueur de migration.
+- Catalogue : liste, création, modification/version, désactivation logique et révisions couvertes ; création rejouée avec la même clé idempotente sans doublon.
+- Validations négatives : code analytique dupliqué refusé en 409, booléen invalide refusé en 422, champ `companyId` forgé refusé en 400 et version obsolète refusée en 409.
+- RBAC et isolation : lecture autorisée au rôle Planning, mutation refusée aux non-administrateurs ; article d’une autre société masqué en 404 et catalogue de cette société vide.
+- Devis : sélection d’un article, snapshot serveur immuable dans le devis et sa version après modification du catalogue, référence SAGE présente dans le PDF.
+- Analytique : regroupement et filtre `articleAnalyticsCode` / `sageArticleCode` exercés ; contrats BI et dimensions historiques non régressés.
+- Rollback : export préalable obligatoire, sauvegarde altérée refusée, export de récupération strictement identique aux octets actifs et privé en mode `0600`, restauration authentifiée puis migration rejouable.
+- UI/OpenAPI : route Articles, références du devis, styles, routes et schémas OpenAPI 3.1 présents.
+
+## Commandes et preuves fraîches
+
+| Commande | Résultat |
+|---|---|
+| `node --test tests/article-catalog.test.js tests/quotes.test.js tests/sprint1-data.test.js tests/sprint8-bi.test.js` | PASS, **75/75**, 0 échec/annulé/ignoré/TODO, durée `4 195 ms` |
+| `npm test` | PASS, **360/360**, 0 échec/annulé/ignoré/TODO, durée `9 569 ms` |
+| `npm run lint` | PASS, code 0 |
+| `npm run build` | PASS, code 0 ; **5 actifs runtime** vérifiés |
+| parse Ruby de `docs/api/openapi-v1.yaml` | PASS : OpenAPI `3.1.0`, trois routes Article Catalog et schémas `ArticleCatalogItem` / `ArticleSnapshot` présents |
+| sonde Node de `referentials/article-catalog-sage-v1.json` | PASS : **71 lignes**, **71 codes analytiques uniques**, **10 `T TECH`** |
+| `git diff --check` | PASS, code 0 |
+
+Une première tentative de parse Ruby avec l’option `aliases: true` a échoué avant lecture métier, car le Ruby système 2.6 ne prend pas cet argument sur `YAML.load_file`. La commande compatible sans alias a ensuite parsé le document et validé les contrats attendus ; ce défaut d’outil n’est pas un échec produit.
+
+## Limites
+
+- Aucun navigateur n’a été lancé par ce gate. Les contrats UI sont vérifiés statiquement et le parcours API/PDF est automatisé ; la recette visuelle création/modification/désactivation → nouveau devis → PDF après rechargement reste à exécuter au gate E2E.
+- Le rollback est exercé dans une fixture temporaire isolée par le test ciblé, pas sur `data/planify.json`, afin de ne jamais risquer les données de travail.
+- Ce verdict QA ne remplace pas les verdicts indépendants Review, Sécurité et Performance.
+
+## Verdict terminal
+
+Le lot Catalogue articles SAGE est **APPROVED au gate QA indépendant** : ciblés **75/75**, suite complète **360/360**, lint, build, OpenAPI, intégrité du référentiel et diff-check verts, avec **0 P0 et 0 P1 ouvert**. La recette navigateur complète est explicitement reportée au gate E2E.
