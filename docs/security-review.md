@@ -1,3 +1,45 @@
+# Re-gate SECURITY indépendant — candidat `0.6.0-rc3`
+
+Date : 2026-09-01
+
+Base : tag publié `v0.6.0-rc2` (`7a294bb0475c2ad25bb04edcd41031661b3fe581`). Candidat local : `package.json 0.6.0-rc3`, SHA-256 `94918ac01c3bab7547d91fa239a7105cf49edd7722fca68bd394b35d53a93578`; test Devis `729a80fde8cec1550c2c446deba650d5881da40a64725782cc05b654d3834784`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 0 P3 ouvert sur le diff RC2 → RC3.**
+
+Le diff contient uniquement `tests/quotes.test.js` et les métadonnées/documentations RC3. `server.js` SHA-256 `3f4b87eb8ee4106b819878a0eb73f71516a92099d2fa9e43995a7582444b3af1` et `app.js` `9601017d92cf6884df6c74e3b688b15421b1f6b60c4fe99e692aabf3255b96aa` sont byte-identiques au tag RC2. Les verdicts SECURITY du runtime RC2 restent donc applicables.
+
+## Analyse du correctif SSE
+
+- La limite serveur reste inchangée : `/api/v1/events` refuse en `429 SSE_SESSION_LIMIT` toute seconde connexion non fermée portant le même jeton de session, avant d'ajouter le client au `Set` global. La capacité globale, l'authentification, les familles de permissions, la revalidation périodique, l'isolation société/site/entité et la fermeture au logout/changement de société sont identiques.
+- `closeEventStream` devient asynchrone dans le test seulement : il déclenche l'abandon, attend `reader.cancel()`, ne neutralise que l'erreur attendue `AbortError`, puis laisse un tour de boucle à l'événement `close` du serveur. Toute autre erreur est propagée et fait échouer la suite.
+- Les deux appels du scénario Commercial sont maintenant explicitement `await`. Le test n'assouplit ni les assertions RBAC/site, ni la révocation en direct, ni les statuts HTTP; il évite seulement de rouvrir avec la même session avant le retrait effectif du premier flux.
+- Cette attente renforce la fidélité du test au contrat de sécurité au lieu de contourner la limite. Aucun délai arbitraire long, nouveau jeton, nouvelle session, retry de `429` ou désactivation du garde serveur n'est introduit.
+- Les changements de version, changelog, README et statut n'ajoutent ni route, secret, dépendance, donnée, permission ou mécanisme de rollback. La procédure tarifaire RC3 conserve les contrôles RC2 déjà audités.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `git diff --name-status v0.6.0-rc2 --` | 5 fichiers : test Devis + 4 métadonnées/documentations; aucun code runtime |
+| comparaison SHA-256 RC2/candidat de `server.js` | **IDENTIQUE**, `3f4b87eb8ee4…` |
+| comparaison SHA-256 RC2/candidat de `app.js` | **IDENTIQUE**, `9601017d92cf…` |
+| inspection `/api/v1/events` | garde une connexion/session `429 SSE_SESSION_LIMIT` inchangé |
+| `node --test tests/quotes.test.js` | **51/51 PASS**, 0 échec/annulation, `4 091,14 ms` |
+| `npm test` | **368/368 PASS**, 0 échec/annulation, `9 345,08 ms` |
+| `git diff --check` | **PASS** |
+
+## Limites et handoff
+
+Revue différentielle locale : aucun pentest, fuzzing réseau, test de déconnexion TCP pathologique ou exécution GitHub Actions n'est revendiqué. La suite fraîche démontre la fermeture ordonnée dans le runtime Node local; la CI distante reste au gate RELEASE. Toute modification ultérieure de `server.js`, `app.js` ou du test Devis invalide cette conclusion.
+
+Gate SECURITY RC3 : **APPROVED**. Seul `docs/security-review.md` est modifié dans ce rapport; `docs/project-status.md` reste à l'intégrateur.
+
+---
+
 # Analyse d'impact SECURITY — métadonnées RELEASE `0.6.0-rc2`
 
 Date : 2026-08-30

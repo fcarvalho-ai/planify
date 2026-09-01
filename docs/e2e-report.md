@@ -1,3 +1,18 @@
+# Rapport E2E — Analyse différentielle / candidat RC3
+
+Date : 2026-09-01
+Baseline publiée : `v0.6.0-rc2` (`7a294bb0475c2ad25bb04edcd41031661b3fe581`)
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+RC3 ne modifie ni frontend, ni backend, ni API, ni persistance : tous les parcours E2E RC2 restent byte-identiques. Le seul changement exécutable appartient au harnais Node de `tests/quotes.test.js`; il rend déterministe la succession fermer/réouvrir du flux Commercial sans contourner la limite d’une connexion SSE par session. Le scénario concerné conserve les assertions de permission `quote.read`, d’isolation Site et de révocation en direct, passe `10/10` isolément, `51/51` dans la suite Devis et `368/368` dans la suite complète. Le smoke d’intégration confirme démarrage `200` et API protégée `401`. Aucun parcours navigateur produit n’est impacté; la recette E2E complète RC2 reste applicable sans extrapolation de code modifié. Le candidat peut passer au gate RELEASE après validation de GitHub Actions sous Node 20/Linux.
+
+Limite P3 : la preuve distante GitHub Actions reste nécessaire avant création du tag RC3.
+
+---
+
 # Rapport E2E — Consolidation post-RC1 / candidat RC2
 
 Date : 2026-08-30

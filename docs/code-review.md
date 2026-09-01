@@ -1,3 +1,53 @@
+# Re-gate REVIEW indépendant — candidat `0.6.0-rc3`
+
+Date : 2026-09-01
+
+Reviewer : agent indépendant `review_tarifs_devis_pdf`.
+
+Baseline : tag publié `v0.6.0-rc2`, commit `7a294bb0475c2ad25bb04edcd41031661b3fe581`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1 ouvert.**
+
+Le diff applicatif RC2 → RC3 ne modifie aucun code runtime : `server.js` (`3f4b87eb8ee4106b819878a0eb73f71516a92099d2fa9e43995a7582444b3af1`) et `app.js` (`9601017d92cf6884df6c74e3b688b15421b1f6b60c4fe99e692aabf3255b96aa`) sont byte-identiques au tag RC2. Le changement fonctionnel du candidat est limité au helper de fermeture SSE dans `tests/quotes.test.js`, puis aux métadonnées et rapports RC3.
+
+## Exactitude et déterminisme du correctif SSE
+
+- `closeEventStream` déclenche toujours l'abandon du flux, attend désormais `reader.cancel()`, ne tolère que l'erreur attendue `AbortError`, puis rend un tour de boucle avec `setImmediate`. Les deux appels du scénario Commercial sont explicitement attendus avant toute suite ou réouverture.
+- La correction élimine la réouverture immédiate issue d'une fonction synchrone qui ignorait la promesse de `reader.cancel()`. Elle ne masque pas les erreurs inattendues, n'ajoute ni sleep fixe, ni nouvelle session, ni retry de `429`.
+- La limite serveur demeure strictement intacte : `/api/v1/events` refuse toujours en `429 SSE_SESSION_LIMIT` une deuxième connexion active portant le même jeton. Le test n'a retiré aucune assertion de statut, RBAC, révocation dynamique ou isolation Paris/Boulogne.
+- Le ciblé complet passe `51/51`; le seul scénario SSE a en plus été rejoué dans dix processus successifs et passe `10/10`, sans `429` transitoire. La suite complète passe `368/368`.
+
+## Compatibilité et documentation
+
+- `package.json` porte `0.6.0-rc3`; `README.md`, `CHANGELOG.md` et `docs/project-status.md` distinguent correctement RC2 publiée du candidat correctif RC3 et décrivent l'incident CI `367/368` sans présenter le garde serveur comme une anomalie métier.
+- Le README reprend sans changement de modèle la migration tarifaire V2 de RC2 et adapte correctement la procédure : rollback avec le code RC3 encore en place, export obligatoire, puis retour RC1; RC2/RC3 ne doivent pas être redémarrées sur l'état restauré.
+- Les rapports QA, SECURITY et PERFORMANCE ajoutés pendant la revue portent les mêmes empreintes applicatives, annoncent explicitement leur périmètre différentiel et ne revendiquent aucune modification runtime.
+- Aucun contrat API, donnée, permission, dépendance, migration nouvelle, actif statique ou procédure de démarrage n'est modifié par RC3.
+
+## Constats P0-P3 et limites
+
+- **P0 : aucun.**
+- **P1 : aucun.**
+- **P2 : aucun nouveau constat sur le diff RC3.** Les P2 historiques de montée en charge et de preuve UI restent hors impact et visibles dans leurs rapports.
+- **P3 — validation distante à achever :** les preuves locales fraîches ont été exécutées sous Node `v26.6.0`/Darwin arm64, tandis que GitHub Actions utilise Node 20/Linux. Le scénario est stable sur dix répétitions locales, mais le contrôle final de la CI distante Node 20 reste nécessaire avant publication RC3, comme l'indiquent déjà le statut et le rapport QA.
+
+## Preuves fraîches
+
+- `node --test tests/quotes.test.js` hors sandbox localhost : **51/51 PASS**, 0 échec/cancelled/skip/todo, `4 189,391 ms`.
+- dix exécutions successives de `node --test --test-name-pattern="SSE Commercial" tests/quotes.test.js` : **10/10 PASS**.
+- `npm test` hors sandbox localhost : **368/368 PASS**, 0 échec/cancelled/skip/todo, `9 551,266 ms`.
+- `node --check tests/quotes.test.js` : **PASS**.
+- `git diff --check` : **PASS**.
+- La première tentative ciblée dans le sandbox a échoué exclusivement sur `listen EPERM 127.0.0.1`; la même commande autorisée hors sandbox a réussi intégralement et constitue la preuve retenue.
+
+Empreintes du candidat revu : `tests/quotes.test.js 729a80fde8ec…`, `package.json 94918ac01c3b…`, `README.md 3a94792ce7bf…`, `CHANGELOG.md e8436920cf7d…`, `docs/project-status.md 691f688f4406…`, `docs/qa-report.md f7d4b104011f…`, `docs/security-review.md 8358b6e55faa…`, `docs/performance-report.md 7a89daab3cdb…`.
+
+Sortie : gate REVIEW RC3 **APPROVED**, sous réserve que ces empreintes ne changent pas. Conformément à l'ownership explicite, seul `docs/code-review.md` est modifié par ce reviewer; la consolidation de `docs/project-status.md` reste à l'intégrateur.
+
+---
+
 # Re-REVIEW terminale post-RC6 — existence documentaire et cutoff Vue d’ensemble
 
 Date : 2026-08-26

@@ -1,3 +1,42 @@
+# Re-gate PERFORMANCE indépendant — candidat `0.6.0-rc3`
+
+Date : 2026-09-01
+
+Base : tag publié `v0.6.0-rc2` (`7a294bb0475c2ad25bb04edcd41031661b3fe581`). Candidat local : `package.json 0.6.0-rc3`; test Devis SHA-256 `729a80fde8cec1550c2c446deba650d5881da40a64725782cc05b654d3834784`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1; 2 P2 de montée en charge et 1 P3 de preuve navigateur hérités, inchangés.**
+
+`server.js` SHA-256 `3f4b87eb8ee4106b819878a0eb73f71516a92099d2fa9e43995a7582444b3af1` et `app.js` `9601017d92cf6884df6c74e3b688b15421b1f6b60c4fe99e692aabf3255b96aa` sont byte-identiques à RC2. Aucun chemin runtime, algorithme, allocation, I/O, persistance ou rendu n'est modifié; les mesures RC2 restent exactement applicables et aucun nouveau benchmark produit ne serait informatif.
+
+## Analyse d'impact
+
+- Le changement est limité au helper de test `closeEventStream`. Les deux fermetures concernées attendent désormais la résolution de `reader.cancel()` puis un seul `setImmediate` avant la réouverture suivante.
+- Ce coût est uniquement dans la campagne Node, en O(1), deux fois dans un scénario de 51 tests. Il ne touche ni le serveur livré, ni le navigateur, ni la durée d'une connexion SSE réelle, ni la limite globale de clients.
+- Attendre le retrait du flux évite une requête de test prématurée et son `429`; cela ne crée ni boucle de polling, ni sleep fixe, ni retry, ni connexion supplémentaire. La fermeture reste bornée par l'annulation locale du lecteur.
+- Les métadonnées `0.6.0-rc3` et la documentation ne sont lues par aucun chemin applicatif. Aucun changement de dataset ou de migration n'accompagne ce candidat.
+
+## Preuves fraîches et références conservées
+
+- `node --test tests/quotes.test.js` : **51/51 PASS**, `4 091,14 ms`.
+- `npm test` : **368/368 PASS**, `9 345,08 ms`.
+- Ces durées sont des preuves de non-blocage de la suite, **pas** des mesures de performance produit.
+- Les références produit RC2 restent : Planning 250 ressources / 10 000 réservations p95 lecture `46,35 ms`, conflit `70,24 ms`, écriture `126,37 ms`, lot 100 `180,34 ms`; PDF 500 lignes p95 `11,73 ms`.
+- `git diff --check` : **PASS**.
+
+## Constats et limites maintenus
+
+1. **P2 — Catalogue exhaustif à très forte volumétrie :** `apiAll` séquentiel et détection partagée O(N²), inchangés.
+2. **P2 — enveloppe mémoire/DOM Planning à longue période :** monolithe JSON et budget DOM/heap à surveiller, inchangés.
+3. **P3 — preuve interactive navigateur :** absence de trace fraîche FPS/layout/paint/mémoire, inchangée et hors impact de ce test Node.
+
+Cette revalidation est strictement différentielle; elle ne revendique ni benchmark nouveau, ni CI distante, ni contention multi-utilisateur. Toute modification ultérieure du runtime invalide la réutilisation des mesures RC2.
+
+Gate PERFORMANCE RC3 : **APPROVED avec 2 P2 et 1 P3 non bloquants**. Seul `docs/performance-report.md` est modifié; `docs/project-status.md` reste à l'intégrateur.
+
+---
+
 # Analyse d'impact PERFORMANCE — métadonnées RELEASE `0.6.0-rc2`
 
 Date : 2026-08-30

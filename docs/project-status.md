@@ -1,11 +1,15 @@
 # État du projet — Planning Post Prod
 
-Version stable locale : `0.6.0-rc1` · candidat release local : `0.6.0-rc2` (tag/publication PO requis)
-Date : 2026-08-30
+Version publiée : `0.6.0-rc2` · candidat correctif local : `0.6.0-rc3`
+Date : 2026-09-01
 
 Organisation : gouvernance multi-agents formalisée dans `AGENTS.md`; dépôt Git initialisé sur `main`.
 
 Architecture cible : le synoptique global fourni par le Product Owner est adopté comme cible de développement. La migration reste incrémentale depuis la RC1, sans big bang.
+
+Gates locaux RC3 2026-09-01 : **APPROVED — 0 P0 / 0 P1, publication GitHub requise**. REVIEW confirme le scénario SSE `10/10`, ciblé Devis `51/51`, complet `368/368`, syntaxe/diff-check PASS. QA confirme `51/51`, `368/368` et la version `0.6.0-rc3`. SECURITY confirme `server.js`/`app.js` byte-identiques et la garde `429 SSE_SESSION_LIMIT` inchangée. PERFORMANCE confirme l’absence d’impact runtime, avec les limites P2/P3 RC2 conservées. INTEGRATION : démarrage isolé port `8243`, `/` `200` avec en-têtes défensifs, API protégée `401`, arrêt et nettoyage conformes. E2E : analyse différentielle approuvée car aucun fichier produit n’est modifié; les assertions permission Site/révocation du scénario SSE restent actives. La condition RELEASE restante est le succès de GitHub Actions Node 20/Linux sur le commit RC3; RC2 et son tag ne seront pas déplacés.
+
+Retour DEV CI post-publication RC2 2026-09-01 : **CORRIGÉ — re-gates ciblés requis**. GitHub Actions a exécuté les 368 tests mais signalé `367/368` : le scénario « SSE Commercial revalide quote.read » annulait un flux puis en ouvrait immédiatement un second avec la même session sans attendre la fermeture effective du premier ; la protection serveur « une connexion SSE par session » répondait légitimement `429`. Le helper de test attend désormais `reader.cancel()` et un tour de boucle avant la réouverture. `server.js`, l’API, les données, les permissions et le runtime métier restent inchangés. Preuves DEV fraîches : Devis `51/51`, suite complète `368/368`. RC2 et son tag publié restent immuables ; le correctif est préparé sous `0.6.0-rc3`. REVIEW et QA doivent revalider le test ; SECURITY et PERFORMANCE doivent confirmer l’absence d’impact runtime avant publication et contrôle GitHub Actions.
 
 Verdict RELEASE technique `0.6.0-rc2` 2026-08-30 : **PRÊT À LA DÉCISION PO DE TAG LOCAL — 0 P0 / 0 P1**. REVIEW, QA, SECURITY, PERFORMANCE, INTEGRATION, E2E et le contrôle documentaire final sont `APPROVED`. Après métadonnées : suite complète `368/368`, lint/build/diff-check PASS, smoke local `/` `200` avec en-têtes défensifs et accès non authentifié protégé. La procédure positive `rollbackArticleCatalogPricingV2({ exportFile })` a été exécutée sur la seule base E2E temporaire : export distinct vérifié, restauration par digest réussie, puis fichier, sauvegardes et export temporaires supprimés. Le test Catalogue ciblé reste vert `5/5`. Limites P2 non bloquantes conservées dans les rapports : annonce accessible du ratio, comparaison géométrique PDF, automatisation du chemin positif complet de rollback et mesures de montée en charge. Aucun tag, commit, push ou déploiement n’a été effectué ; l’autorisation finale appartient au Product Owner.
 

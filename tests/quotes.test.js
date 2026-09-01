@@ -65,7 +65,11 @@ async function nextInvalidation(stream, timeoutMs = 1000) {
   const read = async () => { while (!stream.buffered.includes('event: invalidation')) { const chunk = await stream.reader.read(); if (chunk.done) return null; stream.buffered += stream.decoder.decode(chunk.value, { stream: true }); } const boundary = stream.buffered.indexOf('\n\n'), event = stream.buffered.slice(0, boundary + 2); stream.buffered = stream.buffered.slice(boundary + 2); return event; };
   return Promise.race([read(), new Promise(resolve => setTimeout(() => resolve(null), timeoutMs))]);
 }
-function closeEventStream(stream) { stream.controller.abort(); stream.reader.cancel().catch(() => {}); }
+async function closeEventStream(stream) {
+  stream.controller.abort();
+  try { await stream.reader.cancel(); } catch (error) { if (error?.name !== 'AbortError') throw error; }
+  await new Promise(resolve => setImmediate(resolve));
+}
 function storedZip(entries) {
   const locals = [], centrals = []; let offset = 0;
   for (const [name, content] of Object.entries(entries)) { const nameBuffer = Buffer.from(name), data = Buffer.from(content), local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0, 6); local.writeUInt16LE(0, 8); local.writeUInt32LE(data.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(nameBuffer.length, 26); const central = Buffer.alloc(46); central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6); central.writeUInt16LE(0, 8); central.writeUInt16LE(0, 10); central.writeUInt32LE(data.length, 20); central.writeUInt32LE(data.length, 24); central.writeUInt16LE(nameBuffer.length, 28); central.writeUInt32LE(offset, 42); locals.push(local, nameBuffer, data); centrals.push(central, nameBuffer); offset += local.length + nameBuffer.length + data.length; }
@@ -556,10 +560,10 @@ test('SSE Commercial revalide quote.read en direct et conserve l’isolation sit
   const memberships = await request('/api/v1/memberships?pageSize=200', {}, admin), membership = memberships.data.items.find(value => value.userId === viewer.user.id); let assigned = await request(`/api/v1/memberships/${membership.id}/roles`, { method: 'PUT', body: JSON.stringify({ version: membership.version, roleIds: [readRole.data.id] }) }, admin); assert.equal(assigned.response.status, 200); viewer = await login('viewer@northlight.fr');
   const adminStream = await openEventStream(admin), siteStream = await openEventStream(viewer);
   const createQuote = (key, siteId) => request('/api/v1/quotes', { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify({ projectId: 'project_1', siteId, kind: 'quote', title: key, taxDate: '2026-08-16' }) }, admin);
-  assert.equal((await createQuote('sse-commercial-boulogne', 'site_boulogne')).response.status, 201); assert.match(await nextInvalidation(adminStream), /quote\.created\.v1/); assert.equal(await nextInvalidation(siteStream, 150), null); closeEventStream(siteStream);
+  assert.equal((await createQuote('sse-commercial-boulogne', 'site_boulogne')).response.status, 201); assert.match(await nextInvalidation(adminStream), /quote\.created\.v1/); assert.equal(await nextInvalidation(siteStream, 150), null); await closeEventStream(siteStream);
   const liveStream = await openEventStream(viewer); assert.equal((await createQuote('sse-commercial-paris-before-revoke', 'site_paris')).response.status, 201); assert.match(await nextInvalidation(adminStream), /quote\.created\.v1/); assert.match(await nextInvalidation(liveStream), /quote\.created\.v1/);
   assigned = await request(`/api/v1/memberships/${membership.id}/roles`, { method: 'PUT', body: JSON.stringify({ version: assigned.data.version, roleIds: [deniedRole.data.id] }) }, admin); assert.equal(assigned.response.status, 200); assert.match(await nextInvalidation(adminStream), /membership\.updated\.v1/); assert.match(await nextInvalidation(liveStream), /membership\.updated\.v1/);
-  assert.equal((await createQuote('sse-commercial-paris-after-revoke', 'site_paris')).response.status, 201); assert.match(await nextInvalidation(adminStream), /quote\.created\.v1/); assert.equal(await nextInvalidation(liveStream, 150), null); closeEventStream(liveStream); closeEventStream(adminStream);
+  assert.equal((await createQuote('sse-commercial-paris-after-revoke', 'site_paris')).response.status, 201); assert.match(await nextInvalidation(adminStream), /quote\.created\.v1/); assert.equal(await nextInvalidation(liveStream, 150), null); await closeEventStream(liveStream); await closeEventStream(adminStream);
   viewer = await login('viewer@northlight.fr'); for (const route of ['/api/v1/rate-cards', '/api/v1/projects/project_1/dashboard', '/api/v1/reservations/reservation_1/commercial-links']) { const denied = await request(route, {}, viewer); assert.equal(denied.response.status, 403, route); assert.equal(denied.data.error.code, 'FORBIDDEN'); }
 });
 

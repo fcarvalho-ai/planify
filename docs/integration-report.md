@@ -1,3 +1,19 @@
+# Rapport d’intégration — Correctif CI / candidat RC3
+
+Date : 2026-09-01
+Environnement : macOS arm64, Node.js v26.6.0
+Baseline publiée : `v0.6.0-rc2` (`7a294bb0475c2ad25bb04edcd41031661b3fe581`)
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+Le diff RC3 ne modifie aucun fichier runtime : `server.js` et `app.js` restent byte-identiques à RC2. Le test Commercial attend désormais la fermeture effective de son flux SSE avant d’en ouvrir un autre avec la même session ; la limite serveur `429 SSE_SESSION_LIMIT` reste inchangée. REVIEW, QA, SECURITY et PERFORMANCE sont `APPROVED`; ciblé Devis `51/51`, scénario SSE répété `10/10`, suite complète `368/368`, lint/build/diff-check PASS.
+
+Le smoke isolé `PLANIFY_DATA_FILE=/private/tmp/planify-rc3-integration.json PORT=8243 npm start` a démarré Planify, retourné `/` en `200` avec `X-Frame-Options: DENY`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` et `Referrer-Policy: same-origin`, puis refusé `/api/v1/reservations` sans authentification en `401`. Le serveur a été arrêté et la base temporaire supprimée. Le candidat franchit INTEGRATION.
+
+---
+
 # Rapport d’intégration — Consolidation post-RC1 / candidat RC2
 
 Date : 2026-08-30

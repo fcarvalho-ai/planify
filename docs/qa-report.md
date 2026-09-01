@@ -1,3 +1,65 @@
+# Re-gate QA indépendant — candidat 0.6.0-rc3
+
+Date : 2026-09-01
+
+Baseline publiée : tag `v0.6.0-rc2`, commit `7a294bb0475c2ad25bb04edcd41031661b3fe581`
+
+Candidat : diff de travail non commité depuis cette baseline, identifié par les empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64
+
+Verdict : **APPROVED — 0 P0 / 0 P1 ouvert**
+
+Cette QA couvre exclusivement le correctif de course à la fermeture du flux SSE dans le test Commercial et les métadonnées `0.6.0-rc3`. Aucun code produit, contrat API, donnée, permission ou comportement serveur n'est modifié par ce candidat. Seul le présent rapport QA est modifié par l'agent de gate.
+
+## État exact contrôlé
+
+```text
+package.json                                94918ac01c3bab7547d91fa239a7105cf49edd7722fca68bd394b35d53a93578
+tests/quotes.test.js                        729a80fde8cec1550c2c446deba650d5881da40a64725782cc05b654d3834784
+CHANGELOG.md                                e8436920cf7ddb4002e8148e58fb55c4a4c4e1224281c33fa3f2d236c7c793b8
+README.md                                   3a94792ce7bf84fc83b6580373204003946584a6ff9d00d1591fb934d1a551bd
+docs/project-status.md                      691f688f44062006658822afb5c07611705c6c7e85bfe0218283f4848aa60420
+```
+
+Toute modification ultérieure de ces cinq fichiers invalide ce verdict.
+
+## Diff et critères fonctionnels vérifiés
+
+- `git diff --name-only v0.6.0-rc2 --` contient exactement les cinq fichiers ci-dessus avant l'ajout du présent rapport ; aucun fichier runtime, API ou persistance n'est modifié ;
+- `package.json` annonce exactement `0.6.0-rc3` ; `README.md`, `CHANGELOG.md` et `docs/project-status.md` distinguent correctement RC2 publiée du candidat correctif RC3 ;
+- le helper `closeEventStream` est devenu asynchrone : il déclenche l'abandon, attend `reader.cancel()`, tolère uniquement `AbortError`, puis laisse un tour de boucle au serveur avant la réouverture ;
+- les deux fermetures du scénario Commercial sont attendues avec `await`, ce qui supprime la course de test sans relâcher la limite serveur d'une connexion SSE par session ;
+- le scénario conserve les contrôles de permission dynamiques et d'isolation site : événement Boulogne absent pour le lecteur Paris, réception Paris avant révocation, absence après révocation, puis routes commerciales refusées ;
+- le `367/368` observé dans GitHub Actions sur RC2 est documenté comme un `429` transitoire de test, sans présenter le comportement défensif du serveur comme une anomalie métier.
+
+## Commandes et résultats frais
+
+- `node -p "process.version+' '+process.platform+' '+process.arch"` : **PASS**, `v26.6.0 darwin arm64` ;
+- `git rev-list -n 1 v0.6.0-rc2` : **PASS**, `7a294bb0475c2ad25bb04edcd41031661b3fe581` ;
+- `node -p "require('./package.json').version"` : **PASS**, `0.6.0-rc3` ;
+- `node --test tests/quotes.test.js` : **51/51 réussis**, 0 échec, 0 annulé, 0 ignoré ; le test « SSE Commercial revalide quote.read en direct et conserve l'isolation site » est vert ;
+- `npm test` : **368/368 réussis**, 0 échec, 0 annulé, 0 ignoré ; durée Node déclarée `9 501,872 ms` ;
+- `git diff --check` : **PASS** avant et après les exécutions de tests ;
+- `shasum -a 256 package.json tests/quotes.test.js CHANGELOG.md README.md docs/project-status.md` : **PASS**, empreintes conformes à l'état exact ci-dessus.
+
+## Cas limites, permissions et non-régression
+
+- la fermeture asynchrone rejette encore toute erreur différente d'`AbortError`, évitant de masquer un défaut réel du lecteur ;
+- le test ciblé puis la suite complète font passer deux fois le parcours SSE affecté sur le même candidat ; aucun `429` inattendu n'est observé ;
+- la limite SSE reste testée côté serveur dans la suite complète, de même que logout, révocation, RBAC, isolation société/site, CSRF, audit et persistance ;
+- aucune migration, dépendance, route ou donnée de démonstration n'est introduite ; les procédures de démonstration et rollback RC2 sont reprises par RC3 sans changement de modèle.
+
+## Limites et handoff
+
+1. Ce gate ne remplace pas la re-REVIEW indépendante ni les confirmations SECURITY/PERFORMANCE d'absence d'impact runtime demandées dans `docs/project-status.md`.
+2. La validation distante GitHub Actions reste à observer après commit/push ; cette QA démontre le correctif local déterministe mais ne prétend pas avoir exécuté la CI distante.
+3. Aucun commit, tag, push ou déploiement n'est autorisé par ce rapport.
+
+Conclusion : le correctif attend effectivement la fermeture du flux SSE avant réouverture, sans modifier ni contourner la protection serveur. Le ciblé **51/51**, la suite complète **368/368**, la version `0.6.0-rc3` et le diff-check sont conformes. Gate QA RC3 : **APPROVED — 0 P0 / 0 P1 ouvert**.
+
+---
+
 # Revalidation QA RELEASE — rollback tarifaire RC2 vers RC1
 
 Date : 2026-08-30

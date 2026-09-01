@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0-rc3 — 2026-09-01
+
+- correction du test SSE Commercial pour attendre la fermeture effective d’un flux avant sa réouverture avec la même session ;
+- maintien strict de la limite serveur à une connexion SSE par session, sans changement d’API, de données, de permissions ni de runtime métier ;
+- correction motivée par GitHub Actions : `367/368` sur RC2 avec un `429` transitoire, puis ciblé Devis `51/51` et suite locale `368/368` sur RC3 avant revalidation distante.
+
 ## 0.6.0-rc2 — 2026-08-30
 
 - Planning consolidé : déplacements de cellules `option` et `confirmed` dans le temps et entre salles, ressource effective propagée, copie d’une seule cellule, effacement logique récupérable, barre d’actions compacte et gestes plus fluides ;
