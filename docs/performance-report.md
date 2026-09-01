@@ -1,3 +1,36 @@
+# Gate PERFORMANCE indépendant — promotion stable `0.6.0`
+
+Date : 2026-09-01
+
+Base : tag `v0.6.0-rc3` (`1cc545db295b42f1c342b45e74bbaed13c3943c8`). Promotion locale : `package.json 0.6.0`, SHA-256 `db168e4361a14536c88ab004cb7c5a707529d9f29d53e5182e88d976fe38f26a`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1; 2 P2 et 1 P3 hérités de RC3, inchangés.**
+
+La promotion modifie uniquement quatre métadonnées/documentations. `app.js`, `server.js`, OpenAPI, données, tests, scripts et dépendances sont byte-identiques à RC3. Aucun chemin d'exécution, algorithme, I/O, allocation, rendu, migration ou cardinalité ne change; aucun nouveau benchmark produit ne serait informatif.
+
+## Analyse d'impact et références
+
+- La valeur `0.6.0` de `package.json` n'est consommée ni par le serveur, ni par le frontend. Elle ne modifie pas le démarrage, le stockage, les en-têtes, le routage, le SSE ou la sérialisation.
+- La documentation de rollback ne déclenche aucune opération runtime. La migration tarifaire, sa sauvegarde et son export sont les mêmes que RC3; la promotion n'ajoute aucune lecture/écriture de données.
+- Les références RC3 restent pleinement applicables : Planning 250 ressources / 10 000 réservations p95 lecture `46,35 ms`, conflit `70,24 ms`, écriture `126,37 ms`, lot 100 `180,34 ms`; PDF 500 lignes p95 `11,73 ms`.
+- Ces chiffres sont réutilisés parce que les binaires source sont identiques, pas présentés comme de nouvelles mesures. Aucun temps de test ou de commande documentaire n'est converti en métrique produit.
+
+## Constats et limites maintenus
+
+1. **P2 — Catalogue exhaustif à très forte volumétrie :** chargement séquentiel et détection O(N²), inchangés.
+2. **P2 — enveloppe mémoire/DOM Planning à longue période :** monolithe JSON et budget DOM/heap à surveiller, inchangés.
+3. **P3 — preuve interactive navigateur :** aucune nouvelle trace FPS/layout/paint/mémoire; hors impact de la promotion documentaire.
+
+Preuves : diff RC3 limité à quatre métadonnées avant rapports; SHA-256 `app.js 9601017d92cf…`, `server.js 3f4b87eb8ee4…`, OpenAPI `055f9a05f5f7…` identiques au tag; `git diff --check` **PASS**.
+
+Analyse différentielle uniquement : aucun benchmark, test de charge, navigateur ou contention multi-utilisateur n'est revendiqué. Les contrôles QA/CI de la stable appartiennent aux gates aval. Toute modification runtime invalide la réutilisation des mesures RC3.
+
+Gate PERFORMANCE stable `0.6.0` : **APPROVED avec 2 P2 et 1 P3 non bloquants**. Seul `docs/performance-report.md` est modifié; `docs/project-status.md` reste à l'intégrateur.
+
+---
+
 # Re-gate PERFORMANCE indépendant — candidat `0.6.0-rc3`
 
 Date : 2026-09-01

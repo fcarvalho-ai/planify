@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0 — 2026-09-01
+
+- promotion de `0.6.0-rc3` en version stable après validation explicite du Product Owner ;
+- contenu applicatif strictement identique à RC3 : Planning consolidé, Vue d’ensemble analytique, couleurs Projet accessibles et cycle Catalogue SAGE → Devis → PDF ;
+- gates REVIEW, QA, SECURITY, PERFORMANCE, INTEGRATION et E2E approuvés sans P0/P1 ; suite complète `368/368`, lint, fondations et build réussis localement et sur GitHub Actions pour la branche et le tag RC3 ;
+- aucune migration, dépendance, modification d’API, donnée ou permission ajoutée lors de la promotion stable.
+
 ## 0.6.0-rc3 — 2026-09-01
 
 - correction du test SSE Commercial pour attendre la fermeture effective d’un flux avant sa réouverture avec la même session ;

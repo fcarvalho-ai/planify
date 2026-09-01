@@ -11,11 +11,11 @@ npm start
 
 Puis ouvrir <http://localhost:8080>.
 
-## Candidat local V1 — 0.6.0-rc3
+## Release stable V1 — 0.6.0
 
-Le candidat local `0.6.0-rc3` reprend l’intégralité fonctionnelle de `0.6.0-rc2` et corrige uniquement l’attente de fermeture d’un flux SSE dans le test Commercial exécuté par GitHub Actions. Le serveur conserve strictement la limite d’une connexion temps réel par session ; aucun contrat API, donnée, permission ou comportement métier ne change. RC2 consolide le Planning, la Vue d’ensemble, les couleurs Projet et le cycle Catalogue → Devis → PDF. Les preuves et verdicts du candidat RC3 sont conservés dans `docs/project-status.md` et les rapports indépendants.
+La release stable `0.6.0`, validée par le Product Owner le 1er septembre 2026, reprend intégralement le candidat `0.6.0-rc3`. Le serveur conserve strictement la limite d’une connexion temps réel par session ; aucun contrat API, donnée, permission ou comportement métier ne change pendant la promotion. Cette version consolide le Planning, la Vue d’ensemble, les couleurs Projet et le cycle Catalogue → Devis → PDF. Les preuves et verdicts sont conservés dans `docs/project-status.md` et les rapports indépendants.
 
-Le runtime RC3 reste local et autonome. Les contrats V1 sont introduits de façon additive dans `packages/` : erreurs/enveloppes, RBAC et scopes, idempotence, audit, événements, planning, pricing et consommation Devis/Planning. Les décisions structurantes sont dans `docs/adr/` et l'API candidate dans `docs/api/openapi-v1.yaml`.
+Le runtime `0.6.0` reste local et autonome. Les contrats V1 sont introduits de façon additive dans `packages/` : erreurs/enveloppes, RBAC et scopes, idempotence, audit, événements, planning, pricing et consommation Devis/Planning. Les décisions structurantes sont dans `docs/adr/` et l'API stable dans `docs/api/openapi-v1.yaml`.
 
 Commandes de vérification :
 
@@ -56,16 +56,16 @@ npm run rollback:article-catalog
 
 Le rollback vérifie la sauvegarde et exporte d’abord l’état courant. Il retire les écritures réalisées depuis la migration ; il faut ensuite remettre en service une version applicative antérieure à ce lot pour éviter sa réapplication au démarrage.
 
-RC2, reprise sans changement de données par RC3, ajoute la migration tarifaire additive `article-catalog-sage-pricing-v2` : elle enrichit les 71 articles avec les tarifs heure, jour, semaine, mois et forfait, crée un marqueur d’intégrité et une sauvegarde privée `0600`. Pour revenir de `0.6.0-rc3` à `0.6.0-rc1`, arrêter le serveur puis exécuter le rollback **avec le code RC3 encore en place** et un export de récupération neuf et distinct :
+RC2, reprise sans changement de données par RC3 puis `0.6.0`, ajoute la migration tarifaire additive `article-catalog-sage-pricing-v2` : elle enrichit les 71 articles avec les tarifs heure, jour, semaine, mois et forfait, crée un marqueur d’intégrité et une sauvegarde privée `0600`. Pour revenir de `0.6.0` à `0.6.0-rc1`, arrêter le serveur puis exécuter le rollback **avec le code `0.6.0` encore en place** et un export de récupération neuf et distinct :
 
 ```bash
 PLANIFY_DATA_FILE=/chemin/vers/planify.json \
 node -e "console.log(require('./server.js').rollbackArticleCatalogPricingV2({ exportFile: '/chemin/vers/recovery-pricing-v2.json' }))"
 ```
 
-Le rollback vérifie le marqueur, la sauvegarde et l’export avant de restaurer l’état antérieur à la migration tarifaire. Il retire donc du fichier actif les modifications réalisées depuis cette sauvegarde ; l’export `0600` doit être conservé pour une reprise contrôlée. Remettre ensuite RC1 en service depuis un clone ou worktree dédié et vérifier connexion, Planning, Projets, Devis, tarifs et Catalogue. Ne pas redémarrer RC2 ou RC3 sur l’état restauré, car la migration tarifaire serait réappliquée.
+Le rollback vérifie le marqueur, la sauvegarde et l’export avant de restaurer l’état antérieur à la migration tarifaire. Il retire donc du fichier actif les modifications réalisées depuis cette sauvegarde ; l’export `0600` doit être conservé pour une reprise contrôlée. Remettre ensuite RC1 en service depuis un clone ou worktree dédié et vérifier connexion, Planning, Projets, Devis, tarifs et Catalogue. Ne pas redémarrer RC2, RC3 ou `0.6.0` sur l’état restauré, car la migration tarifaire serait réappliquée.
 
-Pour revenir ensuite de `0.6.0-rc1` à `0.5.0-rc6`, utiliser la procédure de rollback Catalogue avant le retour applicatif. L’export de récupération doit être conservé séparément : il contient les créations et modifications Article intervenues depuis la migration. Remettre ensuite en service le tag `v0.5.0-rc6` depuis un clone ou worktree dédié, redémarrer sur le fichier restauré et vérifier connexion, Devis, Finance, Analytics et Planning. Ne pas redémarrer `0.6.0-rc1`, RC2 ou RC3 sur l’état restauré, car leur migration Catalogue serait réappliquée.
+Pour revenir ensuite de `0.6.0-rc1` à `0.5.0-rc6`, utiliser la procédure de rollback Catalogue avant le retour applicatif. L’export de récupération doit être conservé séparément : il contient les créations et modifications Article intervenues depuis la migration. Remettre ensuite en service le tag `v0.5.0-rc6` depuis un clone ou worktree dédié, redémarrer sur le fichier restauré et vérifier connexion, Devis, Finance, Analytics et Planning. Ne pas redémarrer `0.6.0-rc1`, RC2, RC3 ou `0.6.0` sur l’état restauré, car leur migration Catalogue serait réappliquée.
 
 ## Parc matériel et salles
 

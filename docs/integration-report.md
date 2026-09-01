@@ -1,3 +1,16 @@
+# Rapport d’intégration — Promotion stable 0.6.0
+
+Date : 2026-09-01
+Baseline : `v0.6.0-rc3` (`1cc545db295b42f1c342b45e74bbaed13c3943c8`)
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+La promotion stable ne modifie aucun actif runtime, test, contrat API, donnée, permission ou script par rapport à RC3. REVIEW, QA, SECURITY et PERFORMANCE sont approuvés ; `npm test` réussit `368/368`, les fondations `17/17`, lint/build/diff-check passent et cinq actifs runtime sont vérifiés. Le smoke `PLANIFY_DATA_FILE=/private/tmp/planify-v060-integration.json PORT=8251 npm start` retourne `/` en `200` avec les en-têtes défensifs attendus et refuse l’API protégée en `401`. Le serveur est arrêté et le fichier temporaire supprimé. Le port `8244`, déjà occupé, a été abandonné sans mutation avant ce smoke réussi.
+
+---
+
 # Rapport d’intégration — Correctif CI / candidat RC3
 
 Date : 2026-09-01

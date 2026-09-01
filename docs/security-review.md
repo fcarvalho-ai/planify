@@ -1,3 +1,36 @@
+# Gate SECURITY indépendant — promotion stable `0.6.0`
+
+Date : 2026-09-01
+
+Base : tag `v0.6.0-rc3` (`1cc545db295b42f1c342b45e74bbaed13c3943c8`). Promotion locale : `package.json 0.6.0`, SHA-256 `db168e4361a14536c88ab004cb7c5a707529d9f29d53e5182e88d976fe38f26a`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 0 P3 ouvert sur la promotion RC3 → stable.**
+
+Avant ajout des rapports de gate, le diff contient exactement quatre fichiers de métadonnées : `package.json`, `CHANGELOG.md`, `README.md` et `docs/project-status.md`. Aucun fichier applicatif, API, donnée, permission, test, migration, script ou dépendance ne change.
+
+## Analyse d'impact
+
+- `app.js` SHA-256 `9601017d92cf6884df6c74e3b688b15421b1f6b60c4fe99e692aabf3255b96aa`, `server.js` `3f4b87eb8ee4106b819878a0eb73f71516a92099d2fa9e43995a7582444b3af1` et OpenAPI `055f9a05f5f722345aa8237cb994395426af76314a75abd370e70d6e8aae2a97` sont byte-identiques à `v0.6.0-rc3`.
+- Auth/session/CSRF, RBAC, scopes société/site/entité, SSE une connexion par session, audit, idempotence, validation, exposition statique, secrets/logs et dépendances conservent donc exactement le verdict RC3. La version du package n'est lue par aucun chemin runtime et `package.json` reste hors liste statique.
+- Les données suivies sont inchangées; aucune migration ne s'exécute du fait de la promotion. La stable reprend les migrations déjà présentes dans RC3 sans modifier identifiant, digest, marqueur ou comportement.
+- Le rollback est cohérent : la documentation attribue bien `article-catalog-sage-pricing-v2` à RC2, exige l'arrêt puis l'exécution de `rollbackArticleCatalogPricingV2({ exportFile })` avec le code stable encore présent, vérifie marqueur/sauvegarde/export, conserve l'export privé `0600`, puis interdit de redémarrer RC2, RC3 ou stable sur l'état restauré.
+- La promotion n'élargit aucune autorité et n'ajoute aucun mécanisme distant. Les preuves SECURITY RC3 restent applicables sans extrapolation puisqu'elles portent sur les mêmes octets produit.
+
+## Preuves et limites
+
+- `git diff --name-status v0.6.0-rc3 --` avant rapports : **4 fichiers de métadonnées uniquement**.
+- SHA-256 courant comparé au tag : **MATCH** pour `app.js`, `server.js` et OpenAPI.
+- `tests/quotes.test.js` reste `729a80fde8cec1550c2c446deba650d5881da40a64725782cc05b654d3834784`; la garde SSE RC3 reste couverte sans modification.
+- `git diff --check` : **PASS**.
+
+Analyse différentielle documentaire : aucun pentest, test runtime ou CI supplémentaire n'est revendiqué par ce gate, car aucun octet exécutable ne change. La suite et la CI stable restent aux gates QA/RELEASE. Toute modification ultérieure d'un fichier produit invalide cette conclusion.
+
+Gate SECURITY stable `0.6.0` : **APPROVED**. Seul `docs/security-review.md` est modifié; `docs/project-status.md` reste à l'intégrateur.
+
+---
+
 # Re-gate SECURITY indépendant — candidat `0.6.0-rc3`
 
 Date : 2026-09-01

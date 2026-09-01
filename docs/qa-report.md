@@ -1,3 +1,67 @@
+# Gate QA indépendant — promotion stable 0.6.0
+
+Date : 2026-09-01
+
+Baseline : tag `v0.6.0-rc3`, commit `1cc545db295b42f1c342b45e74bbaed13c3943c8`
+
+Candidat stable : diff de métadonnées non commité depuis cette baseline, identifié par les empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64
+
+Verdict QA local : **APPROVED — 0 P0 / 0 P1 ouvert**
+
+Cette QA vérifie la promotion sans modification fonctionnelle de `0.6.0-rc3` vers `0.6.0`. Aucun code produit, test, contrat API, donnée, permission ou dépendance n'est modifié. Seul le présent rapport QA est édité par l'agent de gate.
+
+## État documentaire exact contrôlé
+
+```text
+package.json                                db168e4361a14536c88ab004cb7c5a707529d9f29d53e5182e88d976fe38f26a
+CHANGELOG.md                                7785cd7ceed27f828607e018c62a2e87b0bdc80cd3c67cc7145bbe92a3fcc874
+README.md                                   721052ba0bc03ec86a39c67790d8d9d4b5cabd5e8fb634b0f59727ffd64588d8
+docs/project-status.md                      ddd0ee17436b1906827a198959ca10cfde7704e40085dca2935e1f621303170f
+```
+
+Toute modification ultérieure de ces quatre fichiers invalide ce verdict.
+
+## Diff, version et runtime
+
+- avant l'ajout de ce rapport, `git diff --name-only v0.6.0-rc3 --` contient exactement `package.json`, `CHANGELOG.md`, `README.md` et `docs/project-status.md` ;
+- `package.json` annonce exactement `0.6.0` ; `README.md` présente la release stable et `CHANGELOG.md` ouvre `0.6.0` au 1er septembre 2026 ;
+- `git diff --quiet v0.6.0-rc3 -- .` avec exclusion de ces quatre métadonnées retourne `0` : l'ensemble du runtime, des tests, contrats et scripts est byte-identique à RC3 ;
+- contrôle renforcé des blobs : `server.js`, `app.js`, `index.html`, `styles.css`, `planning.css` et `tests/quotes.test.js` ont respectivement les mêmes identifiants Git courants et RC3 : `461d4200…`, `6e7da63a…`, `6241fbdf…`, `6a1399ce…`, `c5344921…`, `b529b919…` ;
+- aucune migration ou dépendance n'est ajoutée pendant la promotion ; les preuves fonctionnelles et de sécurité RC3 restent applicables au runtime strictement identique.
+
+## Changelog, README et rollback
+
+- le changelog décrit explicitement une promotion après validation PO, sans changement applicatif, d'API, de données ni de permission ;
+- le README conserve le démarrage autonome local, les commandes de vérification et la suite de référence à 368 tests ;
+- le rollback `0.6.0` vers `0.6.0-rc1` doit toujours être exécuté avec le code stable encore présent via `rollbackArticleCatalogPricingV2`, avec export de récupération neuf, distinct et vérifié avant restauration ;
+- après restauration, RC2, RC3 et `0.6.0` ne doivent pas être redémarrés sous peine de réappliquer la migration tarifaire ; le rollback Catalogue V1 reste requis pour un retour ultérieur vers `0.5.0-rc6` ;
+- `docs/project-status.md` distingue la baseline RC3 de la promotion stable et conserve comme condition aval le contrôle GitHub Actions sur le futur commit/tag stable.
+
+## Commandes et résultats frais
+
+- `node -p "process.version+' '+process.platform+' '+process.arch"` : **PASS**, `v26.6.0 darwin arm64` ;
+- `git rev-list -n 1 v0.6.0-rc3` : **PASS**, `1cc545db295b42f1c342b45e74bbaed13c3943c8` ;
+- `node -p "require('./package.json').version"` : **PASS**, `0.6.0` ;
+- `npm test` : **368/368 réussis**, 0 échec, 0 annulé, 0 ignoré ; durée Node déclarée `11 165,022 ms` ;
+- `npm run test:foundations` : **17/17 réussis**, 0 échec ;
+- `npm run lint` : **PASS**, tous les fichiers backend, frontend, modules partagés et scripts vérifiés par `node --check` ;
+- `npm run build` : **PASS**, `5 actifs runtime` vérifiés ;
+- `git diff --check` : **PASS** avant mise à jour du présent rapport ;
+- `shasum -a 256 package.json CHANGELOG.md README.md docs/project-status.md` : **PASS**, empreintes conformes à l'état ci-dessus.
+
+## Permissions, non-régression et limites
+
+- la suite complète couvre toujours auth/session/CSRF, RBAC, isolation société/site, audit, SSE, concurrence, migrations, Planning, Dashboard, Catalogue, Devis/PDF et persistance ;
+- aucune donnée de travail ni fixture du dépôt n'a été modifiée par les commandes de QA ;
+- ce verdict valide le candidat local. La réussite GitHub Actions du futur commit/tag `0.6.0`, explicitement exigée par le statut projet, reste une condition de publication distante ;
+- aucun commit, tag, push, release GitHub ou déploiement n'est autorisé par ce rapport ; les limites P2/P3 déjà acceptées sur RC3 restent inchangées.
+
+Conclusion : la promotion `0.6.0` est strictement documentaire, le runtime est byte-identique à `v0.6.0-rc3`, les procédures de démonstration et rollback sont cohérentes, et tous les contrôles locaux sont verts. Gate QA local stable : **APPROVED — 0 P0 / 0 P1 ouvert**, sous condition aval du contrôle GitHub Actions stable déjà identifié dans `docs/project-status.md`.
+
+---
+
 # Re-gate QA indépendant — candidat 0.6.0-rc3
 
 Date : 2026-09-01

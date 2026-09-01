@@ -1,3 +1,16 @@
+# Rapport E2E — Promotion stable 0.6.0
+
+Date : 2026-09-01
+Baseline : `v0.6.0-rc3` (`1cc545db295b42f1c342b45e74bbaed13c3943c8`)
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+Le Product Owner a explicitement validé RC3. Les fichiers applicatifs, le test SSE corrigé, l’OpenAPI et les scripts sont byte-identiques au tag RC3 dont les parcours E2E et les CI branche/tag sont verts. La promotion change seulement la version et la documentation ; aucun parcours navigateur ne peut diverger. Les preuves différentielles restent `368/368`, fondations `17/17`, lint/build PASS et smoke stable `200`/`401`. La recette RC3 validée par le PO couvre donc exactement le produit taguable `v0.6.0`. La CI du futur commit et du tag stable reste la dernière preuve RELEASE.
+
+---
+
 # Rapport E2E — Analyse différentielle / candidat RC3
 
 Date : 2026-09-01

@@ -1,3 +1,55 @@
+# Gate REVIEW indépendant — promotion stable `0.6.0`
+
+Date : 2026-09-01
+
+Reviewer : agent indépendant `review_tarifs_devis_pdf`.
+
+Baseline : tag publié `v0.6.0-rc3`, commit `1cc545db295b42f1c342b45e74bbaed13c3943c8`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1 ouvert.**
+
+La promotion est strictement documentaire et de version : à l'ouverture du gate, son périmètre depuis `v0.6.0-rc3` contenait exactement `package.json`, `CHANGELOG.md`, `README.md` et `docs/project-status.md`. Les rapports indépendants QA/SECURITY/PERFORMANCE ont ensuite été ajoutés en parallèle, sans code produit. Aucun fichier applicatif, test, contrat API, donnée, migration, permission ou dépendance n'est modifié.
+
+## Identité du runtime et compatibilité
+
+- Comparaison SHA-256 fichier par fichier avec le tag RC3 : `app.js`, `server.js`, `index.html`, `styles.css`, `planning.css`, `tests/quotes.test.js` et `docs/api/openapi-v1.yaml` sont byte-identiques.
+- Empreintes runtime stables : `app.js 9601017d92cf…`, `server.js 3f4b87eb8ee4…`, `index.html d2d7615a1915…`, `styles.css f4be1bf5bb9f…`, `planning.css 7455ab68e6bb…`; le test SSE reste `729a80fde8ec…` et l'OpenAPI `055f9a05f5f7…`.
+- La promotion ne modifie donc ni le garde `429 SSE_SESSION_LIMIT`, ni RBAC/isolation, ni persistance, ni comportement Planning/Devis/PDF. Tous les verdicts techniques portés par le candidat RC3 restent applicables à ces octets.
+
+## Version, validation PO et documentation
+
+- `package.json` annonce exactement `0.6.0`; README et CHANGELOG emploient la même version et qualifient correctement l'opération de promotion de RC3 sans changement applicatif.
+- La validation produit est explicitement consignée dans `docs/project-status.md` avec la déclaration du Product Owner « valide RC3 », datée du 1er septembre 2026. Le statut distingue la promotion stable locale de sa publication définitive encore conditionnée aux contrôles du commit/tag stable.
+- Les deux exécutions GitHub Actions de la baseline exacte `1cc545db…` sont effectivement vertes : branche `main` run `33480902056` et tag `v0.6.0-rc3` run `33480977738`. Le CHANGELOG ne surdéclare donc pas les preuves de la branche et du tag RC3.
+- Le rollback reste cohérent : `article-catalog-sage-pricing-v2`, introduite par RC2 et reprise sans changement, doit être annulée avec le code `0.6.0` encore en place et un export neuf obligatoire avant retour RC1; RC2, RC3 ou `0.6.0` ne doivent pas redémarrer sur l'état restauré. Le rollback Catalogue V1 vers `0.5.0-rc6` demeure séparé.
+
+## Constats P0-P3 et limites
+
+- **P0 : aucun.**
+- **P1 : aucun.**
+- **P2 : aucun nouveau constat sur la promotion stable.** Les limites produit historiques restent dans les rapports indépendants et ne sont pas affectées.
+- **P3 — preuve distante stable à achever :** le futur commit/tag `0.6.0` devra encore réussir sa propre exécution GitHub Actions avant publication définitive. Cette condition est explicitement conservée dans `docs/project-status.md`; les deux CI RC3 prouvent la baseline byte-identique mais ne peuvent prévalider un commit encore non créé.
+
+## Preuves fraîches
+
+Environnement local : macOS arm64, Node `v26.6.0`.
+
+- identité SHA-256 courant/tag RC3 des sept fichiers runtime/test/contrat contrôlés : **PASS**;
+- `npm test` : **368/368 PASS**, 0 échec/cancelled/skip/todo, `10 433,632 ms`;
+- `npm run test:foundations` : **17/17 PASS**, 0 échec/cancelled/skip/todo, `351,205 ms`;
+- `npm run lint` : **PASS**;
+- `npm run build` : **PASS**, cinq actifs runtime vérifiés;
+- `git diff --check` : **PASS**;
+- `gh run list` : runs `33480902056` et `33480977738`, commit/tag RC3 exact, statut `completed`, conclusion `success`.
+
+Empreintes documentaires revues avant ce rapport : `package.json db168e4361a1…`, `README.md 721052ba0bc0…`, `CHANGELOG.md 7785cd7ceed2…`, `docs/project-status.md ddd0ee17436b…`.
+
+Sortie : gate REVIEW de la promotion stable `0.6.0` **APPROVED**, sous réserve que ces empreintes ne changent pas. Conformément à l'ownership explicite, seul `docs/code-review.md` est modifié; la consolidation de statut après ce verdict et la CI stable appartiennent à l'intégrateur.
+
+---
+
 # Re-gate REVIEW indépendant — candidat `0.6.0-rc3`
 
 Date : 2026-09-01
