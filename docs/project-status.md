@@ -1,13 +1,15 @@
 # État du projet — Planning Post Prod
 
-Version publiée candidate : `0.6.0-rc3` · promotion stable locale : `0.6.0`
+Version candidate publiée : `0.6.0-rc3` · stable `0.6.0` prête au tag
 Date : 2026-09-01
 
 Organisation : gouvernance multi-agents formalisée dans `AGENTS.md`; dépôt Git initialisé sur `main`.
 
 Architecture cible : le synoptique global fourni par le Product Owner est adopté comme cible de développement. La migration reste incrémentale depuis la RC1, sans big bang.
 
-Gates locaux promotion stable 2026-09-01 : **APPROVED — 0 P0 / 0 P1**. REVIEW, QA, SECURITY et PERFORMANCE confirment le diff de métadonnées uniquement et l’identité byte à byte avec `v0.6.0-rc3` des actifs runtime, tests, OpenAPI et scripts. Preuves : complet `368/368`, fondations `17/17`, lint/build/diff-check PASS. INTEGRATION stable : démarrage isolé port `8251`, `/` `200` avec en-têtes défensifs, API protégée `401`, arrêt et nettoyage conformes ; le port `8244` occupé a seulement produit `EADDRINUSE` avant le smoke réussi. E2E : validation PO RC3 et analyse différentielle approuvée, aucun comportement produit modifié. La condition restante est la CI GitHub du commit puis du tag stable exact.
+CI GitHub stable 2026-09-01 : **APPROVED** sur le commit `cf83141` et le run `33483622689`. Le job Linux a réussi lint, fondations, suite complète et build en `32 s`. L’annotation de maintenance des actions GitHub reste externe au produit. La version `0.6.0` peut être taguée après réussite du contrôle documentaire final déclenché par cette consignation.
+
+Gates locaux promotion stable 2026-09-01 : **APPROVED — 0 P0 / 0 P1**. REVIEW, QA, SECURITY et PERFORMANCE confirment le diff de métadonnées uniquement et l’identité byte à byte avec `v0.6.0-rc3` des actifs runtime, tests, OpenAPI et scripts. Preuves : complet `368/368`, fondations `17/17`, lint/build/diff-check PASS. INTEGRATION stable : démarrage isolé port `8251`, `/` `200` avec en-têtes défensifs, API protégée `401`, arrêt et nettoyage conformes ; le port `8244` occupé a seulement produit `EADDRINUSE` avant le smoke réussi. E2E : validation PO RC3 et analyse différentielle approuvée, aucun comportement produit modifié. La CI du commit stable est satisfaite par le run `33483622689`; seule la CI du tag stable exact restera à observer après sa création.
 
 Validation PO stable 2026-09-01 : le Product Owner a explicitement déclaré « valide RC3 ». La promotion `0.6.0` ne modifie aucun fichier applicatif par rapport au tag `v0.6.0-rc3`; seules les métadonnées `package.json`, `CHANGELOG.md`, `README.md` et ce statut évoluent. Le tag RC3 et ses deux CI GitHub vertes restent les preuves de la baseline exacte. La stable doit encore franchir le contrôle documentaire indépendant, la suite complète et GitHub Actions sur son propre commit/tag avant publication définitive.
 
