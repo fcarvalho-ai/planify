@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0-rc2 — 2026-08-30
+
+- Planning consolidé : déplacements de cellules `option` et `confirmed` dans le temps et entre salles, ressource effective propagée, copie d’une seule cellule, effacement logique récupérable, barre d’actions compacte et gestes plus fluides ;
+- navigation horizontale confinée à Planify, avec trois slides successifs sans retour à la connexion, et ouverture du Planning sur la date civile courante ;
+- Vue d’ensemble enrichie : occupation Jour/Semaine/Mois, détail Montage/Mixage/Étalonnage, tendance permanente six mois, CA devisé, CA signé, Budget non converti et comparaison de mois aux bornes explicites ;
+- couleurs de fond et de texte configurables par Projet, contraste minimal `4,5:1` contrôlé serveur/UI et compatibilité automatique des projets historiques ;
+- Catalogue et tarifs multi-unités appliqués à l’éditeur Devis par une migration additive sauvegardée et réversible avec export obligatoire ; références, désignations professionnelles, P.U. HT, édition de ligne et PDF alignés ;
+- stabilité historique renforcée : une ligne Devis sans snapshot ancien conserve ses données persistées et n’est jamais re-projetée depuis le Catalogue actif ;
+- REVIEW, QA, SECURITY, PERFORMANCE, INTEGRATION et E2E approuvés sans P0/P1 sur le candidat final ; ciblés jusqu’à 191/191, suite complète 368/368, lint/build/OpenAPI/diff-check PASS ;
+- performances conformes : Planning 250 ressources/10 000 réservations, p95 lecture `46,35 ms`, conflit `70,24 ms`, écriture `126,37 ms`, lot de 100 `180,34 ms` ; PDF 500 lignes p95 `11,73 ms`.
+
 ## 0.6.0-rc1 — 2026-08-26
 
 - référentiel local Northlight de 71 articles nettoyés, avec code SAGE conservé et code analytique Planify unique ;

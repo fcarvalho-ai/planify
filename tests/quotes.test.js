@@ -144,6 +144,7 @@ test('créer un devis direct calcule HT/TVA/TTC sans créer de réservation', as
   }, admin);
   assert.equal(result.response.status, 201); quote = result.data;
   assert.match(quote.number, /^DEV-2026-/); assert.equal(quote.lines[0].planning.status, 'unplanned'); assert.deepEqual(quote.lines[0].planning.bookingIds, []);
+  assert.equal(quote.lines[0].label, 'Salle de montage image'); assert.equal(quote.lines[0].articleSnapshot.designation, 'Salle de montage image'); assert.equal(quote.lines[0].articleSnapshot.analyticsCode, '08-MONT'); assert.doesNotMatch(quote.lines[0].label, /AVID 103/);
   assert.deepEqual({ netHt: quote.netHt, vatAmount: quote.vatAmount, grossTtc: quote.grossTtc }, { netHt: '20000', vatAmount: '4000', grossTtc: '24000' });
   assert.equal(typeof quote.netHt, 'string'); assert.equal(readDb().reservations.length, beforeCount);
 });
@@ -170,7 +171,7 @@ test('le catalogue réunit salles, matériel, prestations et forfaits sans rése
 
 test('l’intention planning préremplit la demande sans écrire', async () => {
   const count = readDb().reservations.length; const result = await request(`/api/v1/quotes/${quote.id}/lines/${quote.lines[0].id}/planning-intent`, {}, admin);
-  assert.equal(result.response.status, 200); assert.deepEqual({ projectId: result.data.projectId, siteId: result.data.siteId, label: result.data.label, duration: result.data.requestedDurationDays, createsReservation: result.data.createsReservation }, { projectId: 'project_1', siteId: 'site_paris', label: 'Salle de montage AVID 103', duration: 20, createsReservation: false }); assert.equal(readDb().reservations.length, count);
+  assert.equal(result.response.status, 200); assert.deepEqual({ projectId: result.data.projectId, siteId: result.data.siteId, label: result.data.label, duration: result.data.requestedDurationDays, createsReservation: result.data.createsReservation }, { projectId: 'project_1', siteId: 'site_paris', label: 'Salle de montage image', duration: 20, createsReservation: false }); assert.equal(readDb().reservations.length, count);
 });
 
 test('lier ensuite une réservation ne déplace ni ne recrée le planning', async () => {
@@ -258,10 +259,28 @@ test('une remise fixe HT reproduit exactement les gestes commerciaux du devis so
   assert.equal(incompatible.response.status, 422); assert.equal(incompatible.data.error.code, 'VALIDATION_ERROR');
 });
 
-test('un projet enrichi expose ses champs métier et son dashboard sans imposer de planning', async () => {
-  const created = await request('/api/v1/projects', { method: 'POST', body: JSON.stringify({ name: 'Comedy Class Saison 3', code: 'CCS3', clientId: 'client_1', siteId: 'site_paris', lifecycleStatus: 'prospect', salesOwnerId: 'user_admin', projectManagerId: 'user_admin', planningOwnerId: 'user_admin', projectNumber: 'PRJ-2027-0042', projectType: 'emission', productionCompany: 'Production Exemple', contactClient: 'Camille Martin', salesOwner: 'Alice Dupont', projectManager: 'Marc Leroy', internalOwner: 'Sophie Bernard', startDate: '2027-01-10', endDate: '2027-03-20', description: 'Nouvelle saison', notes: 'Dates prévisionnelles', costCenter: 'CC-POST-42', color: '#4f46e5' }) }, admin);
-  assert.equal(created.response.status, 201); assert.equal(created.data.projectNumber, 'PRJ-2027-0042'); assert.equal(created.data.status, 'prospect');
+test('un projet enrichi expose ses champs métier, ses couleurs Planning et son dashboard sans imposer de planning', async () => {
+  const created = await request('/api/v1/projects', { method: 'POST', body: JSON.stringify({ name: 'Comedy Class Saison 3', code: 'CCS3', clientId: 'client_1', siteId: 'site_paris', lifecycleStatus: 'prospect', salesOwnerId: 'user_admin', projectManagerId: 'user_admin', planningOwnerId: 'user_admin', projectNumber: 'PRJ-2027-0042', projectType: 'emission', productionCompany: 'Production Exemple', contactClient: 'Camille Martin', salesOwner: 'Alice Dupont', projectManager: 'Marc Leroy', internalOwner: 'Sophie Bernard', startDate: '2027-01-10', endDate: '2027-03-20', description: 'Nouvelle saison', notes: 'Dates prévisionnelles', costCenter: 'CC-POST-42', color: '#6553db', textColor: '#ffffff' }) }, admin);
+  assert.equal(created.response.status, 201); assert.equal(created.data.projectNumber, 'PRJ-2027-0042'); assert.equal(created.data.status, 'prospect'); assert.deepEqual([created.data.color, created.data.textColor], ['#6553db', '#ffffff']);
+  const recolored = await request(`/api/v1/projects/${created.data.id}`, { method: 'PATCH', body: JSON.stringify({ version: created.data.version, color: '#fef3c7', textColor: '#78350f' }) }, admin);
+  assert.equal(recolored.response.status, 200); assert.deepEqual([recolored.data.color, recolored.data.textColor], ['#fef3c7', '#78350f']);
+  const invalidColor = await request(`/api/v1/projects/${created.data.id}`, { method: 'PATCH', body: JSON.stringify({ version: recolored.data.version, color: 'red', textColor: '#ffffff' }) }, admin);
+  assert.equal(invalidColor.response.status, 422); assert.equal(invalidColor.data.error.code, 'VALIDATION_ERROR'); assert.deepEqual(invalidColor.data.error.details.fields, ['color']);
+  const unreadableColors = await request(`/api/v1/projects/${created.data.id}`, { method: 'PATCH', body: JSON.stringify({ version: recolored.data.version, color: '#ffffff', textColor: '#ffffff' }) }, admin);
+  assert.equal(unreadableColors.response.status, 422); assert.equal(unreadableColors.data.error.code, 'VALIDATION_ERROR'); assert.deepEqual(unreadableColors.data.error.details.fields, ['color', 'textColor']); assert.match(unreadableColors.data.error.message, /4,5:1/);
   const dashboard = await request(`/api/v1/projects/${created.data.id}/dashboard`, {}, admin); assert.equal(dashboard.response.status, 200); assert.deepEqual({ reservations: dashboard.data.reservationCount, resources: dashboard.data.resourceCount, unplanned: dashboard.data.unplannedLines }, { reservations: 0, resources: 0, unplanned: 0 });
+});
+
+test('une ancienne ligne sans snapshot reste strictement historique à la lecture', async () => {
+  const persisted = JSON.parse(fs.readFileSync(process.env.PLANIFY_DATA_FILE, 'utf8'));
+  const source = persisted.quotes.find(value => value.id === quote.id), legacy = structuredClone(source), article = persisted.articleCatalogItems.find(value => value.companyId === source.companyId && value.analyticsCode === '08-MONT');
+  legacy.id = 'quote_legacy_resource_history'; legacy.number = 'DEV-2026-HIST'; legacy.status = 'accepted'; legacy.version = 1; legacy.currentVersionId = null; legacy.lines = [structuredClone(source.lines[0])];
+  delete legacy.lines[0].articleSnapshot; legacy.lines[0].label = 'Libellé historique salle AVID 103';
+  persisted.quotes.push(legacy); fs.writeFileSync(process.env.PLANIFY_DATA_FILE, `${JSON.stringify(persisted, null, 2)}\n`);
+  const before = await request(`/api/v1/quotes/${legacy.id}`, {}, admin); assert.equal(before.response.status, 200); assert.equal(before.data.lines[0].label, 'Libellé historique salle AVID 103'); assert.equal(before.data.lines[0].articleSnapshot, undefined);
+  const changed = JSON.parse(fs.readFileSync(process.env.PLANIFY_DATA_FILE, 'utf8')), liveArticle = changed.articleCatalogItems.find(value => value.id === article.id); liveArticle.designation = 'Désignation catalogue N+1 interdite en historique'; liveArticle.active = false; liveArticle.version += 1; fs.writeFileSync(process.env.PLANIFY_DATA_FILE, `${JSON.stringify(changed, null, 2)}\n`);
+  const afterCatalogueChange = await request(`/api/v1/quotes/${legacy.id}`, {}, admin); assert.equal(afterCatalogueChange.response.status, 200); assert.equal(afterCatalogueChange.data.lines[0].label, 'Libellé historique salle AVID 103'); assert.equal(afterCatalogueChange.data.lines[0].articleSnapshot, undefined);
+  const restored = JSON.parse(fs.readFileSync(process.env.PLANIFY_DATA_FILE, 'utf8')), restoredArticle = restored.articleCatalogItems.find(value => value.id === article.id); Object.assign(restoredArticle, article); restored.quotes = restored.quotes.filter(value => value.id !== legacy.id); fs.writeFileSync(process.env.PLANIFY_DATA_FILE, `${JSON.stringify(restored, null, 2)}\n`);
 });
 
 test('un projet refuse les références client et site d’une autre société', async () => {
@@ -277,6 +296,15 @@ test('le PDF client est local, valide et exclut coûts et marges internes', asyn
   const response = await fetch(`${baseUrl}/api/v1/quotes/${quote.id}/pdf`, { headers: { cookie: admin.cookie } });
   assert.equal(response.status, 200); assert.equal(response.headers.get('content-type'), 'application/pdf'); const pdf = Buffer.from(await response.arrayBuffer());
   assert.equal(pdf.subarray(0, 8).toString(), '%PDF-1.4'); const text = pdf.toString('latin1'); assert.match(text, /ELIOTE/); assert.match(text, /REMISE/); assert.match(text, /TOTAL HT/); assert.doesNotMatch(text, /Marge\s*:|Cout interne|costTotal|marginAmount/i);
+});
+
+test('le PDF affiche la désignation professionnelle complète sur plusieurs lignes', async () => {
+  const label = 'Prestation professionnelle de montage image avec assistance technique et supervision colorimétrique finale';
+  const created = await request('/api/v1/quotes', { method: 'POST', headers: { 'Idempotency-Key': 'quote-pdf-full-designation' }, body: JSON.stringify({ projectId: 'project_1', siteId: 'site_paris', kind: 'quote', title: 'Devis désignation PDF complète', taxDate: '2026-08-18', lines: [{ category: 'free', sourceType: 'manual', label, unit: 'jour', quantityMilli: '1000', unitPriceMinor: '125000', priceOverrideReason: 'Tarif de démonstration du rendu PDF' }] }) }, admin);
+  assert.equal(created.response.status, 201, JSON.stringify(created.data));
+  const response = await fetch(`${baseUrl}/api/v1/quotes/${created.data.id}/pdf`, { headers: { cookie: admin.cookie } }), text = Buffer.from(await response.arrayBuffer()).toString('latin1');
+  assert.equal(response.status, 200); assert.match(text, /Prestation professionnelle de montage/); assert.match(text, /supervision colorimetrique finale/); assert.doesNotMatch(text, /Prestation professionnelle de\.\.\./);
+  assert.ok(text.indexOf('(FREE)') < text.indexOf('(Prestation professionnelle de montage)'), 'la catégorie doit précéder la désignation comme dans l’éditeur');
 });
 
 test('la prévisualisation Planning supporte les trois modes sans écrire et respecte RBAC/site', async () => {
@@ -457,7 +485,7 @@ test('un PDF sans texte exploitable est refusé sans créer de réservation', as
 test('le PDF conserve des pages A4 non condensées et réserve le bloc final à la dernière page', async () => {
   const document = readDb().quotes.find(value => value.title === 'Devis snapshot V2');
   const response = await fetch(`${baseUrl}/api/v1/quotes/${document.id}/pdf`, { headers: { cookie: admin.cookie } }), text = Buffer.from(await response.arrayBuffer()).toString('latin1');
-  assert.equal(response.status, 200); assert.match(text, /\/MediaBox \[0 0 595 842\]/); assert.match(text, /\/Count 5/); assert.equal((text.match(/TOTAL TTC/g) || []).length, 1); assert.equal((text.match(/signature client/gi) || []).length, 1);
+  assert.equal(response.status, 200); assert.match(text, /\/MediaBox \[0 0 595 842\]/); assert.match(text, /\/Count [6-9]/); assert.equal((text.match(/TOTAL TTC/g) || []).length, 1); assert.equal((text.match(/signature client/gi) || []).length, 1);
 });
 
 test('les sélections commerciales mal typées reçoivent un 422 stable sans mutation', async () => {
@@ -542,6 +570,12 @@ test('l’interface limite la sélection jour au DOM visible et expose les confi
   assert.match(source, /confirmDuplicateBookingIds/);
   assert.match(source, /BOOKING_ACCEPTANCE_CONFIRMATION_REQUIRED|confirmBookingIds/);
   assert.match(source, /data-quote-line-row/);
+  assert.match(source, /data-line-edit/);
+  assert.match(source, /Modifier la ligne/);
+  assert.match(source, /data-quote-unit-price/);
+  assert.match(source, /row\.querySelector\('\[data-quote-discount\]'\)/);
+  assert.match(source, /method:line\?'PATCH':'POST'/);
+  assert.match(source, /Ligne modifiée\. Les montants ont été recalculés\./);
   assert.match(source, /data-booking-unlink/);
   assert.doesNotMatch(source, /selectedLineId\)\|\|quote\.lines\[0\]/);
   assert.match(source, /explicitLineSelections=new Map/);
@@ -560,6 +594,13 @@ test('l’interface limite la sélection jour au DOM visible et expose les confi
   assert.match(source, /Valider O1 et continuer/);
   assert.match(source, /quote-a4-sheet/);
   assert.match(source, /quote-a4-editor-layout/);
+  assert.match(source, /\/pdf#page=1&zoom=75/);
+  assert.match(source, /quote-col-designation/);
+  assert.match(source, /quote-col-unit-price/);
+  assert.match(source, /html\.includes\('class="quote-article-ref"'\)/);
+  assert.match(css, /col\.quote-col-designation\{width:39%\}/);
+  assert.match(css, /width:auto!important/);
+  assert.match(css, /td:nth-child\(5\).*white-space:nowrap/);
   assert.match(source, /data-quote-catalog-preset/);
   assert.match(source, /Étalonnage image/);
   assert.match(source, /Mixage son/);

@@ -83,6 +83,580 @@ Empreintes SHA-256 du candidat applicatif :
 
 ---
 
+## Recontrôle RELEASE documentaire — rollback tarifaire V2 — 2026-08-30
+
+Reviewer : agent indépendant `review_tarifs_devis_pdf`.
+
+Verdict documentaire frais : **APPROVED — 0 P0, 0 P1 ouvert**.
+
+Ce verdict remplace le contrôle RELEASE documentaire immédiatement antérieur, invalidé lorsque SECURITY a établi que RC2 introduit bien la migration `article-catalog-sage-pricing-v2`.
+
+- `README.md` décrit maintenant l'ordre sûr et exact : arrêter RC2, conserver le code RC2 pour appeler `rollbackArticleCatalogPricingV2({ exportFile })` avec `PLANIFY_DATA_FILE`, fournir un export neuf et distinct, conserver cet export privé, puis seulement remettre RC1 en service. Il interdit correctement tout redémarrage de RC2 sur l'état restauré.
+- La fonction documentée existe et est exportée (`server.js:397-410`, export CommonJS `server.js:4402`). Elle exige `exportFile`, refuse le fichier actif, vérifie le marqueur et le digest de sauvegarde, écrit l'export avec `0600` et `wx`, relit son digest, puis restaure atomiquement la sauvegarde pré-migration. Le négatif sans export est couvert par `tests/article-catalog.test.js:82`.
+- Le retour ultérieur RC1 → `0.5.0-rc6` reste séparé et utilise à juste titre le rollback Catalogue V1. Les deux restaurations ne sont plus confondues.
+- `CHANGELOG.md` qualifie désormais explicitement l'enrichissement tarifaire de migration additive sauvegardée et réversible avec export obligatoire. `docs/project-status.md` porte la même migration, le même nom de fonction et retire l'affirmation erronée « RC2 n'ajoute aucune migration ».
+
+Empreintes documentaires recontrôlées : `README.md a1bf4aa67ae848db…`, `CHANGELOG.md 0189150df1fb65d8…`, `docs/project-status.md b2ec7f76d6bacf98…`. Le code approuvé reste inchangé : `app.js 9601017d…`, `server.js 3f4b87eb…`.
+
+Preuves fraîches : `node --test tests/article-catalog.test.js` **5/5 PASS**, 0 échec/cancelled/skip/todo (`589,458 ms`) ; `git diff --check` PASS ; inspection croisée du texte, de la migration, du rollback, de l'export CommonJS et du test négatif réalisée.
+
+Limite P2 non bloquante : la suite automatisée exige l'export du rollback V2 mais n'exécute pas encore son chemin positif complet ; le code symétrique et la procédure sont présents et cohérents, mais un test dédié « migration V2 → export 0600 vérifié → restauration pré-V2 » renforcerait la preuve de non-régression.
+
+Sortie : l'incohérence documentaire signalée par SECURITY est fermée. La documentation RELEASE RC2 est de nouveau **APPROVED**, sous réserve qu'aucun fichier candidat ne change. Seul `docs/code-review.md` est modifié par ce recontrôle.
+
+---
+
+## Contrôle RELEASE documentaire — candidat `0.6.0-rc2` — 2026-08-30
+
+Reviewer : agent indépendant `review_tarifs_devis_pdf`.
+
+Verdict documentaire : **APPROVED — 0 P0, 0 P1 ouvert**.
+
+- `package.json` porte bien `0.6.0-rc2`; `CHANGELOG.md` et `README.md` annoncent le même périmètre consolidé Planning, Vue d'ensemble, couleurs Projet et Catalogue/Devis/PDF. La mention transitoire « runtime RC1 » du README a été corrigée en « runtime RC2 » pendant le contrôle, sans changement de code ni de procédure.
+- `docs/project-status.md` distingue correctement la stable locale `0.6.0-rc1` du candidat local `0.6.0-rc2`, exige encore l'accord PO pour tag/publication et ne revendique aucun déploiement. Les rapports INTEGRATION et E2E portent sur les mêmes empreintes applicatives approuvées (`app.js 9601017d…`, `server.js 3f4b87eb…`) et concluent sans P0/P1.
+- Les preuves sont cohérentes : ciblés jusqu'à 191/191, suite complète 368/368, lint/build/OpenAPI/diff-check verts, mesures Planning/PDF sous seuil et E2E navigateur documenté. Les P2 connus restent explicitement non bloquants.
+- RC2 n'introduit aucune migration ou réécriture de schéma supplémentaire. Le rollback RC2 → RC1 conserve le fichier de données après copie privée ; le retour RC1 → `0.5.0-rc6` exige séparément le rollback Catalogue avec export de récupération, puis le redéploiement de l'ancien code. La procédure évite la réapplication accidentelle de la migration.
+
+Empreintes documentaires finales contrôlées : `package.json aa90023d025139ae…`, `CHANGELOG.md 9bcc086cf15bd837…`, `README.md eec7e160616e7813…`, `docs/project-status.md e18e41e3bca77974…`, `docs/integration-report.md 270ae302baf5c64ba…`, `docs/e2e-report.md 67c8500f515a8d46…`.
+
+Preuves fraîches sur ces métadonnées : `npm test` **368/368 PASS** (`9 225,670 ms`), `npm run lint` PASS, `npm run build` PASS (cinq actifs), `git diff --check` PASS. Smoke isolé `PORT=8241`, fichier temporaire privé : `/` répond **200** avec en-têtes défensifs et `/api/v1/auth/me` sans session répond **401 AUTH_REQUIRED** ; serveur arrêté et fichier temporaire supprimé. La première tentative d'écoute dans le sandbox a échoué avec `EPERM`, puis le même smoke autorisé hors sandbox a réussi.
+
+Sortie : documentation RELEASE cohérente et candidat prêt à la décision PO de tag local, sous réserve qu'aucun fichier candidat ne change. Seul `docs/code-review.md` est modifié par ce contrôle.
+
+---
+
+## Re-REVIEW finale post-`v0.6.0-rc1` — fermeture `REV-GLOBAL-20` — 2026-08-30
+
+Reviewer : agent indépendant `review_tarifs_devis_pdf`.
+
+Verdict : **APPROVED — 0 P0, 0 P1 ouvert**.
+
+Périmètre : candidat global après correction du formulaire standard « Nouveau projet », ancien chemin `add('projects')`, invariant de contraste Projet et stabilité historique des lignes Devis. Recherche de régressions dans les consommateurs API/UI/PDF et leurs tests. Aucun code produit ni `docs/project-status.md` n'a été modifié.
+
+### Candidat exact revu
+
+- `app.js` : `9601017d92cf6884df6c74e3b688b15421b1f6b60c4fe99e692aabf3255b96aa` ;
+- `server.js` : `3f4b87eb8ee4106b819878a0eb73f71516a92099d2fa9e43995a7582444b3af1` ;
+- `tests/planning-postproduction.test.js` : `32464251b1622da22054f17e7b150104c044262e7d441ec411986f04fdc2b3c6` ;
+- `tests/quotes.test.js` : `ba661c8cb654b403d6312aebf8a68d150fdaa301b2935239cdca6a805b0fa7f8` ;
+- `docs/api/openapi-v1.yaml` : `055f9a05f5f722345aa8237cb994395426af76314a75abd370e70d6e8aae2a97`.
+
+### Fermetures vérifiées
+
+#### REV-GLOBAL-20 — fermé
+
+- Le formulaire complet `openProjectCreateDrawer()` remplace maintenant ses anciennes valeurs par `#6553db/#ffffff`, soit **5,5067:1**, avant toute interaction (`app.js:1226-1227`). Il affiche le ratio, écoute les deux champs, désactive la soumission sous 4,5:1 et revalide encore à la soumission.
+- L'ancien raccourci `add('projects')` utilise la même paire conforme (`app.js:248`). Le bouton « Nouveau projet » visible est toujours rebranché sur le tiroir complet après clonage (`app.js:603`), de sorte que les deux chemins restent valides.
+- Le POST API correspondant retourne **201** et persiste exactement `#6553db/#ffffff` (`tests/quotes.test.js:262-264`). Le test UI structurel vérifie aussi les valeurs du tiroir, le message de contraste et le raccourci legacy (`tests/planning-postproduction.test.js:754-772`).
+
+#### REV-GLOBAL-17 — fermeture maintenue
+
+Le serveur continue d'exiger un ratio minimal de 4,5:1, refuse les paires illisibles et normalise les projets legacy lors d'un PATCH sans changement de couleurs. Le rendu Planning dérive une couleur noir/blanc conforme si une ancienne paire stockée reste insuffisante. Le formulaire de création, l'éditeur de couleurs et le raccourci de création sont désormais alignés sur ce contrat.
+
+#### REV-GLOBAL-18 — fermeture maintenue
+
+Les lignes Devis historiques sans `articleSnapshot` ne sont toujours pas reprojetées depuis le catalogue courant. Les listes, détails et PDF conservent le libellé persisté, y compris après modification et désactivation de l'article correspondant ; le test legacy reste vert.
+
+### Constats non bloquants
+
+- **REV-GLOBAL-21 — P2 — Association accessible du message de contraste :** le tiroir standard ajoute un `<small>` visible et désactive correctement le bouton, mais le message dynamique ne possède pas d'identifiant relié aux deux champs par `aria-describedby` ni de région `aria-live`. Un utilisateur de lecteur d'écran peut donc ne pas entendre le changement de ratio ou la raison de la désactivation. Ajouter une association programmatique lors d'un prochain passage UI/accessibilité.
+- **REV-QUOTE-PDF-12 — P2 conservé :** la campagne PDF vérifie contenu et pagination, mais pas la géométrie/parité visuelle des sept colonnes éditeur/PDF.
+- **REV-GLOBAL-19 — P2 conservé :** le confinement route/gestes est couvert structurellement, sans E2E automatisé reproduisant trois gestes successifs dans le navigateur hôte.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-30.
+
+- toutes les empreintes SHA-256 du brief sont confirmées ;
+- `node --check app.js && node --check server.js` : **PASS** ;
+- `node --test tests/planning-postproduction.test.js tests/quotes.test.js tests/article-catalog.test.js tests/api.test.js tests/sprint8-dashboards.test.js tests/foundations.test.js` : **191/191 PASS**, 0 échec/cancelled/skip/todo, `4 405,997 ms` ;
+- `npm test` : **368/368 PASS**, 0 échec/cancelled/skip/todo, `12 278,985 ms` ;
+- `npm run lint` : **PASS** ;
+- `npm run build` : **PASS**, cinq actifs runtime vérifiés ;
+- `git diff --check` : **PASS** ;
+- sonde WCAG indépendante : `#6553db/#ffffff` = **5,5066981:1**.
+
+Limites : aucune recette navigateur fraîche n'est revendiquée par cette REVIEW ; la création nominale est prouvée par le POST API 201 et le câblage UI est prouvé structurellement. Les deux P2 antérieurs restent à couvrir par les gates QA/E2E adaptés.
+
+### Sortie de gate
+
+La gate REVIEW globale est **APPROVED** pour les empreintes ci-dessus, avec **0 P0 et 0 P1**. Toute modification ultérieure d'un fichier candidat invalide ce verdict. Conformément à l'ownership imposé, seul `docs/code-review.md` est modifié ; l'intégrateur doit reporter la fermeture de `REV-GLOBAL-20` dans `docs/project-status.md` et figer les gates aval sur le même candidat.
+
+---
+
+## Re-REVIEW globale post-`v0.6.0-rc1` — correctifs contraste Projet et historique Devis — 2026-08-30
+
+Reviewer : agent indépendant `review_tarifs_devis_pdf`.
+
+Verdict : **REJECTED — 0 P0, 1 P1 ouvert**.
+
+Périmètre : relecture différentielle du candidat global corrigé, avec vérification explicite de `REV-GLOBAL-17`, `REV-GLOBAL-18`, de leurs consommateurs UI/API/PDF et recherche de nouvelles régressions bloquantes. Aucun code produit ni `docs/project-status.md` n'a été modifié pendant cette revue.
+
+### Candidat exact revu
+
+- `app.js` : `b767c5dac44554660d78dc19e3df81ec7e1302aa3312f4305ae7a7c4a498efb2` ;
+- `server.js` : `3f4b87eb8ee4106b819878a0eb73f71516a92099d2fa9e43995a7582444b3af1` ;
+- `planning.css` : `7455ab68e6bb232acf6e45dce48d1ba78eb477f13bd238594f925bca0a1320cd` ;
+- `styles.css` : `f4be1bf5bb9f977cc58a70d707a25520eb74e0e788950c0ab49f0b58699a9f27` ;
+- `docs/api/openapi-v1.yaml` : `055f9a05f5f722345aa8237cb994395426af76314a75abd370e70d6e8aae2a97` ;
+- `tests/planning-postproduction.test.js` : `8235100db6a6d571633ebe5216f53f87ec9ea5c85b49ff92927ca4e12e9c0564` ;
+- `tests/quotes.test.js` : `8e092aaa9f8f09c66479404300fb471c3235d451936d68fec57219362bcb8bed`.
+
+### Fermetures vérifiées
+
+#### REV-GLOBAL-17 — fermé
+
+- Le serveur calcule maintenant la luminance relative et refuse toute paire `color`/`textColor` sous **4,5:1** (`server.js:3906-3909`). Le négatif `#ffffff/#ffffff` retourne bien `422` avec les deux champs et l'OpenAPI documente l'invariant (`tests/quotes.test.js:262-270`).
+- Les projets legacy dont la paire stockée est insuffisante restent affichables : le rendu dérive une couleur noir/blanc conforme (`app.js:447-454`) et un PATCH sans changement de couleurs normalise la couleur de texte côté serveur (`server.js:3912`). L'éditeur dédié désactive aussi son bouton tant que le contraste est insuffisant (`app.js:1226-1228`).
+
+#### REV-GLOBAL-18 — fermé
+
+- `professionalQuoteLine()` ne consulte plus le catalogue courant et retourne strictement la ligne persistée ; liste, détail et PDF passent donc par une projection sans effet (`server.js:2488-2505`, `server.js:2892`).
+- Le test legacy crée une ligne acceptée sans snapshot, modifie puis désactive l'article correspondant et confirme que le GET conserve le libellé historique et l'absence de snapshot (`tests/quotes.test.js:274-283`). Le détail de version et le PDF ne peuvent plus recevoir une désignation catalogue N+1 par cette projection.
+
+### Nouveau constat bloquant
+
+#### REV-GLOBAL-20 — P1 — Le formulaire standard de création de Projet envoie une paire de couleurs que le serveur refuse
+
+- Le formulaire « Nouveau projet » conserve comme valeurs initiales `color=#7667f5` et `textColor=#ffffff`, puis `submitProjectCreate()` sérialise et envoie ces deux champs tels quels (`app.js:591-592`). Cette paire ne produit que **4,1758:1**, sous le minimum serveur de 4,5:1.
+- La prévisualisation/validation ajoutée ne concerne que le tiroir séparé « Apparence du projet » (`app.js:1226-1228`). Le formulaire de création n'appelle pas `updateProjectColorPreview()`, n'affiche pas le message de contraste et ne corrige pas automatiquement la couleur du texte.
+- Le serveur doit donc répondre `422 VALIDATION_ERROR` au parcours nominal lorsque l'opérateur remplit les champs métier sans toucher aux couleurs (`server.js:3909-3911`). Ironiquement, le test Planning établit déjà que cette paire par défaut est sous le seuil (`tests/planning-postproduction.test.js:758-759`), mais aucun test ne relie cette assertion au formulaire de création. Le test API utilise une autre paire conforme `#4f46e5/#ffffff` (`tests/quotes.test.js:262-264`).
+
+Impact : la création d'un Projet depuis l'interface, préalable à la génération d'un Devis et au Planning, échoue avec les valeurs proposées par défaut. Il s'agit d'une régression du parcours métier principal et d'un blocage release.
+
+Correction attendue : utiliser une paire initiale conforme (par exemple le fond serveur `#6553db` avec le texte dérivé), ou intégrer la même dérivation/validation accessible dans le formulaire de création avant envoi. Ajouter un test consommateur vérifiant que les valeurs par défaut réellement rendues par `openProjectCreateDrawer()` passent le calcul de contraste et correspondent à un POST accepté.
+
+### Constats non bloquants conservés
+
+- **REV-QUOTE-PDF-12 — P2 :** la campagne PDF vérifie contenu et pagination, mais pas la géométrie/parité visuelle des sept colonnes éditeur/PDF.
+- **REV-GLOBAL-19 — P2 :** le confinement route/gestes est couvert structurellement, sans E2E automatisé reproduisant trois gestes successifs dans le navigateur hôte.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-30.
+
+- empreintes SHA-256 du brief : toutes confirmées ;
+- `node --check app.js && node --check server.js` : **PASS** ;
+- `node --test tests/planning-postproduction.test.js tests/quotes.test.js tests/article-catalog.test.js tests/api.test.js tests/sprint8-dashboards.test.js tests/foundations.test.js` : **191/191 PASS**, 0 échec/cancelled/skip/todo, `4 206,103 ms` ;
+- `npm test` : **368/368 PASS**, 0 échec/cancelled/skip/todo, `9 062,997 ms` ;
+- `npm run lint` : **PASS** ;
+- `npm run build` : **PASS**, cinq actifs runtime vérifiés ;
+- `git diff --check` : **PASS** ;
+- sonde WCAG indépendante : formulaire création `#7667f5/#ffffff` = **4,1758436:1** ; défaut serveur `#6553db/#ffffff` = **5,5066981:1**.
+
+Limites : aucune recette navigateur fraîche n'est revendiquée par cette re-REVIEW. Les suites vertes ne couvrent pas le défaut exact des valeurs initiales du formulaire de création.
+
+### Handoff
+
+`REV-GLOBAL-17` et `REV-GLOBAL-18` sont fermés, mais la gate REVIEW globale reste **REJECTED** à cause de `REV-GLOBAL-20`. Le lot doit revenir en DEV puis repasser REVIEW et les gates aval concernés. Conformément à l'ownership imposé, seul `docs/code-review.md` est modifié ; l'intégrateur reste responsable de `docs/project-status.md`.
+
+---
+
+## REVIEW globale post-`v0.6.0-rc1` — Planning, Dashboard, couleurs Projet et Tarifs/Devis/PDF — 2026-08-30
+
+Verdict : **REJECTED — 2 P1 ouverts, 0 P0**.
+
+Périmètre : diff complet depuis le tag `v0.6.0-rc1` (`df0f02351b09bf9d64418ee5f864c6fe5cc4629f`) et consommateurs des lots Planning (déplacements/copie/effacement/scroll/route/éditeur), Dashboard (comparaison mensuelle), couleurs Projet et Catalogue Articles/éditeur Devis/PDF. Aucun code produit ni `docs/project-status.md` n'a été modifié pendant cette revue.
+
+### Candidat revu
+
+- `app.js` : `404f4c608036dc0cbbf009e17f98493b7cba0c69cbd21d43fe6ef1ee7584d41c` ;
+- `server.js` : `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025` ;
+- `planning.css` : `7455ab68e6bb232acf6e45dce48d1ba78eb477f13bd238594f925bca0a1320cd` ;
+- `styles.css` : `f4be1bf5bb9f977cc58a70d707a25520eb74e0e788950c0ab49f0b58699a9f27` ;
+- `docs/api/openapi-v1.yaml` : `b49948864cb9d08ad36382cfa8ccc3002cc56eeecfce6d42e68a132d2e0f8936` ;
+- `referentials/article-catalog-sage-pricing-v2.json` : `8787dd307faca61d3bb12dbf05274ec742179e5bb4504bad475bbed35bc1e053` ;
+- tests : API `aa69b08cd7aa65f474c13b32882f3072d5de03b3966fabb10c69e8b9a80ccc44`, Catalogue `7618fc6e704def68f3d455aba41d3f97668617ba2900902d7d84f34683c44f23`, Fondations `56c65142660759fff7043b8f21da8a9e11c960b61ef3733286148edb865a7857`, Planning `0d5ac0848ab725ccb159ff5032b28fad24576d47af64ad1023a415669e208374`, Devis `6a99884d758321269bb2d715e5b2e14d4a340ba017e6fe10d278423014ab7e9e`.
+
+### Constats bloquants
+
+#### REV-GLOBAL-17 — P1 — Les couleurs Projet permettent de rendre le contenu des cellules illisible
+
+- Le serveur contrôle seulement que `color` et `textColor` respectent `#RRGGBB`; il n'impose aucun contraste entre eux (`server.js:3903-3908`). L'OpenAPI décrit la même validation de forme sans invariant de contraste.
+- L'éditeur permet de choisir librement les deux couleurs, montre l'aperçu, puis envoie la paire sans avertissement ni correction (`app.js:1224-1226`). Le fallback `planningContrastText()` n'est utilisé que lorsque `textColor` manque ; toute valeur explicite, même identique au fond, est prioritaire (`app.js:447-452`).
+- La feuille de style applique ensuite directement cette paire au titre et aux métadonnées de chaque cellule (`planning.css:192`). Une paire `#ffffff/#ffffff`, acceptée par l'API, produit un contraste **1:1** et masque le contenu. Même la paire par défaut `#7667f5/#ffffff` ne donne que **4,176:1**, sous le minimum **4,5:1** pour le petit texte normal utilisé dans les cellules.
+- Les tests ne couvrent que le format hexadécimal et la présence des variables CSS (`tests/quotes.test.js:263-267`, `tests/planning-postproduction.test.js:761-765`) ; aucun négatif ne refuse ou ne corrige une paire insuffisante.
+
+Impact : une préférence Projet autorisée peut rendre le nom, les horaires et les informations de réservation invisibles dans le Planning. Cela contrevient à l'exigence d'accessibilité d'`AGENTS.md` et compromet le parcours opérationnel principal.
+
+Correction attendue : définir un invariant de contraste mesurable (au minimum 4,5:1 pour le texte normal), le valider côté serveur et le refléter dans l'éditeur avec message relié aux champs ; ou ne stocker que le fond et dériver systématiquement une couleur de texte conforme. Couvrir la paire identique, les seuils clair/sombre, les projets legacy et la valeur par défaut.
+
+#### REV-GLOBAL-18 — P1 — La projection des anciennes lignes Ressource réécrit les Devis/PDF depuis le catalogue courant
+
+- Pour toute ligne `sourceType === 'resource'` dépourvue d'`articleSnapshot`, `professionalQuoteLine()` recherche à chaque lecture l'article **actif courant**, remplace le libellé et fabrique un snapshot à la volée (`server.js:2488-2505`). Cette valeur n'est pas persistée dans le Devis ni dans sa version.
+- La projection est appliquée aux listes/détails (`server.js:3245-3246`, `server.js:3390`) et le PDF la réexécute lors de chaque téléchargement (`server.js:2892`). En revanche, le détail d'une version historique retourne son snapshot persisté sans cette même projection (`server.js:3386-3389`) : document courant/PDF et version auditée peuvent donc diverger.
+- L'article correspondant reste modifiable, désactivable et versionné indépendamment (`server.js:3231-3232`). Modifier sa désignation ou son code, ou le désactiver, change donc le prochain GET/PDF d'un Devis legacy sans mutation du Devis, sans nouvelle version et sans audit commercial.
+- Les nouvelles lignes Ressource capturent correctement un `articleSnapshot` via `quoteCatalogSource()` ; le défaut concerne précisément la compatibilité des lignes déjà présentes, dont le candidat réalise la mise à niveau uniquement en lecture. Aucun test ne couvre « Devis Ressource legacy accepté → modification/désactivation Article → GET/PDF/version historique inchangés ».
+
+Impact : un document commercial accepté peut changer de référence/désignation après coup, et son PDF peut ne plus correspondre à la version commerciale auditée. Cela viole les « snapshots historiques et dimensions analytiques stables » de `docs/spec-mvp.md:31` et le contrat d'architecture selon lequel une ligne de Devis fige son snapshot (`docs/architecture.md:104`).
+
+Correction attendue : effectuer une migration additive, déterministe et auditable des lignes Ressource legacy vers un snapshot figé (avec rollback), ou conserver leur libellé historique tant qu'une conversion explicite/versionnée n'a pas eu lieu. La liste, le détail, le PDF et le détail de version doivent rendre la même désignation figée. Ajouter le scénario négatif ci-dessus, y compris article désactivé et version commerciale.
+
+### Constats non bloquants
+
+#### REV-QUOTE-PDF-12 — P2 — La géométrie du PDF n'est toujours pas protégée automatiquement
+
+Les tests PDF valident le contenu textuel, la pagination et la présence des colonnes, mais ne comparent pas le rendu géométrique de l'aperçu HTML et du PDF. La validation visuelle explicite du PO réduit le risque immédiat sans empêcher une régression future d'alignement ou de troncature. Ce constat antérieur reste ouvert.
+
+#### REV-GLOBAL-19 — P2 — Le confinement de navigation est surtout prouvé par tests structurels
+
+Les helpers de geste/route et le remplacement des liens internes sont testés, et la recette utilisateur a confirmé le correctif dans un onglet neuf. Les tests automatisés n'exercent toutefois pas trois gestes horizontaux successifs dans le conteneur navigateur réel ni les interactions avec son historique hôte. Ce point appartient au gate E2E, pas à une correction métier supplémentaire.
+
+### Éléments conformes inspectés
+
+- Planning : déplacement unitaire horizontal/vertical des cellules `option` et `confirmed`, réaffectation de salle, fiche de répartition effective, copie d'une journée, annulation logique depuis « Effacer », filtre des annulées, undo/redo, dates locales et animations réduites sont cohérents avec les endpoints, les statuts et les tests ciblés.
+- Dashboard : les bornes exactes des deux périodes mensuelles, le cutoff `asOf`, les permissions commerciales et l'absence de faux zéro restent alignés entre UI, read-model et tests.
+- Tarifs/éditeur : source Article active ou archivée, changement d'unité depuis snapshot, prix manuel/coût, changement réel de source, référence/désignation professionnelle et colonnes P.U. HT restent cohérents sur les chemins couverts ; les P1 `REV-QUOTE-ARTICLE-11` à `16` restent fermés.
+- API/données : validation, isolation société/site, contrôle optimiste, idempotence, audit, SSE et erreurs stables des mutations touchées n'ont pas révélé de régression dans la campagne fraîche.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-30.
+
+- `node --check app.js` et `node --check server.js` : **PASS** ;
+- `node --test tests/planning-postproduction.test.js tests/api.test.js tests/sprint8-dashboards.test.js tests/article-catalog.test.js tests/quotes.test.js tests/foundations.test.js` : **190/190 PASS**, 0 échec/skip/todo, `4 256,793 ms` ;
+- `npm test` : **367/367 PASS**, 0 échec/cancelled/skip/todo, `9 315,449 ms` ;
+- `npm run lint` : **PASS** ;
+- `npm run build` : **PASS**, cinq actifs runtime vérifiés ;
+- `git diff --check` : **PASS** ;
+- sonde WCAG locale : `#ffffff` sur `#ffffff` = **1:1** ; `#ffffff` sur le fond par défaut `#7667f5` = **4,1758:1** ;
+- inspection différentielle du tag `v0.6.0-rc1`, des contrats, des consommateurs API/UI/PDF et des tests : réalisée.
+
+Limites : aucune recette navigateur fraîche n'est revendiquée dans cette REVIEW ; la validation visuelle PO du PDF et la recette antérieure des gestes horizontaux ne remplacent pas les preuves E2E sur le candidat corrigé. Le nom de fichier `tests/sprint1-foundations.test.js` transmis dans le brief n'existe pas ; l'empreinte fournie correspond bien à `tests/foundations.test.js`.
+
+### Handoff
+
+La gate REVIEW globale est **REJECTED** tant que `REV-GLOBAL-17` et `REV-GLOBAL-18` restent ouverts. Le lot doit revenir en DEV, puis repasser REVIEW et tous les gates aval impactés. `docs/project-status.md` reste volontairement inchangé conformément à l'ownership limité ; l'intégrateur doit y reporter ce verdict. Toute modification d'un fichier candidat invalide les empreintes et les preuves ci-dessus.
+
+---
+
+## Gate REVIEW indépendant — Tarifs Articles + Éditeur/PDF Devis — 2026-08-30
+
+Reviewer : agent indépendant `review_tarifs_devis_pdf`.
+
+Verdict : **REJECTED — 0 P0, 1 P1 ouvert, 1 P2 ouvert.**
+
+Périmètre relu : référentiel tarifaire SAGE v2, migration/rollback, projections et snapshots Article, résolution des cinq tarifs, création/modification de lignes de Devis, désignations professionnelles issues des ressources Planning, tableau A4, PDF multi-lignes, contrats OpenAPI et tests consommateurs. Aucun code n'a été modifié pendant cette revue ; seul le présent rapport relève de l'ownership du reviewer.
+
+### Constat bloquant
+
+#### REV-QUOTE-ARTICLE-11 — P1 — Modifier une ligne Article remplace silencieusement son snapshot figé par la version courante du catalogue
+
+- Le contrat OpenAPI décrit `articleSnapshot` comme immuable après toute évolution du catalogue, et la SPEC du lot exige que désignation et tarifs soient figés dans le snapshot de la ligne créée.
+- Le nouveau formulaire d'édition renvoie systématiquement `sourceType` et `sourceId` pour la ligne existante (`app.js`, fonction `submitQuoteLine`).
+- Côté serveur, `quoteLineFromInput()` ne réutilise le snapshot existant que si **les deux champs sont absents**. Comme l'éditeur les transmet, la branche appelle `quoteCatalogSource()`, recharge l'article actif courant et construit un nouveau `articleCatalogSnapshot` (`server.js:2539-2553`). La ligne retournée persiste ce nouveau snapshot (`server.js:2557`).
+- Conséquence reproductible par lecture du flux : créer une ligne Article en version N, modifier ensuite la désignation ou les tarifs du catalogue en N+1, puis éditer uniquement la quantité ou la remise de la ligne fait passer son `articleSnapshot.version/designation/tariffsMinor` à N+1. Le prix unitaire peut pourtant rester celui de N parce que l'éditeur renvoie la valeur actuelle et que `priceChanged` reste faux. La ligne devient donc un assemblage incohérent « snapshot N+1 / prix N », sans motif d'override, et les versions/PDF/analyses ultérieurs ne représentent plus le snapshot de création.
+- Le test Catalogue vérifie bien qu'un simple `GET` après mise à jour de l'article conserve le snapshot, mais aucun test n'exécute le nouveau `PATCH /quotes/{quoteId}/lines/{lineId}` après cette mise à jour. Les tests verts ne couvrent donc pas ce chemin.
+
+Correction attendue : lors d'un PATCH qui conserve la même source Article/Ressource, réutiliser intégralement `existing.articleSnapshot` et sa désignation ; ne capturer le catalogue courant que pour une création ou un changement explicite de source. Si l'unité change, définir et tester explicitement si le tarif provient du snapshot figé ou d'un override traçable, sans mélange de versions. Ajouter un test API : ligne créée en N → catalogue N+1 → PATCH quantité/remise → snapshot/désignation/tarifs N inchangés, ainsi qu'un cas de changement volontaire de source.
+
+### Constat non bloquant
+
+#### REV-QUOTE-PDF-12 — P2 — La preuve automatisée du PDF contrôle le texte brut, pas la géométrie des sept colonnes
+
+Le test PDF ajouté confirme la désignation complète, l'ordre catégorie/désignation et l'absence d'ellipse. Il ne vérifie ni les coordonnées, ni l'absence de recouvrement, ni la parité avec l'éditeur. La recette PO et le rendu PNG documenté réduisent ce risque pour le devis observé, mais un test de rendu/golden ou, au minimum, des assertions dédiées aux bornes de colonnes et à une référence de 40 caractères rendraient la non-régression reproductible. Ce point ne bloque pas le lot après validation visuelle explicite du PO.
+
+### Points conformes vérifiés
+
+- les 71 articles possèdent cinq montants entiers (`heure`, `jour`, `semaine`, `mois`, `forfait`) et 71 codes analytiques distincts ;
+- la migration tarifaire est additive, sauvegarde les octets source, authentifie son marqueur et exige un export vérifié avant rollback ;
+- la validation serveur borne les tarifs en unités mineures et rejette les propriétés inattendues ;
+- la résolution conserve la priorité Projet puis Client avant le catalogue Article ;
+- les nouvelles lignes Article imposent la désignation du snapshot côté serveur, indépendamment du libellé client ;
+- la référence, le P.U. HT et la remise utilisent des cellules sémantiques distinctes dans l'éditeur ;
+- les permissions globales `/api/v1/quotes` et `/api/v1/article-catalog`, l'isolation société/site, CSRF, contrôle optimiste, audit et SSE restent appliqués ;
+- le PDF échappe le texte PDF, conserve les désignations sur plusieurs lignes, adapte la hauteur/pagination et n'expose pas les coûts ou marges internes ;
+- l'interface échappe les données injectées, conserve des libellés de colonnes et des commandes d'édition nommées, et ne fonde aucun statut sur la couleur seule.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-30.
+
+- `node --test tests/article-catalog.test.js tests/quotes.test.js` → **PASS, 55/55**, 0 échec/cancelled/skip/todo, `4,076 s` ;
+- `npm test` → **PASS, 367/367**, 0 échec/cancelled/skip/todo, `9,079 s` ;
+- `npm run lint` → **PASS** ;
+- `npm run build` → **PASS**, cinq actifs runtime vérifiés ;
+- `git diff --check` → **PASS** ;
+- la première exécution ciblée en sandbox a échoué uniquement sur `listen EPERM 127.0.0.1`; la même commande autorisée hors sandbox a passé 55/55 ;
+- inspection statique du flux UI `openQuoteLineDrawer`/`submitQuoteLine`, de `quoteLineFromInput`, des projections Article, de la résolution tarifaire, des routes PATCH, du moteur PDF et de l'OpenAPI.
+
+Empreintes SHA-256 du candidat inspecté :
+
+- `app.js` : `4bcb5fcb7669da6f8779e71973df95467ad27dde7e43ee3b002106adc6085bb1` ;
+- `server.js` : `fe058707cb39cfac16face519ded6ebbaa83b8e06c85b0ce0cb4e931251a3a49` ;
+- `styles.css` : `f4be1bf5bb9f977cc58a70d707a25520eb74e0e788950c0ab49f0b58699a9f27` ;
+- `docs/api/openapi-v1.yaml` : `b49948864cb9d08ad36382cfa8ccc3002cc56eeecfce6d42e68a132d2e0f8936` ;
+- `docs/spec-mvp.md` : `3a3368c4fc216a2e1199e74ca3ecaddac6767e7227ff017feee035a4cd065ed4` ;
+- `tests/quotes.test.js` : `6a99884d758321269bb2d715e5b2e14d4a340ba017e6fe10d278423014ab7e9e` ;
+- `tests/article-catalog.test.js` : `9773657dfe9ee9a9ac9d9f0436331881547332db80ce881a53f51eea1ebe5624` ;
+- `referentials/article-catalog-sage-pricing-v2.json` : `8787dd307faca61d3bb12dbf05274ec742179e5bb4504bad475bbed35bc1e053`.
+
+### Handoff
+
+Le gate REVIEW est **REJECTED** tant que `REV-QUOTE-ARTICLE-11` reste ouvert. Le lot retourne en DEV, puis doit repasser REVIEW et tous les gates aval impactés. `docs/project-status.md` reste volontairement inchangé conformément à l'ownership limité ; l'intégrateur doit y reporter le verdict. Le risque PDF P2 reste suivi sans bloquer la validation produit déjà donnée. Toute modification applicative invalide les empreintes ci-dessus.
+
+---
+
+## Re-REVIEW indépendante — Correctif snapshots Tarifs Articles / Devis — 2026-08-30
+
+Reviewer : agent indépendant `review_tarifs_devis_pdf`.
+
+Verdict : **REJECTED — 0 P0, 1 P1 ouvert, 1 P2 conservé.**
+
+Périmètre différentiel : correctif de `quoteLineFromInput()` et test de non-régression N → N+1 → PATCH quantité/remise. Aucun code ni statut projet n'a été modifié pendant cette revue ; seul `docs/code-review.md` relève de l'ownership du reviewer.
+
+### Fermeture partielle de REV-QUOTE-ARTICLE-11
+
+Le serveur calcule maintenant l'identité effective de la source et, lorsque source, unité, période et prix restent inchangés, conserve `existing.articleSnapshot`, `existing.appliedRateSnapshot`, le prix, l'origine et le statut tarifaires. Le test ajouté exécute effectivement la séquence ligne Article N → catalogue N+1 → PATCH de quantité avec la même source explicite ; il exige la conservation exacte du snapshot Article, du snapshot tarifaire et du prix initial dans la ligne et sa version. Le défaut initial sur les modifications de quantité/remise est donc fermé.
+
+### Constat bloquant restant
+
+#### REV-QUOTE-ARTICLE-13 — P1 — Un changement d'unité mélange encore le snapshot Article N avec le tarif courant N+1
+
+- La spécification du lot, l'architecture et OpenAPI définissent les cinq tarifs du snapshot de ligne comme figés après création (`docs/architecture.md:104`, `docs/api/openapi-v1.yaml:1352`).
+- Pour une source Article inchangée, `quoteLineFromInput()` conserve correctement `existing.articleSnapshot` (`server.js:2551-2552`). Cependant, `rateForSource()` continue de résoudre le tarif depuis `db.articleCatalogItems` courant (`server.js:2522-2533`).
+- Dès que l'unité change, `preservePricingSnapshot` devient faux. La ligne retourne alors le snapshot Article historique N, mais un `unitPriceMinor` et un `appliedRateSnapshot` issus du catalogue actif N+1 (`server.js:2555-2558`). La version du snapshot Article et `appliedRateVersion/catalogArticleVersion` ne désignent plus la même base tarifaire.
+- Ce chemin est directement accessible : l'éditeur laisse changer l'unité, recharge visuellement le prix depuis le catalogue courant (`app.js:1212-1214`) puis envoie source, unité et prix dans le PATCH (`app.js:1216-1217`). Le prix égal au catalogue courant n'est pas considéré comme un override manuel et aucun motif ne trace le changement de version.
+- Le nouveau test ne change que `quantityMilli` en conservant l'unité `jour`; il ne couvre donc pas le cas d'unité pourtant explicitement demandé dans la correction précédente.
+
+Conséquence : une ligne créée sur N peut afficher la désignation et les cinq tarifs historiques de N dans `articleSnapshot`, tout en facturant l'unité nouvellement choisie au tarif N+1 et en déclarant ce tarif comme `catalog`. PDF, versions et analyses deviennent incohérents sans action explicite de mise à jour du snapshot.
+
+Correction attendue : pour une même source Article, résoudre toute nouvelle unité dans `existing.articleSnapshot.tariffsMinor` et construire un snapshot tarifaire rattaché à la même version N ; alternativement, une actualisation volontaire doit remplacer ensemble snapshot Article et snapshot tarifaire, avec intention utilisateur explicite et traçable. Ajouter le test N → N+1 → PATCH `jour` vers `semaine`, avec des tarifs N/N+1 distincts, puis exiger que snapshot, prix et version tarifaire proviennent tous de la même version. Ajouter aussi le cas de changement volontaire de source annoncé lors du premier constat.
+
+### Constat P2 conservé
+
+`REV-QUOTE-PDF-12` reste ouvert : les tests vérifient le texte du PDF, mais pas la géométrie/parité des sept colonnes. Aucun changement du correctif différentiel n'aggrave ce point.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-30.
+
+- `node --test tests/article-catalog.test.js tests/quotes.test.js` → **PASS, 55/55**, 0 échec/cancelled/skip/todo, `4 019,04 ms` ;
+- `npm test` → **PASS, 367/367**, 0 échec/cancelled/skip/todo, `9 156,78 ms` ;
+- `npm run lint` → **PASS** ;
+- `npm run build` → **PASS**, cinq actifs runtime vérifiés ;
+- `git diff --check` avant rapport → **PASS** ;
+- inspection différentielle de `articleCatalogRate()`, `rateForSource()`, `quoteLineFromInput()`, `syncQuoteArticleTariff()`, du PATCH UI et du test N → N+1.
+
+Empreintes SHA-256 du candidat inspecté :
+
+- `server.js` : `11ddba279a199942e3787849ebfa0b06fc9b414552aa7ee868d904c618efe86c` ;
+- `tests/article-catalog.test.js` : `0b3da91772e11791a14c3dace67ee1345c6bf5a822dc3c8323a748ed3f659ab9` ;
+- `app.js` : `4bcb5fcb7669da6f8779e71973df95467ad27dde7e43ee3b002106adc6085bb1`.
+
+### Handoff
+
+La re-REVIEW est **REJECTED** tant que `REV-QUOTE-ARTICLE-13` reste ouvert. Le correctif traite le chemin quantité/remise, mais pas le changement d'unité accessible dans l'éditeur. Le lot retourne en DEV puis doit repasser REVIEW et les gates aval impactés sur le nouveau hash. Conformément à la limite d'ownership, `docs/project-status.md` reste à mettre à jour par l'intégrateur. Toute modification applicative invalide les empreintes ci-dessus.
+
+---
+
+## Re-REVIEW indépendante — Correctif unité et changement de source Article — 2026-08-30
+
+Reviewer : agent indépendant `review_tarifs_devis_pdf`.
+
+Verdict : **REJECTED — 0 P0, 1 P1 ouvert, 1 P2 conservé.**
+
+Périmètre différentiel : résolution tarifaire depuis le snapshot Article existant lors d'un changement d'unité, recapture lors d'un changement réel de source et test N → N+1 → quantité → unité → autre source. Aucun code ni statut projet n'a été modifié pendant cette revue.
+
+### Fermeture de REV-QUOTE-ARTICLE-13 côté serveur
+
+Le helper `articleSnapshotRate()` construit désormais le tarif Catalogue depuis `existing.articleSnapshot.tariffsMinor`, avec l'identifiant et la version du snapshot historique. `rateForSource()` reçoit ce snapshot uniquement lorsque la source reste identique et l'utilise comme fallback après les grilles Projet/Client ; un changement réel de source passe toujours par `quoteCatalogSource()` et capture le nouvel article actif. Le test vérifie la conservation du snapshot N pour un passage `jour` → `semaine`, l'égalité du prix et de `appliedRateVersion` avec N, puis la capture du second article lors d'un changement de source. Le mélange backend « snapshot N / tarif Catalogue N+1 » est fermé.
+
+### Constat bloquant restant
+
+#### REV-QUOTE-ARTICLE-14 — P1 — L'éditeur affiche le tarif courant N+1 mais le serveur enregistre le tarif figé N
+
+- À l'ouverture d'une ligne existante, le formulaire possède bien `line.articleSnapshot`, mais `syncQuoteArticleTariff()` ignore ce snapshot. Lors d'un changement d'unité, il recherche uniquement l'article courant dans `quotesModule.catalog` et remplit le P.U. avec `item.rate` ou `item.tariffsMinor` courants (`app.js:1212-1214`).
+- Le champ et `price.dataset.resolvedMinor` reçoivent la même valeur N+1. `manualPriceOverridePayload()` considère donc ce prix comme automatique et ne l'envoie pas dans le PATCH (`app.js:567`, `app.js:1217`).
+- Le serveur corrigé résout légitimement la même unité depuis le snapshot N et persiste N (`server.js:2528-2539`, `server.js:2561-2564`). L'opérateur voit donc un P.U. N+1 avant validation, puis obtient silencieusement N après sauvegarde et rerendu.
+- Le test backend ne peut pas détecter cette divergence UI. Il ne modifie en outre que le tarif `jour` en N+1, puis sélectionne `semaine`, dont la valeur N+1 reste identique à N ; aucune assertion ne force un écart visible sur l'unité changée.
+
+Impact : l'éditeur de Devis ne respecte pas le principe « ce qui est affiché est ce qui sera enregistré » sur un montant contractuel. L'utilisateur peut valider un prix affiché différent du prix réellement persisté, sans message ni motif d'override. Ce risque financier et fonctionnel bloque la release même si l'intégrité backend est désormais protégée.
+
+Correction attendue : en édition d'une source Article inchangée, alimenter le sélecteur d'unité, le P.U. et `resolvedMinor` depuis `activeStockEditor.line.articleSnapshot.tariffsMinor`; lors d'un changement réel de source, revenir au catalogue courant. Le texte de conséquence doit préciser que les tarifs historiques figés sont utilisés. Ajouter une preuve UI/DOM ou un test de helper avec deux valeurs distinctes pour l'unité choisie en N et N+1, puis confirmer que le prix affiché avant soumission égale le prix retourné par le PATCH.
+
+### Constat P2 conservé
+
+`REV-QUOTE-PDF-12` reste ouvert : les tests PDF contrôlent le texte mais pas la géométrie/parité des sept colonnes. Le présent correctif backend ne modifie pas ce risque.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-30.
+
+- `node --test tests/article-catalog.test.js tests/quotes.test.js` → **PASS, 55/55**, 0 échec/cancelled/skip/todo, `4 099,92 ms` ;
+- `npm test` → **PASS, 367/367**, 0 échec/cancelled/skip/todo, `10 334,12 ms` ;
+- `npm run lint` → **PASS** ;
+- `npm run build` → **PASS**, cinq actifs runtime vérifiés ;
+- `git diff --check` avant rapport → **PASS** ;
+- inspection différentielle du helper snapshot, de la priorité tarifaire, de la recapture de source, du formulaire d'édition, du calcul `manualPriceOverridePayload()` et du test de non-régression.
+
+Empreintes SHA-256 du candidat inspecté :
+
+- `server.js` : `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025` ;
+- `tests/article-catalog.test.js` : `b0b8a92951728a059100bfba3d3df4ad6936ed907ded71597135fb60436dbd68` ;
+- `app.js` : `4bcb5fcb7669da6f8779e71973df95467ad27dde7e43ee3b002106adc6085bb1`.
+
+### Handoff
+
+La re-REVIEW reste **REJECTED** tant que `REV-QUOTE-ARTICLE-14` est ouvert. Le backend est cohérent, mais l'éditeur présente encore un prix contractuel différent de celui enregistré. Le lot retourne en DEV, puis doit repasser REVIEW et les gates aval impactés. `docs/project-status.md` reste volontairement inchangé conformément à l'ownership limité. Toute modification applicative invalide les empreintes ci-dessus.
+
+---
+
+## Re-REVIEW indépendante finale — Correctif prix affiché du snapshot Article — 2026-08-30
+
+Reviewer : agent indépendant `review_tarifs_devis_pdf`.
+
+Verdict : **REJECTED — 0 P0, 1 P1 ouvert, 1 P2 conservé.**
+
+Périmètre différentiel : sélection de la source tarifaire dans l'éditeur, cohérence prix affiché/persisté, changement réel de source et consommateurs historiques. Aucun code produit ni statut projet n'a été modifié pendant cette revue.
+
+### Fermeture de REV-QUOTE-ARTICLE-14
+
+`quoteArticlePricingSource()` choisit maintenant `activeStockEditor.line.articleSnapshot` lorsque la source Article sélectionnée est celle de la ligne existante. Le P.U., la désignation et `resolvedMinor` proviennent alors des tarifs figés ; un tarif Projet/Client explicitement prioritaire reste pris en compte comme côté serveur. Un changement réel de source réutilise le catalogue courant. Le texte d'accompagnement indique la provenance « snapshot figé » et le test de helper oppose bien `306000` dans N à `315000` dans N+1. Pour un article encore actif et présent dans la liste, le prix affiché avant PATCH est désormais celui que le serveur persiste.
+
+### Constat bloquant restant
+
+#### REV-QUOTE-ARTICLE-15 — P1 — Une ligne liée à un article désactivé s'ouvre comme ligne manuelle et perd son snapshot à la prochaine modification
+
+- La route `/api/v1/quote-catalog` exclut volontairement les articles inactifs (`server.js:3238`). Désactiver un article est une opération normale de l'administration et ne doit pas réécrire les Devis historiques.
+- L'éditeur construit ses options uniquement depuis ce catalogue actif. Lorsqu'il ouvre une ligne historique, il sélectionne `article|sourceId` seulement si cette option existe ; sinon il laisse la valeur par défaut `manual|` (`app.js:1211`, `app.js:1217`).
+- Le nouveau helper sait techniquement fonctionner avec le snapshot même sans `catalogItem`, mais il n'est jamais atteint pour la bonne source puisque l'option historique manquante n'est pas injectée dans le `<select>`.
+- Une simple modification de quantité soumet alors `sourceType: "manual"` sans `sourceId` (`app.js:1218`). Le serveur interprète cela comme un changement réel de source, supprime `articleSnapshot`, référence SAGE et dimensions analytiques, tout en conservant visuellement l'ancienne désignation. Aucune confirmation n'avertit l'opérateur de cette conversion.
+- Les tests couvrent un article mis à jour mais toujours actif. Aucun scénario ne crée une ligne, désactive son article, rouvre l'éditeur puis modifie quantité/unité en conservant source et snapshot.
+
+Impact : l'historique commercial et analytique d'une ligne peut être détruit par une modification sans rapport avec sa source. Cela contredit l'invariant de snapshot immuable et la promesse UI « les anciens devis restent inchangés » affichée lors de l'administration des tarifs.
+
+Correction attendue : lors de l'édition, si la source Article historique n'existe pas dans les options actives, injecter une option sélectionnée et clairement marquée « article archivé » à partir de `line.articleSnapshot`; conserver `sourceType/sourceId` au PATCH et autoriser les changements de quantité/unité avec les tarifs du snapshot. Cette option historique ne doit pas être proposée pour une nouvelle ligne. Ajouter un test couvrant création N → désactivation Article → édition quantité/unité → snapshot, référence, désignation, codes analytiques et tarif N inchangés.
+
+### Constat P2 conservé
+
+`REV-QUOTE-PDF-12` reste ouvert : les tests PDF contrôlent le contenu textuel, pas la géométrie/parité des sept colonnes. La validation visuelle PO réduit le risque sans constituer un test automatisé de non-régression.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-30.
+
+- `node --test tests/article-catalog.test.js tests/quotes.test.js` → **PASS, 55/55**, 0 échec/cancelled/skip/todo, `4 603,59 ms` ;
+- `npm test` → **PASS, 367/367**, 0 échec/cancelled/skip/todo, `9 629,57 ms` ;
+- `npm run lint` → **PASS** ;
+- `npm run build` → **PASS**, cinq actifs runtime vérifiés ;
+- `git diff --check` avant rapport → **PASS** ;
+- inspection différentielle de `quoteArticlePricingSource()`, `syncQuoteArticleTariff()`, de la composition des options, de l'ouverture/submit d'une ligne et du filtrage actif serveur.
+
+Empreintes SHA-256 du candidat inspecté :
+
+- `app.js` : `2504722ff6cc67722c410b4513594fb57aa38711b26445d0f8a89f90dd978115` ;
+- `server.js` : `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025` ;
+- `tests/article-catalog.test.js` : `6051a48f89c83031a406dd8f5eff0c72d3a4f25440ca3d0bb22f0975dba2575d`.
+
+### Handoff
+
+La re-REVIEW finale reste **REJECTED** tant que `REV-QUOTE-ARTICLE-15` est ouvert. `REV-QUOTE-ARTICLE-14` est fermé pour les articles actifs, mais le consommateur historique des articles désactivés peut encore convertir silencieusement une ligne Article en ligne manuelle. Le lot retourne en DEV puis doit repasser REVIEW et les gates aval impactés. `docs/project-status.md` reste volontairement inchangé conformément à l'ownership limité. Toute modification applicative invalide les empreintes ci-dessus.
+
+---
+
+## Re-REVIEW indépendante finale — Correctif Article archivé — 2026-08-30
+
+Reviewer : agent indépendant `review_tarifs_devis_pdf`.
+
+Verdict : **REJECTED — 0 P0, 1 P1 ouvert, 1 P2 conservé.**
+
+Périmètre différentiel : option historique injectée dans l'éditeur, conservation backend après désactivation, initialisation des champs financiers et tests consommateurs. Aucun code produit ni statut projet n'a été modifié pendant cette revue.
+
+### Fermeture de REV-QUOTE-ARTICLE-15
+
+`quoteHistoricalArticleOption()` crée uniquement pour une ligne Article existante absente du catalogue actif une option sélectionnable « Article archivé », fondée sur la référence et la désignation du snapshot. Elle n'est produite ni pour une ligne manuelle ni lorsque l'article reste actif, et n'élargit donc pas le catalogue de création. Le test API crée la ligne N, met le catalogue en N+1, désactive l'article, confirme son exclusion du catalogue de création, puis modifie quantité/unité en conservant source, prix et snapshot N. Le risque de conversion silencieuse en ligne manuelle est fermé.
+
+### Constat bloquant restant
+
+#### REV-QUOTE-ARTICLE-16 — P1 — L'initialisation de l'option archivée écrase les champs financiers préremplis d'une ligne existante
+
+- Le wrapper d'édition préremplit correctement `unitPrice` avec `line.unitPriceMinor`, son `resolvedMinor` avec cette même valeur et `costUnit` avec `line.costUnitMinor`.
+- Il appelle ensuite inconditionnellement `syncQuoteArticleTariff(false)` (`app.js:1218`). Cette fonction remplace le P.U. par le tarif du snapshot et remplace le coût par `applicableRate?.costUnitMinor || '0'` (`app.js:1214`), même si l'unité et la source n'ont pas changé.
+- Une ligne Article peut légitimement porter un prix manuel tracé différent du catalogue. À l'ouverture, l'éditeur affiche alors le tarif catalogue/snapshot au lieu du prix manuel existant. Comme `resolvedMinor` est aussi remplacé, le submit n'envoie aucun override ; le serveur conserve généralement l'ancien P.U. pour la même unité. L'utilisateur valide donc encore un prix affiché différent du prix persisté.
+- Pour un acteur disposant de `finance.cost.manage`, le coût écrasé reste un champ actif et `submitQuoteLine()` l'envoie. Une simple modification de quantité peut donc remplacer réellement un coût interne existant par zéro, recalculant silencieusement marge et analyses Finance.
+- Le test archivé crée une ligne sans coût ni override manuel ; les assertions de helper ne modélisent pas l'initialisation DOM après préremplissage. Les deux régressions restent invisibles dans les 55 tests verts.
+
+Impact : perte potentielle d'un coût interne et divergence visible/persistée du prix sur une ligne contractuelle existante. Ce comportement est financier, silencieux et bloquant.
+
+Correction attendue : lors de l'ouverture, synchroniser source/libellé/texte d'aide avant le préremplissage financier, ou ajouter un mode d'initialisation qui conserve exactement `line.unitPriceMinor`, `line.costUnitMinor`, `manualPriceTrace` et le `resolvedMinor` existant. La résolution depuis snapshot/catalogue ne doit remplacer prix et coût qu'après un changement utilisateur de source ou d'unité. Ajouter un test UI/helper avec prix manuel et coût non nul, puis vérifier ouverture → modification de quantité → mêmes prix/coût/marge ; couvrir aussi l'article archivé.
+
+### Constat P2 conservé
+
+`REV-QUOTE-PDF-12` reste ouvert : le contenu textuel du PDF est testé, pas la géométrie/parité des sept colonnes.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-30.
+
+- `node --test tests/article-catalog.test.js tests/quotes.test.js` → **PASS, 55/55**, 0 échec/cancelled/skip/todo, `4 085,29 ms` ;
+- `npm test` → **PASS, 367/367**, 0 échec/cancelled/skip/todo, `9 085,06 ms` ;
+- `npm run lint` → **PASS** ;
+- `npm run build` → **PASS**, cinq actifs runtime vérifiés ;
+- `git diff --check` avant rapport → **PASS** ;
+- inspection différentielle de l'injection d'option historique, de l'ordre de préremplissage/synchronisation et du payload conditionné par `finance.cost.manage`.
+
+Empreintes SHA-256 du candidat inspecté :
+
+- `app.js` : `894956d4bacd1ab9462c1bd1c4bf9aa4e43d6c246d44c61c197a5f1e489c0ef9` ;
+- `server.js` : `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025` ;
+- `tests/article-catalog.test.js` : `f852af2fd3461c0588b0a3c4a52eebed94fedfc7dbc3a8fcbe2508c595d57700`.
+
+### Handoff
+
+La re-REVIEW reste **REJECTED** tant que `REV-QUOTE-ARTICLE-16` est ouvert. L'article archivé conserve maintenant sa source et son snapshot, mais l'appel de synchronisation ajouté après préremplissage peut encore fausser le P.U. affiché et écraser le coût réellement enregistré. Le lot retourne en DEV puis doit repasser REVIEW et les gates aval impactés. `docs/project-status.md` reste volontairement inchangé conformément à l'ownership limité. Toute modification applicative invalide les empreintes ci-dessus.
+
+---
+
+## Re-REVIEW indépendante terminale — Préservation prix et coût à l'ouverture — 2026-08-30
+
+Reviewer : agent indépendant `review_tarifs_devis_pdf`.
+
+Verdict : **APPROVED — 0 P0, 0 P1 ouvert ; 1 P2 conservé.**
+
+Périmètre différentiel : ordre d'initialisation de l'éditeur, conservation d'un P.U. manuel et d'un coût interne existants, événements de changement source/unité, article archivé et tests consommateurs. Aucun code produit ni statut projet n'a été modifié pendant cette revue.
+
+### Fermeture de REV-QUOTE-ARTICLE-16
+
+La synchronisation Article est maintenant exécutée après l'injection/sélection éventuelle de l'option historique mais avant la restauration des champs de la ligne. Le préremplissage final rétablit donc exactement unité, P.U., `resolvedMinor` et coût existants. Les écouteurs déjà installés continuent ensuite à recalculer uniquement lorsqu'un opérateur change effectivement la source ou l'unité.
+
+Le test API couvre désormais un article archivé avec P.U. manuel `73500`, coût `31000` et `manualPriceTrace`, puis un PATCH de quantité : prix, coût, trace et snapshot restent inchangés. Le test structurel UI impose que `syncQuoteArticleTariff(false)` précède les affectations de `unitPrice` et `costUnit`. Cette combinaison ferme le risque d'affichage divergent et d'écrasement financier silencieux.
+
+### Revalidation des fermetures précédentes
+
+- même source explicite + modification quantité/remise : snapshots Article et tarifaire N conservés ;
+- changement d'unité : tarif issu du snapshot N, avec version tarifaire N ;
+- changement réel de source : capture du nouvel article courant ;
+- article désactivé : absent du catalogue de création, mais option historique explicite disponible uniquement en édition ;
+- désignation professionnelle, référence SAGE, codes analytiques, P.U. HT, PDF et versions restent liés au snapshot attendu.
+
+### Constat P2 conservé
+
+`REV-QUOTE-PDF-12` reste ouvert : les tests PDF contrôlent le contenu textuel, mais pas automatiquement la géométrie/parité des sept colonnes. La validation visuelle explicite du PO réduit ce risque sans remplacer une future preuve de rendu.
+
+### Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`, 2026-08-30.
+
+- `node --test tests/article-catalog.test.js tests/quotes.test.js` → **PASS, 55/55**, 0 échec/cancelled/skip/todo, `4 096,55 ms` ;
+- `npm test` → **PASS, 367/367**, 0 échec/cancelled/skip/todo, `11 714,84 ms` ;
+- `npm run lint` → **PASS** ;
+- `npm run build` → **PASS**, cinq actifs runtime vérifiés ;
+- `git diff --check` avant rapport → **PASS** ;
+- inspection différentielle de l'ordre d'initialisation, des écouteurs, du payload Finance et des scénarios Article actif/archivé.
+
+Empreintes SHA-256 du candidat approuvé :
+
+- `app.js` : `404f4c608036dc0cbbf009e17f98493b7cba0c69cbd21d43fe6ef1ee7584d41c` ;
+- `server.js` : `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025` ;
+- `tests/article-catalog.test.js` : `7618fc6e704def68f3d455aba41d3f97668617ba2900902d7d84f34683c44f23`.
+
+### Handoff
+
+La gate REVIEW du lot Tarifs Articles + Éditeur/PDF Devis est **APPROVED** sur les empreintes exactes ci-dessus : aucun P0/P1 n'est ouvert. `REV-QUOTE-PDF-12` demeure P2 non bloquant. L'intégrateur doit reporter ce verdict dans `docs/project-status.md` et s'assurer que QA, SECURITY, PERFORMANCE, INTEGRATION et E2E ciblent le même candidat. Toute modification ultérieure d'un fichier applicatif ou test concerné invalide cette approbation.
+
+---
+
 # Re-REVIEW indépendante post-RC6 — comparaison mensuelle Vue d’ensemble
 
 Date : 2026-08-26

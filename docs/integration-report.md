@@ -1,3 +1,21 @@
+# Rapport d’intégration — Consolidation post-RC1 / candidat RC2
+
+Date : 2026-08-30
+Environnement : macOS arm64, Node.js v26.6.0, navigateur intégré
+Candidat : `app.js 9601017d…`, `server.js 3f4b87eb…`, Planning `32464251…`, Devis `ba661c8c…`, OpenAPI `055f9a05…`
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+Le frontend, l’API, le SSE et la persistance JSON ont été recomposés sur l’instance isolée `PORT=8235`, fichier `/private/tmp/planify-rc2-e2e.json`, sans accès réseau externe. Après arrêt complet, redémarrage et nouvelle authentification, la couleur Projet témoin `#2255aa`/`#ffffff` est retrouvée dans le formulaire et le Planning avec un contraste `7,12:1`. Le formulaire standard « Nouveau projet » propose `#6553db`/`#ffffff` (`5,51:1`) ; un passage volontaire à blanc/blanc affiche `1,00:1` et désactive la soumission. La création nominale correspondante répond `201` dans la campagne indépendante.
+
+La Vue d’ensemble rend l’occupation Jour/Semaine/Mois, la tendance permanente six mois, le détail Montage/Mixage/Étalonnage et la chaîne CA devisé/signé/Budget non converti. La comparaison affiche explicitement `Du 1er au 31 juillet 2026` face à `Du 1er au 30 août 2026`. Le Planning s’ouvre sur la date civile `30/08/2026`, ne propose que Jour/Semaine/Mois/3 mois et conserve exactement la route `#planning` après trois gestes horizontaux successifs. Les contrats de déplacement, copie atomique, effacement logique, annulation/rétablissement, conflit/override, ressource effective, lecteur et SSE sont rejoués par la suite complète et les tests spécialisés du même candidat.
+
+Preuves terminales : REVIEW `APPROVED` (191/191 ciblés), QA `APPROVED` (170/170 ciblés), SECURITY et PERFORMANCE `APPROVED`, suite complète `368/368`, lint/build/OpenAPI/diff-check PASS. Le benchmark Planning 250 ressources/10 000 réservations reste sous tous les seuils et le PDF 500 lignes mesure `11,73 ms` p95. Aucun format de persistance destructif, dépendance distante ni donnée de travail n’a été introduit. Le candidat franchit INTEGRATION.
+
+---
+
 # Rapport d’intégration — Catalogue articles SAGE
 
 Date : 2026-08-26
@@ -163,3 +181,11 @@ Le serveur et l’onglet de test ont été arrêtés proprement. Le fichier temp
 ## Suite
 
 Exécuter le gate E2E complet sur ce candidat, notamment les permissions lecteur, les conflits/override, l’import avec clarification, le rejeu après réduction de scopes et la persistance après redémarrage. La RELEASE reste bloquée jusqu’à son approbation.
+
+## 2026-08-30 — Tarifs articles / Devis / PDF
+
+Verdict : **APPROVED — 0 P0 / 0 P1** sur `app.js 404f4c608036…`, `server.js a410aa2a8a57…` et `tests/article-catalog.test.js 7618fc6e704d…`.
+
+Le parcours intégré associe le référentiel SAGE, les cinq tarifs, les grilles négociées, l'éditeur A4, l'API Devis, les snapshots, les calculs financiers et le PDF. Le scénario isolé crée une ligne sur Catalogue N, publie N+1, archive l'article, confirme son exclusion des nouvelles sélections, puis modifie unité et quantité sans perdre source, référence, désignation, codes analytiques ni tarifs figés. Il ajoute ensuite un P.U. manuel de `735,00 EUR` et un coût interne de `310,00 EUR`, puis confirme leur conservation, avec la trace d'override, lors d'une nouvelle modification. Le changement réel de source capture au contraire le nouvel Article. La persistance JSON et l'historique des versions sont vérifiés par relecture API.
+
+Preuves fraîches Node v26.6.0 : ciblés Catalogue+Devis `55/55`, suite complète `367/367`, lint PASS, build PASS (5 actifs), diff-check PASS. Smoke sur le serveur local : `/` répond `200` avec les en-têtes défensifs ; `/api/v1/auth/me` sans session reste fail-closed avec `AUTH_REQUIRED`. Aucun accès réseau externe n'est nécessaire.

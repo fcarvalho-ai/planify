@@ -1,3 +1,412 @@
+# Analyse d'impact PERFORMANCE — métadonnées RELEASE `0.6.0-rc2`
+
+Date : 2026-08-30
+
+Le changement de version `package.json` vers `0.6.0-rc2` (SHA-256 `aa90023d025139aecb3535a976dd1bbf4b4957c5e82c261df1b25faef6f6447a`) et les textes de release/rollback ne sont lus par aucun chemin applicatif. Les empreintes mesurées restent `app.js 9601017d92cf…` et `server.js 3f4b87eb8ee4…`; la migration tarifaire et son rollback faisaient déjà partie du code approuvé et mesuré. **Aucun re-gate PERFORMANCE ni nouveau benchmark n'est requis** pour ce lot documentaire.
+
+Le reporting RELEASE est aligné : suite complète `368/368`; Planning 250 ressources / 10 000 réservations p95 lecture `46,35 ms`, conflit `70,24 ms`, écriture `126,37 ms`, lot de 100 `180,34 ms`; PDF 500 lignes p95 `11,73 ms`. Le verdict PERFORMANCE final reste **APPROVED — 0 P0/P1**, avec les deux P2 de montée en charge et le P3 de preuve navigateur déjà consignés ci-dessous.
+
+---
+
+# Revalidation PERFORMANCE finale — contraste Projet et historique Devis/PDF
+
+Date : 2026-08-30
+
+Candidat revalidé : `app.js` SHA-256 `9601017d92cf6884df6c74e3b688b15421b1f6b60c4fe99e692aabf3255b96aa`; `server.js` `3f4b87eb8ee4106b819878a0eb73f71516a92099d2fa9e43995a7582444b3af1`; `tests/planning-postproduction.test.js` `32464251b1622da22054f17e7b150104c044262e7d441ec411986f04fdc2b3c6`; `tests/quotes.test.js` `ba661c8cb654b403d6312aebf8a68d150fdaa301b2935239cdca6a805b0fa7f8`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1, 2 P2 de montée en charge et 1 P3 de preuve navigateur.**
+
+Le P1 `REV-GLOBAL-20` est fermé. Le correctif de couleurs n'ajoute aucun appel réseau ni parcours dépendant du volume. La suppression de la re-projection Catalogue à la lecture réduit le travail Devis/PDF et ne dégrade aucun seuil contractuel.
+
+## Mesures fraîches et réutilisées sur l'empreinte serveur exacte
+
+Environnement : macOS arm64, Node `v26.6.0`; stockage JSON temporaire privé, serveur local monoprocessus.
+
+| Chemin | Dataset / échantillons | Résultat | Seuil |
+|---|---:|---:|---:|
+| Planning GET réservations | 250 ressources / 10 000 réservations, 30 | p95 `46,35 ms`, max `46,52 ms` | `< 300 ms` |
+| Planning conflit | même dataset, 30 | p95 `70,24 ms`, max `71,24 ms` | `< 250 ms` |
+| Planning écriture atomique | même dataset, 20 | p95 `126,37 ms`, max `131,45 ms` | `< 250 ms` |
+| Planning batch 100 cellules | même dataset, 10 | p95/max `180,34 ms` | `< 250 ms` |
+| Replay idempotent Planning | même dataset | `103,54 ms` | `< 250 ms` |
+| PDF Devis | 500 lignes longues, 30 après 5 warmups | p50 `10,22 ms`, p95 `11,73 ms`, max `13,09 ms` | analyse `< 300 ms` lecture |
+
+Le PDF de 500 lignes produit `664 182` octets. `npm run benchmark:http` rapporte un fichier de `11 694 590` octets, RSS `673 529 856` octets et heap utilisée `141 463 304` octets en fin de campagne. La suite complète passe **368/368** en `9 611,05 ms`; Planning passe **54/54**, Devis **51/51**, Articles **5/5** et Sécurité **4/4**.
+
+## Analyse des impacts
+
+- **Contraste serveur/UI :** luminance et ratio parcourent exactement trois canaux RGB; le coût est O(1). La prévalidation du formulaire modifie un texte, une classe et l'état du bouton sur événement humain. Le rendu Planning calcule au plus un ratio par carte déjà incluse dans la fenêtre virtualisée. Les nouvelles valeurs du payload ont une taille constante.
+- **Création rapide :** le passage de `#7667f5` à `#6553db` ne change ni sérialisation, ni nombre de validations, ni transaction. Le smoke POST répond en `7 ms`, très sous le seuil d'écriture `< 250 ms`.
+- **Compatibilité legacy :** la réparation choisit noir/blanc en O(1) lors d'un PATCH existant et ne déclenche aucune migration globale ni scan de table. Le smoke PATCH répond en `8 ms`.
+- **Devis/PDF :** `professionalQuoteProjection` effectue désormais une copie superficielle et un `map` O(L) sans recherche du Catalogue vivant par ligne. Le générateur reste linéaire et paginé dans les 500 lignes maximales. La mesure actuelle p95 `11,73 ms` améliore la référence antérieure `27,59 ms`; aucun cache ou état persistant supplémentaire n'est ajouté.
+- **Mémoire :** conserver les snapshots historiques ne change pas leur cardinalité, puisqu'ils étaient déjà persistés sur les lignes nouvelles. Ne plus joindre le Catalogue à la lecture évite des recherches et allocations de remplacement; aucune hausse mémoire structurelle n'est identifiée.
+
+## Constats maintenus
+
+1. **P2 — Catalogue exhaustif à très forte volumétrie.** L'UI `apiAll` charge séquentiellement toutes les pages de 200 et la détection des codes SAGE partagés conserve un chemin O(N²). Cela peut dépasser le budget interactif de 2 s autour de 10 000 Articles; le volume métier actuel est 71. Prévoir recherche/pagination visible côté serveur et compteur O(N) avant cette montée en charge.
+2. **P2 — enveloppe mémoire/DOM Planning à longue période.** Le benchmark volumique atteint environ `642 MiB` RSS malgré une heap utilisée d'environ `135 MiB`; le monolithe relit/clone/sérialise encore l'état complet lors des écritures. Conserver le suivi RSS/heap et le budget DOM avant hausse durable de volume ou concurrence.
+3. **P3 — preuve interactive navigateur manquante.** Cette session ne fournit pas de trace fraîche FPS/layout/paint/mémoire ni de chronométrage navigateur du seuil « interactive `< 2 s` ». Les tests de virtualisation, la complexité et les latences API rendent le résultat plausible au volume cible, mais l'E2E release doit le matérialiser.
+
+## Limites et handoff
+
+La mesure PDF est un microbenchmark in-process après warmup; elle n'inclut ni transport HTTP, ni affichage par un lecteur PDF. La campagne Planning est locale, séquentielle et monoprocessus; elle ne mesure pas disque lent, contention multi-utilisateur ou pression mémoire prolongée. Toute modification d'une empreinte ci-dessus invalide ce verdict.
+
+Gate PERFORMANCE final : **APPROVED avec 2 P2 et 1 P3 non bloquants**. Fichier modifié : `docs/performance-report.md` uniquement; `docs/project-status.md` reste à l'intégrateur conformément à la mission.
+
+---
+
+# Gate PERFORMANCE global — candidat post-`v0.6.0-rc1`
+
+Date : 2026-08-30
+
+Base mesurée : tag `v0.6.0-rc1` (`df0f02351b09bf9d64418ee5f864c6fe5cc4629f`). Candidat produit : `app.js` SHA-256 `404f4c608036dc0cbbf009e17f98493b7cba0c69cbd21d43fe6ef1ee7584d41c`, `server.js` `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025`, `planning.css` `7455ab68e6bb232acf6e45dce48d1ba78eb477f13bd238594f925bca0a1320cd`, `styles.css` `f4be1bf5bb9f977cc58a70d707a25520eb74e0e788950c0ab49f0b58699a9f27`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1, 2 P2 de montée en charge, 1 P3 de preuve navigateur.**
+
+Les seuils contractuels serveur Planning passent sur un dataset plus sévère que la référence (250 ressources / 10 000 réservations). Dashboard, Finance et Catalogue restent sous `300 ms` en lecture et `250 ms` en écriture. Ce verdict global remplace les revalidations partielles inférieures pour ce candidat exact.
+
+## Mesures fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`; mesures isolées, serveur local, stockage JSON temporaire privé.
+
+| Chemin | Dataset / échantillons | Résultat | Seuil |
+|---|---:|---:|---:|
+| Planning GET réservations | 250 ressources, 10 000 réservations, 30 | p95 `46,17 ms`, max `46,99 ms` | `< 300 ms` |
+| Planning conflit | même dataset, 30 | p95 `69,60 ms`, max `99,38 ms` | `< 250 ms` |
+| Planning écriture atomique | même dataset, 20 | p95 `122,61 ms`, max `126,88 ms` | `< 250 ms` |
+| Planning batch 100 cellules | même dataset, 10 | p95/max `169,46 ms` | `< 250 ms` |
+| Replay idempotent Planning | même dataset | `91,42 ms` | `< 250 ms` |
+| Dashboard Vue d'ensemble | 250 ressources, 10 000 réservations, 30 | p95 `63,68 ms`, max `75,45 ms` | `< 300 ms` |
+| Catalogue GET | 10 071 Articles, 50 | p95 `48,07 ms` | `< 300 ms` |
+| Catalogue PATCH + persistance | 10 071 Articles, 20 | p95 `58,98 ms` | `< 250 ms` |
+| Finance occupation annuelle | 250 ressources, 10 000 réservations, 20 | p95 `30,33 ms` | `< 300 ms` |
+| Finance drill-down facturable | + 2 000 documents/réalisés/coûts, 20 | p95 `219,00 ms` | `< 300 ms` |
+
+`npm run benchmark:http` rapporte un fichier de `11 694 590` octets, RSS `750 616 576` octets et heap utilisée `252 573 128` octets en fin de campagne. `npm run benchmark:finance` place les autres lectures entre p95 `7,64 ms` et `56,79 ms`. `npm test` passe **367/367** en `9 779,61 ms`; les suites ciblées Planning/Dashboard/Articles/Devis/Sécurité passent aussi sans échec.
+
+## Analyse des chemins affectés
+
+- **Planning :** la construction d'index de conflit du batch est linéaire dans les réservations visibles puis dans les cellules du lot; le plafond de 200 actions borne le travail par commande. Les déplacements unitaires et `cellOverrides` n'ajoutent qu'une recherche bornée sur les jours/ressources de la réservation. Copie, annulation et rétablissement déclenchent une unique transaction/persistance et n'émettent le SSE qu'après succès.
+- **Scroll/gestes/navigation :** le wheel horizontal met à jour `scrollLeft` en O(1), appelle `preventDefault` et n'entraîne ni navigation réseau, ni nouvelle route empilée. La virtualisation existante conserve une fenêtre de lignes/colonnes; les couleurs Projet ajoutent deux variables CSS par carte sans changer la cardinalité.
+- **Dashboard :** le read-model parcourt une fois ressources/réservations autorisées, calcule trois périodes, six mois d'historique et deux comparaisons; aucune requête par salle. La mesure directe à 10 000 réservations reste à p95 `63,68 ms`.
+- **Tarifs/Devis/PDF :** le Catalogue est paginé côté API; les snapshots et cinq tarifs ont une taille constante par ligne. La détection d'un Article historique est O(N) à l'ouverture seulement; la sélection du snapshot est O(1). Le PDF reste linéaire dans les lignes et paginé; la référence antérieure de 500 lignes est p95 `27,59 ms`, backend byte-identique.
+- **Temporalité et scopes :** les filtres n'augmentent pas la cardinalité. Les périodes Dashboard sont fixes (jour, semaine, mois, six mois) et l'intervalle Planning reste borné à 370 jours.
+
+## P2/P3 et limites
+
+1. **P2 — Catalogue exhaustif à très forte volumétrie.** L'UI `apiAll` charge séquentiellement toutes les pages de 200 et la détection des codes SAGE partagés utilise encore `filter(...findIndex...)` O(N²). À 10 071 Articles, 51 lectures séquentielles à environ `48 ms` p95 peuvent dépasser le budget interactif de `2 s`, avant rendu. Le volume métier actuel validé est 71; avant montée à plusieurs milliers, adopter recherche/pagination serveur visible et un compteur O(N).
+2. **P2 — enveloppe mémoire/DOM Planning à longue période.** Le benchmark serveur atteint environ `716 MiB` RSS (`241 MiB` heap utilisée) pour un JSON de `11,2 MiB`; le monolithe relit/clone/sérialise encore l'état complet lors des écritures. La virtualisation limite la fenêtre visible, mais aucune trace navigateur n'a démontré la mémoire/paint sur plusieurs mois et cellules empilées. Instrumenter heap/RSS et budget DOM avant d'augmenter le dataset ou la concurrence.
+3. **P3 — preuve interactive navigateur manquante.** Le contrôle navigateur automatisé n'était pas disponible dans cette session; le seuil UI « exploitable et interactive `< 2 s` », FPS, layout/paint et mémoire n'a donc pas de trace fraîche. Les latences API, tests purs de virtualisation/gestes et l'analyse de complexité rendent plausible le respect au volume cible, mais l'E2E release doit produire cette preuve sur le candidat figé.
+
+La campagne est locale, séquentielle et monoprocessus : elle ne mesure pas la contention multi-utilisateur, les disques lents, la pression mémoire prolongée ni un navigateur réel. Le serveur volumique isolé a été arrêté et son fichier temporaire supprimé. Toute modification d'une empreinte produit invalide les mesures.
+
+Gate PERFORMANCE global : **APPROVED avec 2 P2 et 1 P3 non bloquants**. Fichier modifié : `docs/performance-report.md` uniquement; la mise à jour de `docs/project-status.md` reste à l'intégrateur.
+
+---
+
+# Revalidation PERFORMANCE — ordre d’initialisation éditeur REV-QUOTE-ARTICLE-16
+
+Date : 2026-08-30
+
+Candidat revalidé : `app.js` SHA-256 `404f4c608036dc0cbbf009e17f98493b7cba0c69cbd21d43fe6ef1ee7584d41c`; `server.js` SHA-256 `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025`; `tests/article-catalog.test.js` SHA-256 `7618fc6e704def68f3d455aba41d3f97668617ba2900902d7d84f34683c44f23`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1, 1 P2 de montée en charge UI hérité, 1 P3 de trace navigateur.**
+
+Le delta déplace un appel `syncQuoteArticleTariff(false)` dans la même ouverture d’éditeur. Il n’ajoute aucun appel, parcours, nœud DOM, listener, allocation persistante ou requête réseau. La complexité et les mesures du candidat précédent restent strictement applicables.
+
+## Analyse différentielle
+
+- L’ouverture exécute toujours un `catalog.some(...)` O(N) pour détecter l’Article historique et les recherches `catalog.find(...)` déjà présentes pour synchroniser le tarif. Seul l’ordre relatif aux affectations de champs change.
+- Les restaurations de `unit`, `unitPrice`, `resolvedMinor` et `costUnit` sont des affectations O(1). Elles ne déclenchent pas d’événement `change` programmatique et n’ajoutent donc pas de resynchronisation récursive.
+- L’option historique demeure un seul nœud. Aucun rendu de page, recalcul par ligne, pagination PDF ou traitement serveur n’est touché.
+- La mesure précédente du pire cas reste applicable : détection historique `0,72 µs/appel` à 71 Articles et `88,59 µs/appel` à 10 071 Articles. Les références serveur byte-identiques restent GET catalogue p95 `46,67 ms`, PATCH p95 `62,78 ms`, PDF 500 lignes p95 `27,59 ms`.
+- Les PATCH isolés supplémentaires (Article archivé, override/coût, conservation, nouvelle source) répondent en `5–6 ms`, très sous le seuil écriture `< 250 ms`.
+
+## Preuves fraîches
+
+| Contrôle | Résultat |
+|---|---|
+| syntaxe `app.js` / `server.js` | **PASS** |
+| tests Article isolés | **5/5 PASS**, `583,64 ms` |
+| tests Devis | **50/50 PASS**, 0 échec |
+| test d’ordre UI | synchronisation avant restauration du prix et du coût : **PASS** |
+| analyse du diff | même nombre d’appels, mêmes structures et mêmes bornes |
+
+## P2, P3 et limites
+
+Le **P2 hérité** reste inchangé : `apiAll` séquentiel et détection des codes SAGE partagés O(N²) sur la page Catalogue à très forte volumétrie. Le volume métier approuvé est 71. Le **P3 hérité** reste l’absence de trace navigateur FPS/layout/paint/mémoire et de chronométrage interactif réel `< 2 s`.
+
+Cette revalidation est différentielle : aucun nouveau microbenchmark n’est nécessaire pour un déplacement d’appel sans changement de cardinalité. Les durées des suites parallèles ne sont pas utilisées comme mesures de latence produit; seuls les PATCH isolés et les benchmarks antérieurs byte-identiques le sont. Aucun test multi-utilisateur n’a été réalisé.
+
+Gate PERFORMANCE Tarifs Articles + Éditeur/PDF Devis : **APPROVED** avec P2/P3 non bloquants. Le verdict `REV-QUOTE-ARTICLE-15` inférieur reste historique et est remplacé par celui-ci. Fichier modifié : `docs/performance-report.md` uniquement; statut projet laissé à l’intégrateur.
+
+---
+
+# Revalidation PERFORMANCE — détection d’Article historique REV-QUOTE-ARTICLE-15
+
+Date : 2026-08-30
+
+Candidat revalidé : `app.js` SHA-256 `894956d4bacd1ab9462c1bd1c4bf9aa4e43d6c246d44c61c197a5f1e489c0ef9`; `server.js` SHA-256 `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025`; `tests/article-catalog.test.js` SHA-256 `f852af2fd3461c0588b0a3c4a52eebed94fedfc7dbc3a8fcbe2508c595d57700`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1, 1 P2 de montée en charge UI hérité, 1 P3 de trace navigateur.**
+
+`quoteHistoricalArticleOption` effectue un seul `catalog.some(...)` O(N) à l’ouverture d’une ligne en édition. Le pire cas — Article absent, donc parcours complet — mesure `0,72 µs/appel` à 71 Articles et `88,59 µs/appel` à 10 071 Articles. Le coût reste négligeable face au budget interactif `< 2 s` et n’ajoute ni requête, ni rendu de liste, ni boucle imbriquée.
+
+## Analyse différentielle
+
+- Les gardes de type/snapshot sont O(1). Le scan s’arrête tôt si l’Article est présent et ne parcourt entièrement le catalogue que pour une ligne historique absente.
+- L’option DOM ajoutée est un seul nœud. Elle est créée une fois à l’ouverture de l’éditeur, sans listener propre, observer, timer, reflow répété ni copie du catalogue.
+- Le helper n’est pas appelé par ligne lors du rendu du Devis, de la page Catalogue ou du PDF. Son coût ne dépend donc ni du nombre de lignes du document ni de la pagination.
+- Le serveur, la persistance et le PDF sont byte-identiques au candidat précédent. Les références restent : catalogue 10 071 Articles GET p95 `46,67 ms`, PATCH p95 `62,78 ms`; PDF 500 lignes p95 `27,59 ms`.
+- Les tests HTTP du candidat observent les PATCH de quantité/unité/source autour de `6 ms`; aucun changement algorithmique backend n’est présent.
+
+## Mesure fraîche du helper
+
+Microbenchmark Node après 100 warm-ups, source historique absente pour forcer le parcours complet, résultat consommé :
+
+| Taille catalogue | Répétitions | Temps total | Temps/appel |
+|---:|---:|---:|---:|
+| 71 | 10 000 | `7,23 ms` | `0,72 µs` |
+| 10 071 | 1 000 | `88,59 ms` | `88,59 µs` |
+
+Preuves fonctionnelles : `node --test tests/article-catalog.test.js` **5/5 PASS** (`588,13 ms`), `node --test tests/quotes.test.js` **50/50 PASS**, syntaxe `app.js`/`server.js` **PASS**.
+
+## P2, P3 et limites
+
+Le **P2 hérité** demeure inchangé : `apiAll` charge les pages séquentiellement et la page Catalogue calcule les codes SAGE partagés par `filter(...findIndex...)` O(N²). Le volume métier approuvé est 71. Le nouveau scan O(N), ponctuel et mesuré à moins de `0,1 ms` pour 10 071 entrées, ne matérialise pas un nouveau P2.
+
+Le **P3 hérité** demeure : aucune trace navigateur FPS/layout/paint/mémoire ni preuve directe du seuil interactif `< 2 s`. Le microbenchmark V8 n’inclut pas la création DOM réelle; un seul `option` rend cependant l’impact structurel constant. Aucun test multi-utilisateur n’a été réalisé.
+
+Gate PERFORMANCE Tarifs Articles + Éditeur/PDF Devis : **APPROVED** avec P2/P3 non bloquants. Le verdict `REV-QUOTE-ARTICLE-14` immédiatement inférieur est historique et remplacé par le présent candidat. Fichier modifié : `docs/performance-report.md` uniquement; statut projet laissé à l’intégrateur.
+
+---
+
+# Revalidation finale PERFORMANCE — helper UI snapshot Article O(1)
+
+Date : 2026-08-30
+
+Candidat revalidé : `app.js` SHA-256 `2504722ff6cc67722c410b4513594fb57aa38711b26445d0f8a89f90dd978115`; `server.js` SHA-256 `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025`; `tests/article-catalog.test.js` SHA-256 `6051a48f89c83031a406dd8f5eff0c72d3a4f25440ca3d0bb22f0975dba2575d`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict final
+
+**APPROVED — 0 P0, 0 P1, 1 P2 de montée en charge UI hérité, 1 P3 de trace navigateur.**
+
+`quoteArticlePricingSource` exécute des comparaisons constantes et un spread d’un objet Article de taille bornée. Il n’effectue ni `find`, ni `filter`, ni parcours du catalogue et ne dépend donc pas de sa cardinalité. Un microbenchmark avec résultat consommé mesure un million d’appels en `26,40 ms`, soit `26,4 ns/appel` dans le runtime de test. Le benchmark serveur isolé reste sous les seuils : lecture p95 `46,67 ms`, écriture p95 `62,78 ms` à 10 071 Articles.
+
+## Analyse différentielle UI
+
+- La sélection du snapshot teste quatre identités/propriétés puis retourne soit l’item existant, soit un objet peu profond aux champs fixes. Complexité O(1) en temps et en mémoire par interaction.
+- Le helper est appelé lors de l’ouverture/édition et du changement d’unité/source; aucun listener, timer, observer, requête réseau ou recalcul de page supplémentaire n’est ajouté.
+- `syncQuoteArticleTariff` conserve une recherche `quotesModule.catalog.find(...)` O(N) déjà existante par interaction. La correction ne l’imbrique pas dans un parcours. Le calcul O(N²) des codes SAGE partagés sur la page Catalogue est hors de ce delta et reste explicitement le P2 ci-dessous.
+- Le backend, le PDF et la persistance sont byte-identiques au candidat précédent. Les mesures restent applicables : PDF p95 `27,59 ms` à 500 lignes; PATCH Devis ciblés autour de `5–6 ms` en exécution isolée précédente.
+
+## Mesures fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Chemin | Échantillons / preuve | Résultat | Seuil |
+|---|---:|---:|---:|
+| helper `quoteArticlePricingSource` | 1 000 000 appels après warm-up | `26,40 ms` total, `26,4 ns/appel` | analyse O(1) |
+| GET catalogue, 10 071 Articles | 50 | p95 `46,67 ms` | `< 300 ms` |
+| PATCH Article + persistance | 20 | p95 `62,78 ms` | `< 250 ms` |
+| tests Article isolés | 5 | **5/5 PASS**, `548,85 ms` | zéro échec |
+| tests Devis | 50 | **50/50 PASS** | zéro échec |
+
+Le benchmark catalogue a été relancé isolément. Une première tentative lancée dans la même commande que le microbenchmark a rencontré `listen EPERM` dans le bac à sable; elle a été répétée seule avec succès et n’est pas comptée comme échec produit.
+
+## P2, P3 et limites
+
+Le **P2 hérité** demeure : le chargement exhaustif `apiAll` est séquentiel et la détection des codes SAGE partagés utilise encore `filter(...findIndex...)`, donc O(N²), à plusieurs milliers d’Articles; le volume métier approuvé est 71. Le **P3 hérité** demeure : aucune trace navigateur FPS/layout/paint/mémoire ou temps interactif `< 2 s` n’a été produite.
+
+Le microbenchmark V8 ne mesure ni DOM ni paint et peut bénéficier des optimisations JIT; son résultat sert seulement à confirmer l’absence de croissance avec N, pas à prédire un temps utilisateur. Aucun test multi-utilisateur n’a été réalisé. Le gate E2E doit conserver la preuve visuelle et interactive.
+
+Gate PERFORMANCE final Tarifs Articles + Éditeur/PDF Devis : **APPROVED** avec P2/P3 non bloquants. Fichier modifié : `docs/performance-report.md` uniquement; mise à jour de `docs/project-status.md` laissée à l’intégrateur.
+
+---
+
+# Revalidation PERFORMANCE — fallback tarifaire par unité sur snapshot Article
+
+Date : 2026-08-30
+
+Candidat revalidé : `server.js` SHA-256 `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025`; `tests/article-catalog.test.js` SHA-256 `b0b8a92951728a059100bfba3d3df4ad6936ed907ded71597135fb60436dbd68`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict revalidé
+
+**APPROVED — 0 P0, 0 P1, 1 P2 de montée en charge UI hérité, 1 P3 de preuve navigateur.**
+
+Le fallback `articleSnapshotRate` est constant : contrôle d’identité, validation d’unité et accès direct à une propriété de `tariffsMinor`. Il ne copie pas le snapshot et n’ajoute aucun parcours du catalogue. Les trois PATCH du scénario correctif (quantité, unité, source) répondent respectivement en `5`, `6` et `5 ms`. Le benchmark isolé à 10 071 Articles reste sous les seuils : lecture p95 `47,64 ms`, écriture p95 `78,62 ms`.
+
+## Analyse différentielle
+
+- `rateForSource` reçoit une référence optionnelle au snapshot déjà présent sur la ligne. En absence de rate-card applicable, `articleSnapshotRate` exécute un nombre constant de validations et retourne un petit objet tarifaire O(1).
+- Le fallback vers `articleCatalogRate` n’est consulté que si le snapshot est absent, incohérent avec `sourceId` ou inutilisable. Il n’existe donc ni double scan du catalogue ni nouvelle complexité sur le chemin nominal.
+- Un changement réel de source suit le chemin existant : une recherche linéaire bornée dans le catalogue en mémoire, déjà comprise dans les mesures et sans copie cumulative.
+- Recalcul de montants, version documentaire, audit, sérialisation JSON, écriture atomique, SSE, pagination UI et génération PDF restent inchangés. Les mesures PDF précédentes restent applicables : p95 `27,59 ms`, max `29,29 ms` au plafond de 500 lignes longues.
+
+## Mesures fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Chemin | Échantillons / preuve | Résultat | Seuil |
+|---|---:|---:|---:|
+| GET catalogue, 10 071 Articles | 50 | p95 `47,64 ms` | `< 300 ms` |
+| PATCH Article + persistance | 20 | p95 `78,62 ms` | `< 250 ms` |
+| PATCH quantité même source | test HTTP | `5 ms`, `200` | `< 250 ms` indicatif |
+| PATCH unité même source | test HTTP | `6 ms`, `200` | `< 250 ms` indicatif |
+| PATCH nouvelle source | test HTTP | `5 ms`, `200` | `< 250 ms` indicatif |
+| tests ciblés Article + Devis | 55 | **55/55 PASS** | zéro échec |
+
+Commande benchmark : `npm run benchmark:article-catalog`, exécutée après les deux suites ciblées, sans concurrence avec elles.
+
+## P2, P3 et limites
+
+Le **P2 hérité** demeure : à plusieurs milliers d’Articles, `apiAll` charge toutes les pages séquentiellement et le calcul UI des références partagées reste O(N²). Le volume métier approuvé est 71 et ce correctif ne modifie pas l’UI. Le **P3 hérité** demeure : aucune trace navigateur FPS/layout/paint/mémoire; l’E2E release doit confirmer l’interaction `< 2 s`.
+
+Les temps unitaires des PATCH sont des observations de test, pas un p95 dédié. Le verdict s’appuie sur l’analyse algorithmique, les 55 tests ciblés et le benchmark représentatif du catalogue. La suite complète `367/367` communiquée par l’intégrateur n’a pas été relancée par ce reviewer. Aucun test multi-utilisateur n’a été réalisé sur la persistance JSON locale.
+
+Gate PERFORMANCE Tarifs Articles + Éditeur/PDF Devis : **APPROVED** avec P2/P3 non bloquants. Fichier modifié : `docs/performance-report.md` uniquement; mise à jour de `docs/project-status.md` laissée à l’intégrateur.
+
+---
+
+# Revalidation PERFORMANCE — préservation des snapshots de ligne Devis
+
+Date : 2026-08-30
+
+Candidat revalidé : `server.js` SHA-256 `11ddba279a199942e3787849ebfa0b06fc9b414552aa7ee868d904c618efe86c`; `tests/article-catalog.test.js` SHA-256 `0b3da91772e11791a14c3dace67ee1345c6bf5a822dc3c8323a748ed3f659ab9`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict revalidé
+
+**APPROVED — 0 P0, 0 P1, 1 P2 de montée en charge UI hérité, 1 P3 de preuve navigateur.**
+
+Le correctif ajoute une comparaison constante de l'identité de source et réutilise des objets snapshot existants sur un PATCH sans changement tarifaire. Il n'ajoute ni parcours de collection, ni copie profonde, ni écriture persistée supplémentaire. Le PATCH de quantité du test correctif répond en `6 ms`. Le benchmark isolé du catalogue à 10 071 articles reste sous les seuils avec `49,41 ms` p95 en lecture et `59,98 ms` p95 en écriture.
+
+## Analyse différentielle du PATCH Devis
+
+- `sameSource` compare deux chaînes normalisées : coût O(1). Le chemin évite la reconstruction du snapshot Article et sa recherche dans `articleCatalogItems` lorsque la source ne change pas.
+- `preservePricingSnapshot` ajoute trois comparaisons constantes (unité et bornes de prestation, plus absence de changement manuel de prix), puis réemploie `appliedRateSnapshot`. La résolution tarifaire existante est encore calculée, mais aucune boucle ni structure supplémentaire n'est introduite par le correctif.
+- Le calcul des montants, la version documentaire, l'audit, l'écriture atomique et l'émission SSE sont inchangés. La taille JSON reste identique puisque le snapshot remplacé est désormais conservé, pas dupliqué.
+- Catalogue, pagination UI et générateur PDF sont hors du diff correctif. Les mesures PDF du candidat précédent restent donc applicables : génération linéaire au plafond de 500 lignes longues, p95 `27,59 ms`, max `29,29 ms`.
+
+## Mesures fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Chemin | Échantillons / preuve | Résultat | Seuil |
+|---|---:|---:|---:|
+| GET catalogue, 10 071 articles | 50 | p95 `49,41 ms` | `< 300 ms` |
+| PATCH Article + persistance | 20 | p95 `59,98 ms` | `< 250 ms` |
+| PATCH ligne même source après V2→V3 | test HTTP | `6 ms`, statut `200` | `< 250 ms` indicatif |
+| tests Article | 5 | **5/5 PASS**, `551,74 ms` | zéro échec |
+| tests Devis | 50 | **50/50 PASS**, `4 116,84 ms` | zéro échec |
+
+Commande benchmark : `npm run benchmark:article-catalog`, exécutée isolément après la campagne de tests. La première exécution concurrente aux tests a été écartée de la référence afin d'éviter de mélanger la contention de processus avec la latence du candidat.
+
+## P2, P3 et limites
+
+Le **P2 hérité** demeure : à plusieurs milliers d'Articles, `apiAll` charge séquentiellement toutes les pages et le calcul UI des références partagées reste O(N²). Le volume métier validé est 71; ce delta ne touche pas ce chemin. Le **P3 hérité** demeure : aucune trace navigateur FPS/layout/paint/mémoire n'a été produite; l'E2E release doit confirmer l'interaction `< 2 s`.
+
+Le temps `6 ms` est une observation fonctionnelle unique, pas un benchmark p95 du PATCH Devis. Le verdict d'impact repose donc sur l'analyse algorithmique du delta, les 55 tests ciblés et les mesures représentatives inchangées du catalogue/PDF. Aucun test de charge multi-utilisateur n'a été réalisé sur le monolithe JSON local.
+
+Gate PERFORMANCE Tarifs Articles + Éditeur/PDF Devis : **APPROVED** avec P2/P3 non bloquants. Fichier modifié : `docs/performance-report.md` uniquement; mise à jour de `docs/project-status.md` laissée à l'intégrateur.
+
+---
+
+# Gate PERFORMANCE indépendant — Tarifs Articles + Éditeur/PDF Devis
+
+Date : 2026-08-30
+
+Candidat observé : HEAD `6cb10c90a12077ef26442c0a8a80e06ad7cd8d9e`, avec lot non commité identifié par les empreintes ci-dessous.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1, 1 P2 de montée en charge UI hérité, 1 P3 de preuve navigateur.**
+
+Le catalogue de 10 071 articles respecte les références API avec `42,63 ms` p95 en lecture/recherche (`< 300 ms`) et `60,92 ms` p95 en mutation versionnée avec persistance (`< 250 ms`). La génération PDF dynamique reste linéaire et mesure `27,59 ms` p95 au plafond de 500 lignes longues. La hauteur variable et la pagination complète ne créent donc aucune régression serveur bloquante.
+
+## Catalogue tarifaire HTTP
+
+Commande : `npm run benchmark:article-catalog` sur macOS arm64, Node `v26.6.0`.
+
+Jeu : 10 000 articles synthétiques plus 71 articles SAGE migrés. Les 50 lectures HTTP authentifiées recherchent `benchmark`, trient 10 000 correspondances et renvoient une page de 100. Les 20 mutations successives font validation, version optimiste, idempotence, audit, révision append-only et écriture atomique du JSON.
+
+| Chemin | Échantillons | p95 | Seuil | Verdict |
+|---|---:|---:|---:|---|
+| GET recherche catalogue, 10 000 correspondances | 50 | `42,63 ms` | `< 300 ms` | PASS |
+| PATCH Article versionné et persisté | 20 | `60,92 ms` | `< 250 ms` | PASS |
+
+Le tarif V2 ajoute cinq chaînes monétaires par article et une projection constante. Il ne change pas la complexité de filtrage/tri O(N log N) ni celle de la persistance JSON O(N). Au volume métier actuel de 71 articles, une seule page réseau suffit.
+
+## Génération et pagination PDF
+
+Mesure directe de `quotePdfBuffer`, 30 itérations par taille, avec une désignation professionnelle longue sur chaque ligne :
+
+| Lignes | p50 | p95 | max | Taille PDF |
+|---:|---:|---:|---:|---:|
+| 1 | `0,08 ms` | `0,48 ms` | `1,05 ms` | 4 744 octets |
+| 40 | `1,05 ms` | `1,23 ms` | `1,59 ms` | 62 901 octets |
+| 200 | `5,75 ms` | `7,52 ms` | `7,97 ms` | 309 512 octets |
+| 500 | `23,57 ms` | `27,59 ms` | `29,29 ms` | 772 443 octets |
+
+`pdfWrap` parcourt chaque caractère une fois, `quotePdfLineHeight` est O(longueur de désignation), le groupement de pages est O(nombre de lignes), puis la sérialisation est O(taille du PDF). Le plafond serveur de 500 lignes borne la charge. La mesure n'inclut pas auth HTTP, lecture du JSON ni transfert, mais leur coût sur les tests HTTP Devis demeure de quelques millisecondes; la marge au seuil de lecture reste supérieure à 270 ms.
+
+## UI, P2 et P3
+
+**P2 hérité — chargement exhaustif du catalogue à très forte volumétrie.** `apiAll` reste séquentiel par pages de 200 et le calcul des références SAGE partagées reste O(N²). Ce lot ne dégrade pas ce chemin, mais à 10 071 articles les 51 requêtes séquentielles pourraient dépasser le budget interactif `< 2 s`. Le volume approuvé est 71; avant une croissance à plusieurs milliers, déplacer recherche/pagination côté serveur et calculer les doublons par compteur O(N).
+
+**P3 — absence de trace navigateur de performance fraîche.** La parité visuelle éditeur/PDF a été vérifiée fonctionnellement, mais ce gate ne fournit pas de trace native FPS/layout/paint/mémoire ni de mesure du délai d'ouverture du lecteur PDF intégré. Le gate E2E doit confirmer l'ouverture et l'interaction `< 2 s` sur les 71 articles et un devis multi-page représentatif.
+
+## Preuves fraîches
+
+| Contrôle | Résultat |
+|---|---|
+| `npm run benchmark:article-catalog` | **PASS**, lecture p95 `42,63 ms`, écriture p95 `60,92 ms` |
+| microbenchmark PDF 1/40/200/500 lignes, 30 itérations | **PASS**, plafond p95 `27,59 ms`, max `29,29 ms` |
+| `node --test tests/article-catalog.test.js` | **PASS, 5/5**, durée `555,70 ms` |
+| `node --test tests/quotes.test.js` | **PASS, 50/50**, 0 échec |
+| `node --check server.js` / `node --check app.js` | **PASS** |
+| `git diff --check` | **PASS** avant rapport |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                                      fe058707cb39cfac16face519ded6ebbaa83b8e06c85b0ce0cb4e931251a3a49
+app.js                                         4bcb5fcb7669da6f8779e71973df95467ad27dde7e43ee3b002106adc6085bb1
+referentials/article-catalog-sage-pricing-v2.json 8787dd307faca61d3bb12dbf05274ec742179e5bb4504bad475bbed35bc1e053
+scripts/benchmark-article-catalog.js            797762d839a0331e53029df049a3fac03c005e38e1810fa885b725a06d971cb9
+tests/article-catalog.test.js                   9773657dfe9ee9a9ac9d9f0436331881547332db80ce881a53f51eea1ebe5624
+tests/quotes.test.js                            6a99884d758321269bb2d715e5b2e14d4a340ba017e6fe10d278423014ab7e9e
+```
+
+Gate PERFORMANCE Tarifs Articles + Éditeur/PDF Devis : **APPROVED** avec P2/P3 non bloquants. Fichier modifié : `docs/performance-report.md` uniquement; mise à jour de `docs/project-status.md` laissée à l'intégrateur conformément à l'ownership imposé.
+
+Le P1 fonctionnel/sécurité `SEC-ARTICLE-QUOTE-01`, détecté en parallèle sur la recapture du snapshot Article lors d'un PATCH de ligne, bloque l'intégration globale sans invalider les mesures de coût ci-dessus. Son correctif modifiera toutefois le chemin d'écriture Devis et devra recevoir une revalidation PERFORMANCE d'impact avant réutilisation de ce verdict pour la release.
+
+---
+
 # Revalidation terminale PERFORMANCE — existence documentaire à la date de situation
 
 Date : 2026-08-26

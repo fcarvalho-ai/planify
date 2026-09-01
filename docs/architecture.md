@@ -100,7 +100,8 @@ Toutes les clés primaires sont des UUID stockés en texte. Toutes les dates per
 | `user_roles` | `user_id`, `role_id`, `site_id?` | unicité du triplet |
 | `role_permissions` | `role_id`, `permission` | permission issue du catalogue fermé |
 | `clients` | `id`, `company_id`, `name`, `code`, `active` | code unique par société |
-| `projects` | `id`, `company_id`, `client_id`, `name`, `code`, `status`, `color` | code unique par société |
+| `projects` | `id`, `company_id`, `client_id`, `name`, `code`, `status`, `color`, `text_color` | code unique par société ; couleurs hexadécimales `#RRGGBB` avec contraste fond/texte `>= 4,5:1` |
+| `article_catalog_items` | `id`, `company_id`, `sage_code`, `analytics_code`, `designation`, `currency`, `default_unit`, `tariffs_minor`, `version` | code analytique unique par société ; désignation et cinq tarifs HT versionnés ; les nouvelles lignes de devis figent un snapshot, les lignes historiques sans snapshot ne consultent jamais le catalogue à la lecture |
 | `resources` | `id`, `company_id`, `site_id`, `department_id?`, `name`, `type`, `capacity`, `color`, `active` | capacité positive ; nom unique par site/type |
 | `reservations` | `id`, `company_id`, `site_id`, `project_id?`, `title`, `status`, `starts_at`, `ends_at`, `notes`, `created_by`, `version` | `starts_at < ends_at` |
 | `reservation_resources` | `reservation_id`, `resource_id`, `quantity` | quantité positive ; unicité du couple |
@@ -246,4 +247,3 @@ Avant un déploiement multi-instance, il faudra remplacer SQLite par PostgreSQL,
 | fuite inter-sociétés | incident majeur | filtre serveur systématique, tests négatifs d'isolation, revue sécurité |
 | dérive des contrats entre UI/API | régressions | source de schémas partagée, validation runtime et tests de contrat |
 | dépendance à des actifs distants | démarrage impossible hors ligne | tous les actifs embarqués, aucune requête CDN/SaaS |
-

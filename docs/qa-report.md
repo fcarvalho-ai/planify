@@ -1,3 +1,755 @@
+# Revalidation QA RELEASE — rollback tarifaire RC2 vers RC1
+
+Date : 2026-08-30
+
+Base Git : `6cb10c90a12077ef26442c0a8a80e06ad7cd8d9e` avec documentation de release non commitée identifiée par les empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64
+
+Verdict documentaire corrigé : **APPROVED — 0 P0 / 0 P1 ouvert**
+
+Cette revalidation remplace uniquement les assertions de rollback du contrôle QA RELEASE précédent. L'omission de la migration tarifaire `article-catalog-sage-pricing-v2` est fermée ; aucun code produit n'a été modifié par cette QA.
+
+## État documentaire revalidé
+
+```text
+README.md                                   a1bf4aa67ae848db7161345d3ed1d68d31c22602bc4f5de230d57973a3cdabf5
+CHANGELOG.md                                0189150df1fb65d81697bc0dc1bc167330d54ae7c86a267f2a5cbf902626afd5
+docs/project-status.md                      b2ec7f76d6bacf98186313aee406dc24c03e67d97dd65c54e2e7e19f039ee838
+```
+
+Toute modification ultérieure de ces trois fichiers invalide ce contrôle documentaire ciblé.
+
+## Procédure contrôlée
+
+- `README.md` identifie explicitement la migration additive `article-catalog-sage-pricing-v2`, sa sauvegarde privée `0600` et son marqueur d'intégrité ;
+- avant tout retour de RC2 vers RC1, le serveur doit être arrêté et `rollbackArticleCatalogPricingV2` doit être exécuté avec **le code RC2 encore présent** ;
+- la commande exige un chemin d'export de récupération neuf, distinct du fichier actif ; l'implémentation refuse l'absence d'export, refuse le fichier actif comme cible, écrit en `0600`, vérifie l'export et la sauvegarde, puis seulement restaure l'état antérieur ;
+- l'export doit être conservé pour rapprocher ou reprendre les écritures réalisées après la sauvegarde tarifaire ; le rollback n'est donc plus décrit à tort comme un simple retour applicatif sans migration ;
+- après restauration, RC1 doit être remis en service depuis un clone ou worktree dédié ; RC2 ne doit pas être redémarré sur cet état, faute de quoi la migration serait réappliquée ;
+- un retour ultérieur RC1 vers `0.5.0-rc6` conserve sa procédure séparée de rollback Catalogue V1 avec export obligatoire ;
+- `CHANGELOG.md` qualifie désormais correctement la migration tarifaire de sauvegardée, réversible et précédée d'un export obligatoire ;
+- `docs/project-status.md` reprend la migration, le rollback et l'export vérifié, et ferme maintenant la formulation antérieure sur la suite complète et le smoke : `368/368`, lint, build, diff-check et HTTP `200` y sont acquis.
+
+## Commandes et résultats
+
+- `shasum -a 256 README.md CHANGELOG.md docs/project-status.md docs/qa-report.md` : **PASS** pour les trois empreintes documentaires ci-dessus ;
+- `rg -n "rollbackArticleCatalogPricingV2|article-catalog-sage-pricing-v2|export|RC1|suite complète|smoke" README.md CHANGELOG.md docs/project-status.md` : **PASS**, procédure et statut présents ;
+- inspection de `server.js` : fonction `rollbackArticleCatalogPricingV2` exportée, contrôles sauvegarde/export présents et cohérents avec la commande documentée ;
+- `node --test tests/article-catalog.test.js` hors bac à sable : **5/5 réussis**, 0 échec, incluant l'exigence d'export et le rollback restaurable ; la première tentative en bac à sable a été non probante (`listen EPERM` sur port local), puis rejouée dans l'environnement autorisé ;
+- `git diff --check` : **PASS** avant mise à jour du présent rapport.
+
+## Limites et conclusion
+
+Cette revalidation est documentaire et ciblée : elle ne rejoue pas la suite complète déjà attestée `368/368`, car aucun code produit n'a changé. Aucun tag, commit, push ou déploiement n'est autorisé par ce rapport. Les P2 existants restent inchangés.
+
+Conclusion : la procédure RC2 → RC1 couvre désormais correctement la migration tarifaire, l'export obligatoire, la restauration et le risque de réapplication. Le contrôle QA RELEASE documentaire reste **APPROVED — 0 P0 / 0 P1 ouvert** sur les trois empreintes corrigées ci-dessus.
+
+---
+
+# Contrôle QA RELEASE — métadonnées 0.6.0-rc2
+
+Date : 2026-08-30
+
+Base Git : `6cb10c90a12077ef26442c0a8a80e06ad7cd8d9e` avec métadonnées de release non commitées identifiées par les empreintes ci-dessous
+
+Environnement déclaré pour la preuve terminale : Node `v26.6.0`, Darwin arm64
+
+Verdict QA des métadonnées : **APPROVED — 0 P0 / 0 P1 ouvert**
+
+Ce contrôle porte uniquement sur la cohérence de la préparation RELEASE. Il ne modifie ni code produit ni métadonnée de release ; seul ce rapport QA est complété.
+
+## État documentaire contrôlé
+
+```text
+package.json                                aa90023d025139aecb3535a976dd1bbf4b4957c5e82c261df1b25faef6f6447a
+CHANGELOG.md                                9bcc086cf15bd837a228680abbf98a5c4e893ced32bc91a96ef8ffdae37aef7e
+README.md                                   eec7e160616e7813bb31be47526fb384eed706388fb1d7e2608f10ef3c4ad86c
+docs/project-status.md                      e18e41e3bca77974cfff54235ed5cd64fc6a2193eac8b95f268c64eaa4f46307
+docs/integration-report.md                  270ae302baf5c64ba56608adc8fc8cbc31c18dc83db2fb24bdb9dceabfb80274
+docs/e2e-report.md                          67c8500f515a8d46ab450f8f776fd59296af66b66a79d7ba57a7a7c979d414e2
+```
+
+Toute modification ultérieure de ces six fichiers invalide ce contrôle documentaire.
+
+## Cohérence vérifiée
+
+- `package.json` annonce exactement `0.6.0-rc2` et expose les commandes réellement disponibles `npm test`, `npm start`, `npm run lint`, `npm run build`, `npm run test:foundations` et `npm run rollback:article-catalog` ;
+- `CHANGELOG.md` ouvre la version `0.6.0-rc2` datée du 30 août 2026 et récapitule Planning, navigation, Dashboard, couleurs Projet, Catalogue/Devis/PDF, stabilité historique, gates et mesures ;
+- les nombres terminaux sont cohérents : REVIEW jusqu'à `191/191`, QA ciblée `170/170`, suite complète **`368/368`**, sans mélange avec les anciennes campagnes historiques ;
+- `README.md` indique que la suite de référence contient **368 tests**, donne les commandes de vérification et le compte de démonstration local ;
+- sa correction rédactionnelle finale identifie désormais correctement le « runtime RC2 » ; elle ne change aucune commande, procédure ni attente fonctionnelle ;
+- la démonstration reste locale et autonome : `npm start`, ouverture de `http://localhost:8080`, authentification administrateur documentée, aucun SaaS ou actif distant requis ;
+- le rollback RC2 → RC1 est applicatif et sans migration de données : arrêt, copie privée, remise en service RC1 puis vérifications métier ;
+- le retour RC1 → RC6 impose correctement le rollback Catalogue avec export de récupération, sauvegarde vérifiée et interdiction de redémarrer une version qui réappliquerait la migration ;
+- `docs/integration-report.md` et `docs/e2e-report.md` portent sur le même candidat fonctionnel final et confirment `APPROVED — 0 P0 / 0 P1`, redémarrage/persistance, création Projet accessible, Planning, Dashboard, Catalogue/Devis/PDF, permissions et SSE.
+
+## Preuve terminale après modification des métadonnées
+
+L'intégrateur root a rejoué sur les six empreintes ci-dessus :
+
+- `npm test` : **368/368 réussis**, 0 échec ;
+- `npm run lint` : **PASS** ;
+- `npm run build` : **PASS** ;
+- `git diff --check` : **PASS** ;
+- smoke local après démarrage : requête `HEAD /` répond **HTTP 200**.
+
+Cette preuve a été exécutée après les changements de version et de documentation ; elle évite de reporter automatiquement un résultat antérieur aux métadonnées. Le présent agent QA a vérifié les empreintes, les scripts disponibles, les nombres et la cohérence des procédures, sans rejouer une seconde fois la suite déjà transmise par l'intégrateur.
+
+## Limites et handoff
+
+1. `docs/project-status.md` formule encore la suite/smoke comme une condition à exécuter ; la preuve terminale ci-dessus satisfait désormais cette condition. L'intégrateur doit fermer cette formulation dans le statut final avant tag afin que la source de vérité opérationnelle mentionne explicitement le résultat acquis.
+2. Aucun tag, commit, push ou déploiement n'est autorisé par ce contrôle ; la validation et la publication restent une décision explicite du Product Owner.
+3. Les P2 déjà consignés — annonce accessible du ratio, comparaison géométrique PDF automatisée et limites de montée en charge — restent non bloquants et ne sont pas supprimés.
+
+Conclusion : version, changelog, README, procédures de démonstration/rollback et rapports aval sont cohérents avec le candidat `0.6.0-rc2` et les **368/368** tests. La preuve terminale post-métadonnées est verte. Les métadonnées franchissent le **contrôle QA RELEASE — 0 P0 / 0 P1 ouvert**, sous réserve de la mise à jour purement opérationnelle de la ligne finale de `docs/project-status.md` par l'intégrateur avant tag.
+
+---
+
+# Re-QA finale indépendante — fermeture REV-GLOBAL-20
+
+Date : 2026-08-30
+
+Base Git : `6cb10c90a12077ef26442c0a8a80e06ad7cd8d9e` avec candidat non commité identifié par les empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64, package `0.6.0-rc1`
+
+Verdict : **APPROVED — 0 P0 / 0 P1 ouvert**
+
+Cette re-QA remplace le verdict bloqué du candidat précédent. Elle vérifie la fermeture de `REV-GLOBAL-20` sur les deux points d'entrée de création Projet, puis reconduit les régressions 17/18 relatives au contraste historique et aux lignes Devis anciennes sans snapshot Article. Aucun code produit, test ni statut projet n'a été modifié par cette QA ; seul ce rapport a été mis à jour.
+
+## État exact contrôlé
+
+```text
+app.js                                      9601017d92cf6884df6c74e3b688b15421b1f6b60c4fe99e692aabf3255b96aa
+server.js                                   3f4b87eb8ee4106b819878a0eb73f71516a92099d2fa9e43995a7582444b3af1
+planning.css                                7455ab68e6bb232acf6e45dce48d1ba78eb477f13bd238594f925bca0a1320cd
+styles.css                                  f4be1bf5bb9f977cc58a70d707a25520eb74e0e788950c0ab49f0b58699a9f27
+docs/api/openapi-v1.yaml                    055f9a05f5f722345aa8237cb994395426af76314a75abd370e70d6e8aae2a97
+tests/api.test.js                           aa69b08cd7aa65f474c13b32882f3072d5de03b3966fabb10c69e8b9a80ccc44
+tests/article-catalog.test.js               7618fc6e704def68f3d455aba41d3f97668617ba2900902d7d84f34683c44f23
+tests/foundations.test.js                   56c65142660759fff7043b8f21da8a9e11c960b61ef3733286148edb865a7857
+tests/planning-postproduction.test.js       32464251b1622da22054f17e7b150104c044262e7d441ec411986f04fdc2b3c6
+tests/quotes.test.js                        ba661c8cb654b403d6312aebf8a68d150fdaa301b2935239cdca6a805b0fa7f8
+```
+
+Toute modification ultérieure de ces fichiers invalide ce verdict.
+
+## Fermeture de REV-GLOBAL-20
+
+- le formulaire **Nouveau projet** remplace maintenant ses anciennes valeurs par défaut par `color=#6553db` et `textColor=#ffffff` immédiatement après construction ; cette paire atteint le ratio minimal `4,5:1` ;
+- le formulaire affiche le ratio calculé, désactive le bouton lorsque le contraste devient inférieur à 4,5 et bloque localement la soumission avec un message explicite ;
+- le chemin rapide `add('projects')` envoie exactement la même paire `#6553db/#ffffff`, au lieu de laisser le serveur compléter une couleur de texte incompatible ;
+- le POST Projet nominal avec ces valeurs retourne **201**, conserve les deux couleurs et expose le Projet créé ;
+- le serveur garde l'autorité : une combinaison `#ffffff/#ffffff` reste refusée en `422 VALIDATION_ERROR`, champs `color` et `textColor` signalés ;
+- les contrats UI ciblés figent les valeurs du formulaire, la validation locale et le chemin rapide pour prévenir une nouvelle divergence.
+
+## Régressions 17/18 reconduites
+
+- un Projet historique `#7667f5` sans texte conforme reste lisible dans le Planning et une modification indépendante répare son texte effectif, sans changer son fond ;
+- les combinaisons nouvelles sous `4,5:1` sont toujours refusées par le serveur et documentées dans OpenAPI ;
+- une ancienne ligne Devis sans `articleSnapshot` garde son libellé historique et reste sans snapshot après modification de la désignation puis désactivation de l'Article Catalogue ;
+- les lignes modernes conservent leurs snapshots N/N+1, Articles archivés, P.U. manuels, coûts historiques, remises et versions.
+
+## Permissions, cas négatifs et non-régression
+
+- RBAC, isolation Société/Site, versions optimistes, champs interdits et enveloppes d'erreur stables sont reconduits ;
+- Planning, navigation, Dashboard, couleurs Projet, Catalogue, Tarifs, Devis, PDF et analytique restent verts ;
+- le refus local n'affaiblit pas la validation serveur et aucune permission n'est déduite de l'état du bouton client.
+
+## OpenAPI et contrôles contractuels
+
+Le dépôt ne fournit pas de validateur OpenAPI autonome. Les suites `foundations`, API, Catalogue et Devis vérifient le document OpenAPI 3.1, ses routes, schémas et contraintes ; la description du contraste minimal Projet reste présente dans l'empreinte contractuelle ci-dessus.
+
+## Commandes et résultats frais
+
+- `node --test tests/api.test.js tests/foundations.test.js tests/planning-postproduction.test.js tests/quotes.test.js tests/article-catalog.test.js` : **170/170 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `4 431 ms`.
+- `npm test` : **368/368 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `11 723 ms`.
+- POST Projet nominal `#6553db/#ffffff` intégré à `tests/quotes.test.js` : **201**, couleurs conservées.
+- validation locale, valeurs par défaut et chemin rapide intégrés à `tests/planning-postproduction.test.js` : **PASS**.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, code 0 ; `5 actifs runtime` vérifiés.
+- contrôles OpenAPI intégrés aux tests ciblés : **PASS**.
+- `git diff --check` : **PASS**, code 0.
+- empreintes SHA-256 des dix fichiers ci-dessus : **PASS**, conformes à l'état figé.
+
+## Limites non bloquantes
+
+1. Les valeurs et branchements du formulaire sont protégés par contrats UI statiques et le POST réel par test API ; le geste visuel complet dans le navigateur reste au gate E2E.
+2. La réparation du Projet historique et la ligne Devis sans snapshot restent couvertes par API/persistance déterministe ; leur rendu final reste à observer en E2E.
+3. Les seuils de fluidité et de génération PDF relèvent du gate Performance indépendant.
+4. Le répertoire est volontairement non propre pendant l'intégration ; les empreintes ci-dessus figent précisément le candidat. `docs/project-status.md` reste à actualiser par l'intégrateur conformément à l'exception de périmètre mono-fichier.
+
+Conclusion : `REV-GLOBAL-20` est fermé sur les deux chemins de création Projet, sans affaiblir le contrôle serveur. Les régressions historiques Projet et Devis restent corrigées, et les campagnes ciblée et complète sont intégralement vertes. Le candidat identifié ci-dessus est **APPROVED au gate QA indépendant final — 0 P0 / 0 P1 ouvert**.
+
+---
+
+# Re-QA indépendante globale — contraste Projet et Devis historique
+
+Date : 2026-08-30
+
+Base Git : `6cb10c90a12077ef26442c0a8a80e06ad7cd8d9e` avec candidat non commité identifié par les empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64, package `0.6.0-rc1`
+
+Verdict : **BLOCKED — 0 P0 / 1 P1 ouvert (`REV-GLOBAL-20`)**
+
+Cette re-QA remplace le verdict global précédent, invalidé par les corrections du contraste Projet et de la lecture des anciennes lignes Devis sans snapshot Article. Les deux corrections ciblées passent, mais la re-REVIEW a détecté pendant ce gate une régression P1 dans le parcours de création d'un Projet ; ce candidat global n'est donc pas approuvé. Aucun code produit, test ni statut projet n'a été modifié par cette QA ; seul ce rapport a été mis à jour.
+
+## État exact contrôlé
+
+```text
+app.js                                      b767c5dac44554660d78dc19e3df81ec7e1302aa3312f4305ae7a7c4a498efb2
+server.js                                   3f4b87eb8ee4106b819878a0eb73f71516a92099d2fa9e43995a7582444b3af1
+planning.css                                7455ab68e6bb232acf6e45dce48d1ba78eb477f13bd238594f925bca0a1320cd
+styles.css                                  f4be1bf5bb9f977cc58a70d707a25520eb74e0e788950c0ab49f0b58699a9f27
+docs/api/openapi-v1.yaml                    055f9a05f5f722345aa8237cb994395426af76314a75abd370e70d6e8aae2a97
+tests/api.test.js                           aa69b08cd7aa65f474c13b32882f3072d5de03b3966fabb10c69e8b9a80ccc44
+tests/article-catalog.test.js               7618fc6e704def68f3d455aba41d3f97668617ba2900902d7d84f34683c44f23
+tests/foundations.test.js                   56c65142660759fff7043b8f21da8a9e11c960b61ef3733286148edb865a7857
+tests/planning-postproduction.test.js       8235100db6a6d571633ebe5216f53f87ec9ea5c85b49ff92927ca4e12e9c0564
+tests/quotes.test.js                        8e092aaa9f8f09c66479404300fb471c3235d451936d68fec57219362bcb8bed
+```
+
+Toute modification ultérieure de ces fichiers invalide ce verdict.
+
+## P1 bloquant découvert après la campagne automatisée
+
+`REV-GLOBAL-20` — le formulaire **Nouveau projet** initialise toujours `color=#7667f5` et `textColor=#ffffff`. Cette combinaison a un contraste inférieur à `4,5:1` et le serveur la refuse désormais correctement en `422`. Le parcours nominal « ouvrir le formulaire puis créer sans modifier les couleurs » échoue donc, même si les tests ciblés et complets restent verts.
+
+Preuve statique fraîche : `openProjectCreateDrawer` contient simultanément `name="color" value="#7667f5"` et `name="textColor" value="#ffffff"`, tandis que le test de contraste établit que cette paire est sous le seuil. La création rapide historique `add('projects')` ne fournit par ailleurs que `color=#7667f5`, laissant également le serveur appliquer une combinaison non conforme.
+
+Condition de déblocage : fournir des valeurs par défaut conformes dans tous les points d'entrée de création Projet, ajouter un test du POST nominal avec ces valeurs, puis rejouer REVIEW et tous les gates aval impactés sur les nouvelles empreintes.
+
+## Contraste des couleurs Projet
+
+- le serveur exige désormais un ratio de contraste WCAG d'au moins `4,5:1` entre `color` et `textColor`, au-delà de la simple validation hexadécimale ;
+- une combinaison `#ffffff` / `#ffffff` est refusée en `422 VALIDATION_ERROR`, avec les deux champs signalés et un message explicite `4,5:1` ;
+- les valeurs frontières contrôlées distinguent `#6553db` / blanc, conforme, de `#7667f5` / blanc, inférieur à 4,5 ;
+- pour un ancien Projet `#7667f5` sans couleur de texte valide, le Planning choisit un texte contrasté au rendu et expose un indicateur de correction ;
+- smoke API déterministe : la modification d'un autre champ d'un Projet historique conserve le fond `#7667f5`, répare `textColor` en `#000000` et incrémente la version de `1` à `2` ;
+- le contrat OpenAPI documente le ratio minimal sur la création et la modification des couleurs Projet.
+
+## Ancienne ligne Devis sans snapshot Article
+
+- une ligne historique acceptée est injectée avec sa source Article et son libellé d'origine, mais sans `articleSnapshot` ;
+- la première lecture conserve exactement `Libellé historique salle AVID 103` et n'invente aucun snapshot ;
+- après changement de la désignation du Catalogue en N+1 puis désactivation de l'Article, une nouvelle lecture restitue toujours le même libellé historique et laisse `articleSnapshot` absent ;
+- aucune donnée vivante du Catalogue ne réécrit donc silencieusement le document ancien ; les snapshots des nouvelles lignes et les Articles archivés des lignes modernes conservent leurs règles déjà approuvées.
+
+## Permissions, cas négatifs et non-régression
+
+- les tests ciblés reconduisent RBAC, isolation Société/Site, versions optimistes, champs interdits et erreurs stables pour Projets, Planning, Catalogue et Devis ;
+- déplacements, salle effective, copie/annulation/restauration, navigation sans historique, Catalogue SAGE, tarifs, remises, PDF et analytique restent verts ;
+- la suite complète ajoute le scénario historique sans snapshot et passe désormais **368 tests**.
+
+## OpenAPI et contrôles contractuels
+
+Le dépôt ne fournit pas de validateur OpenAPI autonome. Les suites `foundations`, API, Catalogue et Devis vérifient le document OpenAPI 3.1, ses routes, schémas et contraintes ; les nouvelles descriptions de contraste Projet sont présentes dans l'empreinte contractuelle ci-dessus.
+
+## Commandes et résultats frais
+
+- `node --test tests/api.test.js tests/foundations.test.js tests/planning-postproduction.test.js tests/quotes.test.js tests/article-catalog.test.js` : **170/170 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `4 163 ms`.
+- `npm test` : **368/368 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `9 213 ms`.
+- smoke API temporaire de réparation du contraste historique : **PASS**, `200`, fond `#7667f5` conservé, texte `#000000`, version `1 → 2` ; fichier temporaire supprimé à l'arrêt.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, code 0 ; `5 actifs runtime` vérifiés.
+- contrôles OpenAPI intégrés aux tests ciblés : **PASS**.
+- `git diff --check` : **PASS**, code 0.
+- empreintes SHA-256 des dix fichiers ci-dessus : **PASS**, conformes à l'état figé.
+
+Une première tentative du smoke a interrogé à tort une route de lecture unitaire Projet inexistante et obtenu `404`, puis un `PATCH` sans version a obtenu `409`. Cette tentative de harnais est exclue du verdict ; le smoke corrigé utilise la liste autorisée des Projets et passe avec les résultats exacts ci-dessus.
+
+## Limites non bloquantes
+
+1. La réparation du contraste est exercée par un smoke API local déterministe et le repli de rendu par test de fonction/contrat UI ; le contrôle visuel final reste au gate E2E.
+2. La ligne Devis ancienne sans snapshot est vérifiée par API et persistance temporaire ; le rendu de ce document historique dans l'éditeur et le PDF reste à rejouer en E2E.
+3. Les seuils de fluidité et de génération PDF relèvent du gate Performance indépendant.
+4. Le répertoire est volontairement non propre pendant l'intégration ; les empreintes ci-dessus figent précisément le candidat. `docs/project-status.md` reste à actualiser par l'intégrateur conformément à l'exception de périmètre mono-fichier.
+
+Conclusion : les deux régressions demandées sont techniquement fermées sur le candidat figé, mais `REV-GLOBAL-20` casse le parcours nominal de création d'un Projet avec les valeurs proposées par l'interface. Le candidat est **BLOCKED au gate QA indépendant global — 0 P0 / 1 P1 ouvert**. Aucun verdict n'est rendu ici sur le futur correctif, qui devra porter de nouvelles empreintes et une revalidation fraîche.
+
+---
+
+# QA indépendante globale — candidat post-0.6.0-rc1
+
+Date : 2026-08-30
+
+Base Git : `6cb10c90a12077ef26442c0a8a80e06ad7cd8d9e` avec candidat non commité identifié par les empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64, package `0.6.0-rc1`
+
+Verdict : **APPROVED — 0 P0 / 0 P1 ouvert**
+
+Cette campagne globale remplace les verdicts QA partiels antérieurs pour le candidat identifié ci-dessous. Elle couvre les correctifs Planning, navigation, Vue d'ensemble, couleurs Projet et Tarifs/Devis/PDF dans un même état. Aucun code produit, test ni statut projet n'a été modifié par cette QA ; seul ce rapport a été mis à jour.
+
+## État exact contrôlé
+
+```text
+app.js                                      404f4c608036dc0cbbf009e17f98493b7cba0c69cbd21d43fe6ef1ee7584d41c
+server.js                                   a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025
+planning.css                                7455ab68e6bb232acf6e45dce48d1ba78eb477f13bd238594f925bca0a1320cd
+styles.css                                  f4be1bf5bb9f977cc58a70d707a25520eb74e0e788950c0ab49f0b58699a9f27
+docs/api/openapi-v1.yaml                    b49948864cb9d08ad36382cfa8ccc3002cc56eeecfce6d42e68a132d2e0f8936
+tests/api.test.js                           aa69b08cd7aa65f474c13b32882f3072d5de03b3966fabb10c69e8b9a80ccc44
+tests/article-catalog.test.js               7618fc6e704def68f3d455aba41d3f97668617ba2900902d7d84f34683c44f23
+tests/foundations.test.js                   56c65142660759fff7043b8f21da8a9e11c960b61ef3733286148edb865a7857
+tests/planning-postproduction.test.js       0d5ac0848ab725ccb159ff5032b28fad24576d47af64ad1023a415669e208374
+tests/quotes.test.js                        6a99884d758321269bb2d715e5b2e14d4a340ba017e6fe10d278423014ab7e9e
+tests/sprint8-dashboards.test.js             4915f47b9aa1c3065ad82d2489ddccf7213e7d320972649408c293e89ec0fa37
+```
+
+Toute modification ultérieure de ces fichiers invalide ce verdict.
+
+## Planning et navigation
+
+- déplacements unitaires verticaux entre salles et horizontaux vers une date antérieure ou postérieure, pour réservations `option` et `confirmed`, sans déplacer les autres cellules de la série ;
+- conservation de la période globale et représentation de la salle réellement affectée par `cellOverrides`, distincte des ressources de base de la réservation ;
+- déplacement clavier et souris, annulation/rétablissement compensés, verrou de présence et idempotence ;
+- copie d'une cellule d'une série multi-jours limitée à une seule journée cible et rejouable sans doublon ;
+- effacement par annulation logique, masquage des annulées dans la vue courante, filtre historique explicite et restauration serveur ;
+- rejet des dates invalides, des réservations terminales, des versions obsolètes, des cellules ou salles hors périmètre et des mutations sans permission ; les identifiants hors Site/Société restent masqués par `404` ;
+- navigation applicative par `replaceState`, sans empiler l'historique jusqu'au login, et capture du geste horizontal sur toutes les fenêtres ;
+- contrats de virtualisation, rendu incrémental, hauteur dynamique, sélection limitée au DOM visible et confinement du scroll reconduits pour la fluidité.
+
+## Dashboard et couleurs Projet
+
+- taux d'occupation jour/semaine/mois, détail par type de salle, tendance de six mois et activité commerciale réconciliés côté serveur ;
+- comparaison entre le mois courant arrêté à la date de situation et un mois civil passé complet, avec périodes exactes et refus `422` d'un mois courant, futur, mal formé ou injecté ;
+- `dashboard.read`, `quote.read`, scopes Projet/Site et confidentialité Finance contrôlés avant calcul et rendu ;
+- couleurs de fond et de texte Projet créées puis modifiées, validation hexadécimale négative, contraste de repli et application aux cellules sans remplacer le statut textuel.
+
+## Tarifs, Devis et PDF
+
+- Catalogue SAGE multi-unités, désignations professionnelles, références, permissions d'administration, isolation Société et révisions ;
+- snapshots N/N+1, Article archivé en option historique, changement réel de source et conservation des versions ;
+- P.U. manuel, coût historique, remises, trace d'override et recalcul uniquement après action explicite de l'utilisateur ;
+- calculs HT/TVA/TTC, analytique par code Article, lecteur refusé en écriture et version optimiste ;
+- éditeur aligné et PDF A4 complet/paginé avec référence, désignation, unité, P.U. HT, remise et total, sans coûts ou marges internes exposés.
+
+## OpenAPI et contrats
+
+Les assertions contractuelles ciblées vérifient le document OpenAPI 3.1, les enveloppes d'erreur, l'idempotence, les routes Planning/Dashboard/Catalogue/Devis, les schémas `ArticleSnapshot`, dimensions analytiques et champs de comparaison. Le dépôt ne définit pas de script autonome de validation OpenAPI ; la validation disponible est intégrée aux suites `foundations`, API, Dashboard, Catalogue et Devis exécutées ci-dessous.
+
+## Commandes et résultats frais
+
+- `node --test tests/api.test.js tests/foundations.test.js tests/planning-postproduction.test.js tests/sprint8-dashboards.test.js tests/quotes.test.js tests/article-catalog.test.js` : **190/190 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `4 147 ms`.
+- `npm test` : **367/367 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `9 023 ms`.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, code 0 ; `5 actifs runtime` vérifiés.
+- contrôles OpenAPI intégrés aux tests ciblés : **PASS**.
+- `git diff --check` : **PASS**, code 0.
+- empreintes SHA-256 des onze fichiers ci-dessus : **PASS**, conformes à l'état figé.
+
+## Limites non bloquantes
+
+1. Cette campagne combine tests de domaine/API et contrats UI statiques. Les gestes réels souris/clavier/trackpad, le rendu PDF dans le navigateur et la persistance après redémarrage restent à rejouer au gate E2E.
+2. La fluidité est protégée par les contrats de virtualisation et de confinement ; les seuils chiffrés et le jeu 100 ressources/10 000 réservations relèvent du gate Performance indépendant.
+3. Les contrôles Sécurité spécialisés restent consignés dans leur gate indépendant ; cette QA reconduit les cas négatifs d'authentification, RBAC et isolation présents dans la suite.
+4. Le répertoire est volontairement non propre pendant l'intégration ; les empreintes ci-dessus figent précisément le candidat. `docs/project-status.md` reste à actualiser par l'intégrateur conformément à l'exception de périmètre mono-fichier.
+
+Conclusion : les critères fonctionnels et négatifs du lot consolidé sont couverts sans échec sur le même candidat. Les 367 tests de non-régression sont verts et les contrôles de syntaxe, build, OpenAPI et diff passent. Le candidat identifié ci-dessus est **APPROVED au gate QA indépendant global — 0 P0 / 0 P1 ouvert**.
+
+---
+
+# Re-QA indépendante REV-QUOTE-ARTICLE-16 — Initialisation et montants historiques
+
+Date : 2026-08-30
+
+Base Git : `6cb10c90a12077ef26442c0a8a80e06ad7cd8d9e` avec candidat non commité identifié par les empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64, package `0.6.0-rc1`
+
+Verdict : **APPROVED — 0 P0 / 0 P1 ouvert**
+
+Cette re-QA remplace le verdict `REV-QUOTE-ARTICLE-15`, invalidé par `REV-QUOTE-ARTICLE-16`. Elle vérifie que l'ouverture du tiroir d'édition n'écrase plus silencieusement le P.U. manuel et le coût historique d'une ligne Article, tout en conservant le recalcul attendu après un changement explicite de prestation ou d'unité. Aucun code produit, test ni statut projet n'a été modifié par cette QA ; seul ce rapport a été mis à jour.
+
+## État exact contrôlé
+
+```text
+app.js                                      404f4c608036dc0cbbf009e17f98493b7cba0c69cbd21d43fe6ef1ee7584d41c
+server.js                                   a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025
+tests/article-catalog.test.js               7618fc6e704def68f3d455aba41d3f97668617ba2900902d7d84f34683c44f23
+tests/quotes.test.js                        6a99884d758321269bb2d715e5b2e14d4a340ba017e6fe10d278423014ab7e9e
+referentials/article-catalog-sage-pricing-v2.json
+                                            8787dd307faca61d3bb12dbf05274ec742179e5bb4504bad475bbed35bc1e053
+```
+
+Toute modification ultérieure de ces fichiers invalide ce verdict.
+
+## Scénarios vérifiés
+
+### Ordre d'initialisation du tiroir
+
+- le Catalogue et l'éventuelle option d'Article archivé sont résolus avant la restauration des valeurs persistées de la ligne ;
+- l'appel initial à `syncQuoteArticleTariff(false)` précède désormais explicitement l'affectation de `unitPrice` et de `costUnit` ;
+- les valeurs de la ligne sont donc appliquées en dernier : le P.U. manuel `73500` et le coût historique `31000` ne sont pas remplacés à l'ouverture par le tarif/coût Catalogue ou snapshot ;
+- `resolvedMinor` est aligné sur le P.U. affiché lors de l'ouverture, évitant de fabriquer un nouvel override si l'utilisateur enregistre sans changer ce prix.
+
+### Persistance serveur des montants historiques
+
+- une ligne Article archivée reçoit un override manuel motivé à `73500`, un coût `31000`, une trace manuelle et conserve son snapshot Article ;
+- un `PATCH` ultérieur de quantité à `3000`, avec les mêmes P.U. et coût, conserve exactement `73500`, `31000`, la trace manuelle et le snapshot ;
+- les calculs sont recalculés sur la nouvelle quantité sans résynchronisation silencieuse au Catalogue.
+
+### Recalcul après action utilisateur
+
+- après initialisation, les écouteurs restent attachés aux changements de prestation et d'unité ;
+- un changement de prestation appelle le recalcul avec réinitialisation d'unité, tandis qu'un changement d'unité résout le tarif correspondant ;
+- source inchangée : le recalcul utilise le snapshot historique N ; nouvelle source : il utilise le Catalogue de cette nouvelle source et remplace son snapshot conformément au contrat.
+
+## Contrôles reconduits
+
+- Article archivé disponible uniquement comme option historique de sa ligne ;
+- source, snapshot, prix, référence SAGE et désignation professionnelle ;
+- permissions, isolation Société/Site, version optimiste, remises et calculs HT/TVA/TTC ;
+- analytique, PDF et non-régression complète.
+
+## Commandes et résultats frais
+
+- `node --test tests/article-catalog.test.js tests/quotes.test.js` : **55/55 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `4 081 ms`.
+- `npm test` : **367/367 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `11 127 ms`.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, code 0 ; `5 actifs runtime` vérifiés.
+- `git diff --check` : **PASS**, code 0.
+- `shasum -a 256 app.js server.js tests/article-catalog.test.js tests/quotes.test.js referentials/article-catalog-sage-pricing-v2.json` : **PASS**, empreintes conformes à l'état ci-dessus.
+
+## Limites non bloquantes
+
+1. L'ordre d'initialisation et les branchements d'événements sont protégés par un contrat statique ciblé ; le geste complet ouverture → modification → enregistrement reste au gate E2E navigateur.
+2. La conservation effective des montants et de la trace manuelle est exercée par API déterministe.
+3. Les mesures de performance Catalogue/PDF relèvent du gate Performance indépendant.
+4. Le répertoire est volontairement non propre pendant l'intégration ; les empreintes ci-dessus figent précisément le candidat. `docs/project-status.md` reste à actualiser par l'intégrateur conformément à l'exception de périmètre mono-fichier.
+
+Conclusion : l'ouverture de l'éditeur conserve le P.U. manuel et le coût historique, sans neutraliser les recalculs déclenchés par une action explicite de l'utilisateur. Toutes les campagnes ciblée et complète sont vertes. Le candidat identifié ci-dessus est **APPROVED au gate QA indépendant — 0 P0 / 0 P1 ouvert**.
+
+---
+
+# Re-QA indépendante REV-QUOTE-ARTICLE-15 — Article archivé dans l'éditeur
+
+Date : 2026-08-30
+
+Base Git : `6cb10c90a12077ef26442c0a8a80e06ad7cd8d9e` avec candidat non commité identifié par les empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64, package `0.6.0-rc1`
+
+Verdict : **APPROVED — 0 P0 / 0 P1 ouvert**
+
+Cette re-QA remplace le verdict précédent, invalidé par `REV-QUOTE-ARTICLE-15`. Elle couvre la modification d'une ligne Devis dont l'Article source a été archivé après création. Aucun code produit, test ni statut projet n'a été modifié par cette QA ; seul ce rapport a été mis à jour.
+
+## État exact contrôlé
+
+```text
+app.js                                      894956d4bacd1ab9462c1bd1c4bf9aa4e43d6c246d44c61c197a5f1e489c0ef9
+server.js                                   a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025
+tests/article-catalog.test.js               f852af2fd3461c0588b0a3c4a52eebed94fedfc7dbc3a8fcbe2508c595d57700
+tests/quotes.test.js                        6a99884d758321269bb2d715e5b2e14d4a340ba017e6fe10d278423014ab7e9e
+referentials/article-catalog-sage-pricing-v2.json
+                                            8787dd307faca61d3bb12dbf05274ec742179e5bb4504bad475bbed35bc1e053
+```
+
+Toute modification ultérieure de ces fichiers invalide ce verdict.
+
+## Scénario Article archivé vérifié
+
+1. Un Devis est créé depuis un Article actif et capture sa source, sa référence SAGE, sa désignation, ses cinq tarifs et son prix appliqué dans `articleSnapshot`.
+2. L'Article est ensuite archivé ; il disparaît correctement du Catalogue proposé pour les nouvelles lignes.
+3. Lors de la modification de la ligne existante, l'UI ajoute uniquement pour celle-ci une option historique libellée `Article archivé`, construite depuis son snapshot ; aucune réactivation ni réintroduction globale dans le Catalogue n'a lieu.
+4. La sélection historique garde exactement `sourceType=article` et le `sourceId` d'origine. Le helper tarifaire reconnaît la source inchangée et emploie le snapshot figé au lieu de dépendre de la liste active.
+5. Le `PATCH` serveur de quantité/remise/unité sur cette même source archivée est accepté et conserve l'identifiant source, le snapshot complet et le prix historique attendu ; les montants sont seuls recalculés selon l'édition.
+6. Un vrai remplacement par une autre prestation reste distinct : il charge la nouvelle source et son propre snapshot Catalogue.
+
+Les cas négatifs du helper sont également vérifiés : aucune option historique si l'Article est encore présent dans le Catalogue actif, si la ligne n'est pas de type Article ou si le snapshot requis manque.
+
+## Contrôles reconduits
+
+- permissions Catalogue/Devis, isolation Société/Site, version optimiste et validations ;
+- snapshot N/N+1, quantité, remise, changement d'unité et changement réel de source ;
+- désignation professionnelle, référence SAGE, calculs HT/TVA/TTC, analytique et PDF ;
+- non-régression complète des 367 tests de l'application.
+
+## Commandes et résultats frais
+
+- `node --test tests/article-catalog.test.js tests/quotes.test.js` : **55/55 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `4 014 ms`.
+- `npm test` : **367/367 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `8 993 ms`.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, code 0 ; `5 actifs runtime` vérifiés.
+- `git diff --check` : **PASS**, code 0.
+- `shasum -a 256 app.js server.js tests/article-catalog.test.js tests/quotes.test.js referentials/article-catalog-sage-pricing-v2.json` : **PASS**, empreintes conformes à l'état ci-dessus.
+
+## Limites non bloquantes
+
+1. La construction et les branches de l'option historique UI sont testées comme fonctions pures, tandis que l'archivage puis le `PATCH` sont exercés par API ; l'ouverture réelle du tiroir dans un navigateur reste au gate E2E.
+2. Les mesures de performance Catalogue/PDF relèvent du gate Performance indépendant.
+3. Le répertoire est volontairement non propre pendant l'intégration ; les empreintes ci-dessus figent précisément le candidat. `docs/project-status.md` reste à actualiser par l'intégrateur conformément à l'exception de périmètre mono-fichier.
+
+Conclusion : une ligne existante reste désormais éditable après archivage de son Article sans perdre ni sa source, ni son snapshot, ni son prix historique. L'Article archivé n'est pas proposé pour de nouvelles lignes. Toutes les campagnes ciblée et complète sont vertes. Le candidat identifié ci-dessus est **APPROVED au gate QA indépendant — 0 P0 / 0 P1 ouvert**.
+
+---
+
+# Re-QA finale indépendante — helper UI snapshot Article N/N+1
+
+Date : 2026-08-30
+
+Base Git : `6cb10c90a12077ef26442c0a8a80e06ad7cd8d9e` avec candidat non commité identifié par les empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64, package `0.6.0-rc1`
+
+Verdict : **APPROVED — 0 P0 / 0 P1 ouvert**
+
+Cette re-QA finale remplace le verdict `REV-QUOTE-ARTICLE-13`, invalidé par la modification ultérieure de `app.js` et du test Catalogue. Elle vérifie en particulier que l'éditeur navigateur applique la même règle de snapshot historique que le serveur. Aucun code produit, test ni statut projet n'a été modifié par cette QA ; seul ce rapport a été mis à jour.
+
+## État exact contrôlé
+
+```text
+app.js                                      2504722ff6cc67722c410b4513594fb57aa38711b26445d0f8a89f90dd978115
+server.js                                   a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025
+tests/article-catalog.test.js               6051a48f89c83031a406dd8f5eff0c72d3a4f25440ca3d0bb22f0975dba2575d
+tests/quotes.test.js                        6a99884d758321269bb2d715e5b2e14d4a340ba017e6fe10d278423014ab7e9e
+referentials/article-catalog-sage-pricing-v2.json
+                                            8787dd307faca61d3bb12dbf05274ec742179e5bb4504bad475bbed35bc1e053
+```
+
+Toute modification ultérieure de ces fichiers invalide ce verdict.
+
+## Scénarios vérifiés
+
+### Helper UI, source Article inchangée
+
+- le Catalogue courant simule la version **N+1** avec tarif jour `70000` et semaine `315000` ;
+- la ligne existante conserve son `articleSnapshot` **N**, tarif jour `68000`, semaine `306000` et désignation historique ;
+- `quoteArticlePricingSource` reconnaît la même paire `sourceType/sourceId`, retourne les tarifs et la désignation du snapshot N et marque la source `frozenSnapshot` ;
+- `syncQuoteArticleTariff` ne remplace donc pas le tarif historique par le tarif Catalogue N+1 lors d'un changement d'unité de cette même ligne ; une grille Projet/Client explicitement prioritaire reste applicable conformément au contrat existant.
+
+### Helper UI, changement réel de source
+
+- lorsque l'identifiant Article sélectionné diffère de celui de la ligne, le helper ne réutilise pas le snapshot historique ;
+- la désignation et le tarif `315000` proviennent alors du Catalogue N+1 de la nouvelle source, sans marqueur `frozenSnapshot`.
+
+### Contrat serveur reconduit
+
+- quantité et remise sur la même source préservent le snapshot N et recalculent uniquement les montants ;
+- changement d'unité sur la même source résout le tarif dans `articleSnapshot.tariffsMinor` de N ;
+- changement réel vers `66-iIMPORT A` adopte le snapshot, la désignation et le tarif de cette nouvelle source ;
+- versions historiques, référence SAGE, analytique, permissions, isolation, calculs et PDF restent couverts par les suites ciblées.
+
+## Commandes et résultats frais
+
+- `node --test tests/article-catalog.test.js tests/quotes.test.js` : **55/55 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `4 064 ms`.
+- `npm test` hors sandbox : **367/367 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `9 105 ms`.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, code 0 ; `5 actifs runtime` vérifiés.
+- `git diff --check` : **PASS**, code 0.
+- `shasum -a 256 app.js server.js tests/article-catalog.test.js tests/quotes.test.js referentials/article-catalog-sage-pricing-v2.json` : **PASS**, empreintes conformes à l'état ci-dessus.
+
+## Limites non bloquantes
+
+1. Le helper UI est exercé comme fonction pure et son branchement est contrôlé statiquement ; le geste complet dans le navigateur reste à rejouer au gate E2E.
+2. Le scénario différentiel N/N+1 porte sur les tarifs et la désignation ; les remises non nulles restent couvertes par la suite Devis générale.
+3. Les mesures de performance Catalogue/PDF relèvent du gate Performance indépendant.
+4. Le répertoire est volontairement non propre pendant l'intégration ; les empreintes ci-dessus figent précisément le candidat. `docs/project-status.md` reste à actualiser par l'intégrateur conformément à l'exception de périmètre mono-fichier.
+
+Conclusion : le helper de l'éditeur respecte désormais le snapshot Article N pour une ligne existante malgré un Catalogue N+1, tout en chargeant bien la donnée courante lors d'un véritable changement de source. Les campagnes ciblée et complète sont intégralement vertes. Le candidat identifié ci-dessus est **APPROVED au gate QA indépendant — 0 P0 / 0 P1 ouvert**.
+
+---
+
+# Re-QA indépendante REV-QUOTE-ARTICLE-13 — édition, unité et changement de source
+
+Date : 2026-08-30
+
+Base Git : `6cb10c90a12077ef26442c0a8a80e06ad7cd8d9e` avec candidat non commité identifié par les empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64, package `0.6.0-rc1`
+
+Verdict : **APPROVED — 0 P0 / 0 P1 ouvert**
+
+Cette re-QA remplace le verdict précédent, invalidé par `REV-QUOTE-ARTICLE-13`. Elle vérifie que l'édition d'une ligne distingue une modification commerciale sur la même source, un changement d'unité calculé depuis le snapshot historique et un véritable remplacement de source. Aucun code produit, test ni statut projet n'a été modifié par cette QA ; seul ce rapport a été mis à jour.
+
+## État exact contrôlé
+
+```text
+server.js                                   a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025
+tests/article-catalog.test.js               b0b8a92951728a059100bfba3d3df4ad6936ed907ded71597135fb60436dbd68
+app.js                                      4bcb5fcb7669da6f8779e71973df95467ad27dde7e43ee3b002106adc6085bb1
+tests/quotes.test.js                        6a99884d758321269bb2d715e5b2e14d4a340ba017e6fe10d278423014ab7e9e
+referentials/article-catalog-sage-pricing-v2.json
+                                            8787dd307faca61d3bb12dbf05274ec742179e5bb4504bad475bbed35bc1e053
+```
+
+Toute modification ultérieure de ces fichiers invalide ce verdict.
+
+## Scénarios différentiels vérifiés
+
+### Quantité et remise, même source
+
+- création depuis `66-MONT` en version Article **N = 2**, tarif jour `68000` et désignation professionnelle initiale ;
+- évolution du Catalogue vers **N+1 = 3**, tarif jour `70000` et nouvelle désignation `Salle de montage image premium` ;
+- `PATCH` de la même ligne et de la même source avec quantité `2000` et remise `0` ;
+- conservation du snapshot N, du P.U. `68000`, de l'origine et de `appliedRateSnapshot`, avec recalcul des montants uniquement.
+
+### Changement d'unité, même source historique
+
+- second `PATCH` de `jour` vers `semaine` alors que le Catalogue courant est déjà N+1 ;
+- tarif résolu depuis `articleSnapshot.tariffsMinor.semaine` de la version **N**, et non depuis le Catalogue N+1 ;
+- `appliedRateVersion`, `baseSaleUnitMinor` et snapshot Article cohérents avec N.
+
+### Changement réel de source
+
+- troisième `PATCH` de `66-MONT` vers l'article `66-iIMPORT A`, unité `forfait` ;
+- adoption de l'identifiant, de la désignation, du tarif forfait et du snapshot du nouvel Article ;
+- snapshot différent de l'ancien, tandis que la première version historique du Devis conserve toujours le snapshot N d'origine.
+
+La résolution serveur utilise donc le snapshot historique uniquement pour une source inchangée. Une nouvelle source est relue dans le Catalogue autorisé et reçoit son propre snapshot.
+
+## Contrôles reconduits
+
+- migration et cinq tarifs Catalogue, révisions, rollback, bornes monétaires et idempotence ;
+- RBAC Catalogue/Devis, isolation Société/Site, version optimiste et champs interdits ;
+- calculs HT/TVA/TTC, remise, tarif manuel motivé et priorités Projet/Client/Catalogue ;
+- références SAGE, désignations professionnelles, analytique et PDF A4 complet/paginé ;
+- non-régression complète.
+
+## Commandes et résultats frais
+
+- `node --test tests/article-catalog.test.js tests/quotes.test.js` : **55/55 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `4 100 ms`.
+- `npm test` hors sandbox : **367/367 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `9 881 ms`.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, code 0 ; `5 actifs runtime` vérifiés.
+- `git diff --check` : **PASS**, code 0.
+
+Une première exécution de `npm test` dans le sandbox a reçu `listen EPERM` sur `127.0.0.1` pour les suites HTTP. Elle est exclue du verdict : la même commande a été rejouée hors sandbox sur les empreintes ci-dessus et les **367 tests** sont intégralement verts.
+
+## Limites non bloquantes
+
+1. Les trois transitions sont exercées par API déterministe ; leur enchaînement par l'éditeur navigateur appartient au gate E2E.
+2. Le scénario de remise vérifie explicitement la valeur `0` et la stabilité du snapshot ; les remises non nulles restent couvertes par la suite Devis générale, sans être combinées ici avec N/N+1.
+3. Les mesures de génération PDF et du Catalogue relèvent du gate Performance indépendant.
+4. Le répertoire est volontairement non propre pendant l'intégration ; les empreintes ci-dessus définissent le candidat retesté. `docs/project-status.md` reste à actualiser par l'intégrateur.
+
+Conclusion : `REV-QUOTE-ARTICLE-13` ferme les ambiguïtés entre édition, changement d'unité et remplacement de source. Les trois branches produisent les snapshots et tarifs attendus, et toutes les campagnes ciblées et transverses sont vertes. Le candidat identifié ci-dessus est **APPROVED au gate QA indépendant — 0 P0 / 0 P1 ouvert**.
+
+---
+
+# Re-QA indépendante — Snapshot tarifaire après PATCH d'une ligne Devis
+
+Date : 2026-08-30
+
+Base Git : `6cb10c90a12077ef26442c0a8a80e06ad7cd8d9e` avec candidat non commité identifié par les empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64, package `0.6.0-rc1`
+
+Verdict : **APPROVED — 0 P0 / 0 P1 ouvert**
+
+Cette re-QA remplace le verdict du gate immédiatement précédent, invalidé par la correction de `server.js` et de son test. Elle couvre le défaut où l'édition d'une ligne Devis pouvait reprendre silencieusement la version courante du Catalogue et vérifie désormais explicitement la séquence Article N → Catalogue N+1 → `PATCH` de la même ligne avec la même source. Aucun code produit, test ni statut projet n'a été modifié par cette QA ; seul ce rapport a été mis à jour.
+
+## État exact contrôlé
+
+```text
+server.js                                   11ddba279a199942e3787849ebfa0b06fc9b414552aa7ee868d904c618efe86c
+tests/article-catalog.test.js               0b3da91772e11791a14c3dace67ee1345c6bf5a822dc3c8323a748ed3f659ab9
+app.js                                      4bcb5fcb7669da6f8779e71973df95467ad27dde7e43ee3b002106adc6085bb1
+tests/quotes.test.js                        6a99884d758321269bb2d715e5b2e14d4a340ba017e6fe10d278423014ab7e9e
+referentials/article-catalog-sage-pricing-v2.json
+                                            8787dd307faca61d3bb12dbf05274ec742179e5bb4504bad475bbed35bc1e053
+```
+
+Toute modification ultérieure de ces fichiers invalide ce verdict.
+
+## Scénario différentiel vérifié
+
+1. Un Devis est créé depuis l'article `66-MONT` en version **N = 2**, avec désignation `Salle de montage image avec assistance technique` et tarif jour figé à `68000` unités mineures.
+2. Le Catalogue évolue vers **N+1 = 3** : la désignation devient `Salle de montage image premium` et le tarif jour `70000`.
+3. Un `PATCH` modifie la quantité de la ligne existante de `1000` à `2000`, en renvoyant la même paire `sourceType=article` / `sourceId`.
+4. La réponse conserve la désignation et le snapshot Article **N**, le prix unitaire `68000`, l'origine tarifaire et le `appliedRateSnapshot` initiaux ; seul le montant recalculé varie avec la quantité.
+5. La version historique du Devis conserve également le snapshot Article **N** ; la génération PDF et les dimensions analytiques restent valides.
+
+Le correctif distingue donc une véritable sélection de nouvelle source d'une simple édition de la même ligne. Il ne resynchronise ni désignation ni tarif lors d'un `PATCH` de quantité/remise/section sur la source inchangée.
+
+## Contrôles reconduits
+
+- tarifs Catalogue multi-unités, migration/révisions/rollback, limites monétaires et idempotence ;
+- RBAC Catalogue et Devis, isolation Société/Site, refus d'une mutation Lecteur et d'une version obsolète ;
+- priorité Projet/Client/Catalogue, prix manuel motivé, calculs HT/TVA/TTC et conservation des snapshots historiques ;
+- désignation professionnelle, référence SAGE, P.U. HT/remise et PDF A4 complet/paginé ;
+- non-régression complète de l'application.
+
+## Commandes et résultats frais
+
+- `node --test tests/article-catalog.test.js tests/quotes.test.js` : **55/55 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `4 385 ms`.
+- `npm test` : **367/367 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `9 069 ms`.
+- `npm run lint` : **PASS**, code 0.
+- `npm run build` : **PASS**, code 0 ; `5 actifs runtime` vérifiés.
+- `git diff --check` : **PASS**, code 0.
+
+## Limites non bloquantes
+
+1. La re-QA exerce le scénario critique par API déterministe ; l'édition par interaction navigateur reste à reproduire au gate E2E.
+2. Le comportement volontaire en cas de sélection d'un **autre** article — prise du snapshot et du tarif de cette nouvelle source — est couvert par la logique existante et les tests de création, mais ne possède pas un scénario différentiel N/N+1 symétrique dédié.
+3. Les mesures de génération PDF et du Catalogue relèvent du gate Performance indépendant.
+4. Le répertoire est volontairement non propre pendant l'intégration ; les empreintes ci-dessus identifient précisément le candidat retesté. `docs/project-status.md` reste à actualiser par l'intégrateur.
+
+Conclusion : le défaut de resynchronisation silencieuse est fermé. La séquence N → N+1 → `PATCH` même source conserve intégralement le snapshot commercial initial, et toutes les campagnes ciblées et transverses sont vertes. Le candidat corrigé identifié ci-dessus est **APPROVED au gate QA indépendant — 0 P0 / 0 P1 ouvert**.
+
+---
+
+# Gate QA indépendant — Tarifs Articles + Éditeur/PDF Devis
+
+Date : 2026-08-30
+
+Base Git : `6cb10c90a12077ef26442c0a8a80e06ad7cd8d9e` avec candidat non commité identifié par les empreintes ci-dessous
+
+Environnement : Node `v26.6.0`, Darwin arm64, package `0.6.0-rc1`
+
+Verdict : **APPROVED — 0 P0 / 0 P1 ouvert**
+
+Ce gate couvre le référentiel tarifaire SAGE multi-unités, son application aux lignes de Devis, l'édition et le recalcul de ces lignes, ainsi que le rendu PDF professionnel complet et paginé. Aucun code produit, test ni statut projet n'a été modifié par cette QA ; seul ce rapport a été mis à jour.
+
+## État exact contrôlé
+
+```text
+app.js                                      4bcb5fcb7669da6f8779e71973df95467ad27dde7e43ee3b002106adc6085bb1
+server.js                                   fe058707cb39cfac16face519ded6ebbaa83b8e06c85b0ce0cb4e931251a3a49
+tests/article-catalog.test.js               9773657dfe9ee9a9ac9d9f0436331881547332db80ce881a53f51eea1ebe5624
+tests/quotes.test.js                        6a99884d758321269bb2d715e5b2e14d4a340ba017e6fe10d278423014ab7e9e
+referentials/article-catalog-sage-pricing-v2.json
+                                            8787dd307faca61d3bb12dbf05274ec742179e5bb4504bad475bbed35bc1e053
+```
+
+Toute modification ultérieure de ces fichiers invalide ce verdict.
+
+## Critères vérifiés
+
+- migration tarifaire additive, déterministe et idempotente sur les 71 articles, avec cinq tarifs HT en unités mineures (`heure`, `jour`, `semaine`, `mois`, `forfait`) et révisions append-only ;
+- validation bornée des montants, rejet d'un tarif hors limite, conflit optimiste, export préalable obligatoire au rollback et protection des données historiques ;
+- lecture Catalogue permise au Planificateur, mutation refusée hors `article.manage`, champ Société forgé refusé et identifiant d'une autre Société masqué ;
+- résolution automatique du tarif selon l'unité, priorité des grilles Projet/Client existantes, traçabilité d'un prix manuel et obligation du motif d'override ;
+- désignation professionnelle et tarif issus du Catalogue imposés côté serveur pour une ligne Article, même si le client soumet un libellé divergent ;
+- snapshot article et tarif du Devis inchangé après modification ultérieure du Catalogue, conservation dans les versions et dimensions analytiques SAGE ;
+- éditeur de ligne disponible uniquement sur un Devis brouillon modifiable, envoi `PATCH`, recalcul des montants et affichage du P.U. HT/remise ;
+- lecteur autorisé en consultation mais refusé en modification, version obsolète et champs fiscaux interdits refusés sans écriture ;
+- PDF A4 local sans coûts ni marges internes, référence SAGE, catégorie puis désignation professionnelle complète sur plusieurs lignes, pagination dynamique et bloc totaux/signature uniquement sur la dernière page ;
+- présentation éditeur/PDF protégée par les contrats statiques de colonnes, références, P.U. HT, remise, désignation et lien d'ouverture à zoom explicite ;
+- non-régression transversale complète de l'application.
+
+## Commandes et résultats frais
+
+- `node --test tests/article-catalog.test.js tests/quotes.test.js` : **55/55 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `4 140 ms`.
+- `npm test` : **367/367 réussis**, 0 échec, 0 annulé, 0 ignoré, 0 TODO, durée `9 087 ms`.
+- `npm run lint` : **PASS**, code 0 ; syntaxe des fichiers runtime, modules partagés, benchmarks et rollback vérifiée.
+- `npm run build` : **PASS**, code 0 ; `5 actifs runtime` vérifiés.
+- `git diff --check` : **PASS**, code 0.
+
+## Limites non bloquantes
+
+1. Ce gate n'a pas rejoué un parcours navigateur indépendant. Les interactions de l'éditeur sont couvertes par API et contrats statiques ; la parité visuelle éditeur/PDF a été acceptée par le PO sur le candidat, mais reste à reproduire formellement au gate E2E.
+2. Le contrôle PDF automatisé vérifie sa structure, son contenu textuel, l'ordre catégorie/désignation, le format A4 et la pagination ; il ne remplace pas une comparaison pixel par pixel sur toutes les longueurs de désignation.
+3. Les mesures de génération PDF et le benchmark du Catalogue relèvent du gate Performance indépendant.
+4. Le répertoire est volontairement non propre pendant l'intégration ; les empreintes ci-dessus identifient précisément l'état applicatif testé. `docs/project-status.md` reste à actualiser par l'intégrateur conformément à la limite d'ownership de ce lot.
+
+Conclusion : les critères fonctionnels, cas limites, permissions et non-régressions automatisées du lot sont verts, sans P0/P1 ouvert. Le candidat « Tarifs Articles + Éditeur/PDF Devis » identifié ci-dessus est **APPROVED au gate QA indépendant**.
+
+---
+
 # Re-QA différentielle — accès direct `#articles`
 
 Date : 2026-08-26

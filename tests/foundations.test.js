@@ -91,6 +91,7 @@ test('la migration du catalogue RBAC sauvegarde, rejoue et refuse une altératio
     const marker = first.migrations.find(value => value.id === 'foundation-00-rbac-catalog-v1');
     const backup = marker && path.join(path.dirname(process.env.PLANIFY_DATA_FILE), marker.backupFile);
     const standard = first.roles.filter(value => value.companyId === 'company_northlight' && value.systemManaged && ['ADMIN','PLANNING_MANAGER','PLANNER','SALES','PROJECT_MANAGER','FINANCE','READ_ONLY'].includes(value.code));
+    fs.writeFileSync(process.env.PLANIFY_DATA_FILE, JSON.stringify(first));
     const replay = server.readDb();
     const replayStandard = replay.roles.filter(value => value.companyId === 'company_northlight' && value.systemManaged && ['ADMIN','PLANNING_MANAGER','PLANNER','SALES','PROJECT_MANAGER','FINANCE','READ_ONLY'].includes(value.code));
     replay.roles.find(value => value.id === marker.createdRoleIds[0]).permissions.push('tampered.permission');

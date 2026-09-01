@@ -6,6 +6,7 @@ const path = require('node:path');
 const {
   bookingDates,
   bookingRenderedCells,
+  bookingEffectiveResourceGroups,
   bookingCellState,
   bookingIssues,
   overlaps,
@@ -32,6 +33,12 @@ const {
   planningMaxCellStack,
   planningCellEntriesBySlot,
   planningRowHeight,
+  planningColorContrastRatio,
+  planningContrastText,
+  containPlanningHorizontalGesture,
+  containApplicationHorizontalGesture,
+  replaceApplicationRoute,
+  bindApplicationRouteLinks,
 } = require('../app.js');
 const { eliotePostProductionResources, migrateEliotePostProductionResources } = require('../server.js');
 
@@ -190,13 +197,29 @@ test('déplacement et redimensionnement calculent des périodes civiles détermi
 test('les gestes planning montrent un ghost et restaurent le snapshot sur refus API', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8');
+  const dropAllocationSource = source.match(/async function dropAllocation[\s\S]*?\nfunction bind\(\)/)?.[0] || '';
+  const ghostBindSource = source.match(/const bindPlanningOperationGhostBase=bind;[\s\S]*?const bindPlanningCellSelectionGhostBase=bind;/)?.[0] || '';
   assert.match(source, /showPlanningOperationGhost\(cell\)/);
+  assert.match(source, /planningOperationGhostFrame=requestAnimationFrame/);
+  assert.match(source, /if\(key===planningOperationGhostKey\)return/);
+  assert.match(source, /dataTransfer\.setDragImage\(planningDragAvatar,22,18\)/);
+  assert.match(source, /singleCell=bookingRenderedCells\(snapshot\)\.length===1/);
+  assert.match(source, /planning-single-cell-move-/);
+  assert.match(source, /resources:allocations,cellOverrides:\[\]/);
+  assert.match(source, /animatePlanningMovedCell\(live\.id,singleCell\?date:sourceDate,date,targetResourceId\)/);
+  assert.doesNotMatch(source, /function clearPlanningOperationGhost\(\)\{document\.querySelectorAll/);
+  assert.match(ghostBindSource, /matrix\?\.addEventListener\('dragover'/);
+  assert.doesNotMatch(ghostBindSource, /querySelectorAll\('\.planning-cell\[data-date\]'\)/);
+  assert.equal((dropAllocationSource.match(/render\(\)/g) || []).length, 2, 'un seul rendu sur succès et un rendu de restauration sur erreur');
   assert.match(source, /planningOperationDrag=\{type:'resize'/);
   assert.match(source, /state\.bookings\[index\]=snapshot;render\(\);toast\(`Redimensionnement annulé/);
   assert.match(source, /state\.bookings\[index\]=snapshot;render\(\);toast\(`Déplacement annulé/);
   assert.match(source, /Cellule déplacée du.*au/);
   assert.match(css, /\.planning-cell\.is-operation-ghost/);
   assert.match(css, /data-operation-ghost-label/);
+  assert.match(css, /\.planning-drag-avatar/);
+  assert.match(css, /@keyframes planning-cell-settle/);
+  assert.match(css, /@media\(prefers-reduced-motion:reduce\).*\.planning-event/s);
 });
 
 test('le calendrier français et le snapping sont reproductibles', () => {
@@ -228,6 +251,9 @@ test('le planning expose déplacement et redimensionnement au clavier', () => {
   assert.match(source, /data-slot-index/);
   assert.match(source, /aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Shift\+ArrowLeft Shift\+ArrowRight"/);
   assert.match(source, /movePlanningCellByRoom/);
+  assert.match(source, /movePlanningCellByDate/);
+  assert.match(source, /else if\(keyboard\.shiftKey\)\{await moveWholePlanningBooking/);
+  assert.match(source, /else await movePlanningCellByDate\(live\.id,cellDate,item\.dataset\.dragResource,currentDate,currentResourceId,direction\)/);
   assert.match(source, /changePlanningBookingTime/);
   assert.match(source, /handle\.setAttribute\('aria-keyshortcuts','ArrowLeft ArrowRight'\)/);
   assert.match(source, /restorePlanningKeyboardFocus/);
@@ -336,6 +362,24 @@ test('une exception déplace uniquement sa cellule source', () => {
   });
   assert.equal(cells.find(cell => cell.sourceDate === '2026-08-18').date, '2026-08-18');
   assert.equal(cells.find(cell => cell.sourceDate === '2026-08-20').resourceId, room.id);
+});
+
+test('la fiche distingue les salles de base de la répartition réellement déplacée', () => {
+  const booking = {
+    date: '2026-08-17', endDate: '2026-08-18', includeWeekends: true, people: 1,
+    allocations: [{ resourceId: 'resource_1', quantity: 1 }],
+    cellOverrides: [{ sourceDate: '2026-08-18', sourceResourceId: 'resource_1', targetDate: '2026-08-18', targetResourceId: 'resource_3' }],
+  };
+  assert.deepEqual(bookingEffectiveResourceGroups(booking), [
+    { resourceId: 'resource_1', dates: ['2026-08-17'], moved: false },
+    { resourceId: 'resource_3', dates: ['2026-08-18'], moved: true },
+  ]);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  assert.match(source, /Répartition réellement planifiée/);
+  assert.match(source, /Cellule ouverte ·/);
+  assert.match(source, /openPlanningBookingCell\(item\)/);
+  assert.match(source, /bookingRenderedCells\(booking\)\.length===1&&defaults\.effectiveResourceId/);
+  assert.match(source, /Salle effective/);
 });
 
 test('la période complète est conservée dans le DTO API aller-retour', () => {
@@ -510,6 +554,11 @@ test('les sept statuts sont filtrables et les états terminaux ou de maintenance
   assert.match(css, /repeating-linear-gradient/);
 });
 
+test('les réservations annulées sont masquées du planning courant mais restent accessibles par filtre', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  assert.match(source, /filters\.status\?b\.status===filters\.status:b\.status!=='cancelled'/);
+});
+
 test('le collage multi-cellules utilise une seule commande batch atomique', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   const implementation = source.match(/async function duplicatePlanningItems\(items\)\{[^\n]+/s)?.[0] || '';
@@ -569,7 +618,7 @@ test('déplacer depuis la barre agit sur une cellule précise et reste compensab
   assert.match(move, /planningPasteTarget\.date,item\.dataset\.cellDate/);
   assert.doesNotMatch(move, /même jour/);
   assert.doesNotMatch(move, /type:'move'/);
-  assert.match(source, /rememberPlanningUndo\(\{type:'cellMove'.*before:\{targetDate:currentDate,targetResourceId:currentResourceId\}.*after:\{targetDate:date,targetResourceId\}/);
+  assert.match(source, /rememberPlanningUndo\(singleCell\?\{type:'move'.*resourceId:currentResourceId\}.*:\{type:'cellMove'.*before:\{targetDate:currentDate,targetResourceId:currentResourceId\}.*after:\{targetDate:date,targetResourceId\}/);
   assert.match(undo, /action\.type==='cellMove'/);
   assert.match(undo, /targetDate:action\.before\.targetDate/);
   assert.match(undo, /planning-undo-cell-move-/);
@@ -584,6 +633,10 @@ test('la barre de sélection reste compacte et masque les actions indisponibles'
   assert.match(source, /bar\.dataset\.hasSelection/);
   assert.match(source, /Aucune cellule sélectionnée/);
   assert.match(source, /Déplacer la cellule ici/);
+  assert.match(source, /async function cancelPlanningSelection\(\)/);
+  assert.match(source, /type:'cancel',reservationId:item\.id,version:item\.version/);
+  assert.match(source, /clear\.onclick=cancelPlanningSelection/);
+  assert.match(source, /data-selection-unselect disabled>Désélectionner/);
   assert.match(css, /\.planning-selection-bar button:disabled\{display:none\}/);
   assert.match(css, /\.planning-selection-bar>span::after\{content:'\?'/);
 });
@@ -666,4 +719,69 @@ test('Sprint 5 expose une gestion structurée des compétences et indisponibilit
   assert.match(source, /new Date\(input\.startsAt\)\.toISOString\(\)/);
   assert.match(source, /PlanyBot filtre automatiquement/);
   assert.match(css, /\.personnel-columns/);
+});
+
+test('Planify absorbe le geste horizontal dans toutes les fenêtres sans bloquer le scroll vertical', () => {
+  const calls = { prevented: 0, stopped: 0 };
+  const event = delta => ({ deltaX: delta, deltaY: 2, shiftKey: false, preventDefault(){ calls.prevented++ }, stopPropagation(){ calls.stopped++ } });
+  const scroller = { scrollLeft: 0, scrollWidth: 1000, clientWidth: 300 };
+
+  assert.equal(containPlanningHorizontalGesture(event(-180), scroller), true);
+  assert.equal(scroller.scrollLeft, 0, 'le bord gauche reste borné mais le geste est absorbé');
+  assert.equal(containPlanningHorizontalGesture(event(250), scroller), true);
+  assert.equal(scroller.scrollLeft, 250);
+  scroller.scrollLeft = 700;
+  assert.equal(containPlanningHorizontalGesture(event(180), scroller), true);
+  assert.equal(scroller.scrollLeft, 700, 'le bord droit reste borné mais le geste est absorbé');
+  assert.equal(containPlanningHorizontalGesture({ ...event(2), deltaY: 80 }, scroller), false);
+  assert.deepEqual(calls, { prevented: 3, stopped: 3 });
+
+  assert.equal(containApplicationHorizontalGesture(event(120), scroller), true, 'toutes les fenêtres capturent le geste avant la navigation native');
+  assert.equal(containApplicationHorizontalGesture(event(-120), scroller), true);
+  assert.deepEqual(calls, { prevented: 5, stopped: 5 });
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8');
+  const globalCss = fs.readFileSync(path.join(__dirname, '..', 'styles.css'), 'utf8');
+  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(source, /window\.addEventListener\('wheel'.*capture:true,passive:false/s);
+  assert.match(css, /\.planning-horizontal-scroll\{[^}]*overscroll-behavior-x:none/);
+  assert.match(css, /\.planning-matrix-shell \.planning-matrix-scroll\{[^}]*overscroll-behavior-x:none/);
+  assert.match(globalCss, /html,body\{overscroll-behavior-x:none\}/);
+  assert.match(serverSource, /'Cache-Control': 'no-store'.*'X-Content-Type-Options': 'nosniff'/);
+});
+
+test('les cellules Planning utilisent les couleurs du projet avec un contraste compatible pour les anciens projets', () => {
+  assert.equal(planningContrastText('#111827'), '#ffffff');
+  assert.equal(planningContrastText('#fef3c7'), '#000000');
+  assert.equal(planningContrastText('invalide'), '#000000');
+  assert.ok(planningColorContrastRatio('#6553db', '#ffffff') >= 4.5);
+  assert.ok(planningColorContrastRatio('#7667f5', '#ffffff') < 4.5);
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'planning.css'), 'utf8');
+  assert.match(source, /name="color" value="\$\{inputValue\(background\)\}"/);
+  assert.match(source, /data-project-contrast/);
+  assert.match(source, /openProjectCreateDrawer=function\(\).*background\.value='#6553db';textColor\.value='#ffffff'/);
+  assert.match(source, /dataset\.projectCreateContrast/);
+  assert.match(source, /k==='projects'.*color:'#6553db',textColor:'#ffffff'/);
+  assert.match(source, /data-project-colors/);
+  assert.match(source, /data-project-color style="--client-color:.*--project-color:/);
+  assert.match(source, /projectTextColor=.*planningColorContrastRatio\(projectColor,project\.textColor\)>=4\.5.*planningContrastText\(projectColor\)/);
+  assert.match(css, /\.planning-event\[data-project-color\]\{[^}]*background:var\(--project-color\);[^}]*color:var\(--project-text-color\)/);
+  assert.match(css, /\.planning-event\[data-project-color\] \.event-status-label/);
+});
+
+test('les liens Planify remplacent la route courante sans empiler de page dans l’historique', () => {
+  const events=[],locationApi={href:'http://127.0.0.1:8080/#planning'},historyApi={state:{},replaceState(state,title,url){events.push(['replace',url]);locationApi.href=`http://127.0.0.1:8080/${url}`}},windowApi={dispatchEvent(event){events.push(['event',event.type])}};
+  assert.equal(replaceApplicationRoute('#dashboard',historyApi,windowApi,locationApi),'#dashboard');
+  assert.deepEqual(events,[['replace','#dashboard'],['event','hashchange']]);
+
+  let clickHandler;
+  bindApplicationRouteLinks({addEventListener(type,handler,options){assert.equal(type,'click');assert.deepEqual(options,{capture:true});clickHandler=handler}},historyApi,windowApi,locationApi);
+  let prevented=0;
+  clickHandler({target:{closest(){return{getAttribute(){return'#planning'}}}},defaultPrevented:false,button:0,metaKey:false,ctrlKey:false,shiftKey:false,altKey:false,preventDefault(){prevented++}});
+  assert.equal(prevented,1);
+  assert.deepEqual(events.slice(-2),[['replace','#planning'],['event','hashchange']]);
+  assert.equal(events.some(([type])=>type==='push'),false);
 });

@@ -1041,6 +1041,32 @@ test('le collage multi-cellules est atomique, idempotent et sans création parti
   assert.deepEqual(paintedReplay.data.items.map(item => item.id), painted.data.items.map(item => item.id));
 });
 
+test('copier une cellule d’une série multi-jours ne crée qu’une seule journée cible', async () => {
+  const source = await request('/api/v1/reservations', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: 'Source multi-jours à copier', siteId: 'site_paris', projectId: 'project_1', status: 'option',
+      startsAt: '2029-07-02T08:00:00.000Z', endsAt: '2029-07-04T09:00:00.000Z',
+      resources: [{ resourceId: 'resource_8', quantity: 1 }], includeWeekends: true,
+      planningMode: 'dailyCells', timeGranularity: 'hour', snapMinutes: 60, cellOverrides: [],
+    }),
+  }, admin);
+  assert.equal(source.response.status, 201, JSON.stringify(source.data));
+
+  const copied = await request('/api/v1/reservations/batch', {
+    method: 'POST', headers: { 'Idempotency-Key': 'copy-one-cell-from-multiday-series' },
+    body: JSON.stringify({ actions: [{
+      type: 'duplicate', reservationId: source.data.id, sourceDate: '2029-07-03', sourceResourceId: 'resource_8',
+      targetDate: '2029-07-10', targetResourceId: 'resource_8',
+    }] }),
+  }, admin);
+  assert.equal(copied.response.status, 201, JSON.stringify(copied.data));
+  assert.equal(copied.data.items.length, 1);
+  assert.equal(copied.data.items[0].startsAt.slice(0, 10), '2029-07-10');
+  assert.equal(copied.data.items[0].endsAt.slice(0, 10), '2029-07-10');
+  assert.equal(copied.data.items[0].resources[0].resourceId, 'resource_8');
+});
+
 test('les déplacements et copies batch conservent les heures locales autour du changement DST', async () => {
   const nonexistentLocalTimeSource = await request('/api/v1/reservations', { method: 'POST', body: JSON.stringify({
     title: 'Batch DST heure inexistante', siteId: 'site_paris', projectId: 'project_1', status: 'confirmed',

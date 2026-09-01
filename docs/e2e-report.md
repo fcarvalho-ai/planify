@@ -1,3 +1,32 @@
+# Rapport E2E — Consolidation post-RC1 / candidat RC2
+
+Date : 2026-08-30
+Environnement : macOS arm64, Node.js v26.6.0, navigateur intégré
+Candidat : `app.js 9601017d…`, `server.js 3f4b87eb…`, Planning `32464251…`, Devis `ba661c8c…`, OpenAPI `055f9a05…`
+
+## Verdict
+
+**APPROVED — 0 P0 / 0 P1.**
+
+| Scénario | Résultat observé |
+|---|---|
+| Connexion / redémarrage | Authentification administrateur réussie avant et après arrêt complet du serveur sur la même base isolée. |
+| Projet et couleur persistante | Horizons conserve `#2255aa`/`#ffffff` après redémarrage ; aperçu `7,12:1` et Planning cohérent. |
+| Nouveau projet accessible | Défaut `#6553db`/`#ffffff`, ratio `5,51:1`; blanc/blanc produit `1,00:1` et désactive « Créer le projet » ; POST nominal `201` prouvé par QA. |
+| Planning courant et vues | Date de référence `30/08/2026`; Jour, Semaine, Mois et 3 mois présents, vue 6 semaines absente. |
+| Gestes horizontaux globaux | Trois slides horizontaux successifs dans le Planning laissent l’URL inchangée sur `#planning`; aucun retour à la connexion. |
+| Mutations Planning | Déplacement horizontal/vertical, changement de salle pour `option` et `confirmed`, copie d’une seule cellule, effacement logique, annulation/rétablissement, conflit et override sont verts dans les tests UI/HTTP du candidat et prolongent les recettes opérateur déjà acceptées sur ces chemins inchangés. |
+| Vue d’ensemble | Occupation Jour/Semaine/Mois, détail métier, tendance 6 mois, CA devisé/signé/Budget non converti présents. |
+| Comparaison mensuelle | Libellés exacts `1er–31 juillet` et `1er–30 août`; valeurs séparées Mois comparé/Mois courant. |
+| Catalogue / Devis / PDF | Références et désignations professionnelles, tarifs, édition de ligne et P.U. HT couverts ; ligne historique sans snapshot stable après modification/désactivation Catalogue ; PDF 500 lignes p95 `11,73 ms`. |
+| Permissions / isolation / SSE | Lecteur sans mutation, scopes société/site, session/CSRF, audit et invalidations SSE validés par les campagnes indépendantes. |
+
+Preuves : re-REVIEW finale `APPROVED` 191/191, re-QA `APPROVED` 170/170 puis suite complète 368/368, SECURITY/PERFORMANCE `APPROVED`, lint/build/OpenAPI/diff-check PASS. Les E2E précédents de ce document restent les preuves détaillées des parcours byte-identiques ; la campagne ci-dessus revalide différentiellement les surfaces modifiées sur le candidat exact.
+
+Limites P2 non bloquantes : la géométrie du PDF n’a pas encore de comparaison d’image automatisée et l’annonce dynamique du ratio de contraste mérite `aria-live`/`aria-describedby`. Le scénario trois slides est désormais prouvé dans le navigateur réel. Le candidat franchit E2E et peut passer au gate RELEASE local.
+
+---
+
 # Rapport E2E — Catalogue articles SAGE
 
 Date : 2026-08-26
@@ -218,3 +247,11 @@ Le serveur, l’onglet et les données temporaires ont été arrêtés et suppri
 ## Suite
 
 Le candidat peut passer au gate RELEASE. Le P2 déjà suivi sur le double parcours de lecture XLSX générique reste non bloquant et doit rester visible dans les notes de version.
+
+## 2026-08-30 — Tarifs articles / Devis / PDF
+
+Verdict : **APPROVED — 0 P0 / 0 P1** sur le même candidat que l'INTEGRATION (`app.js 404f4c608036…`, `server.js a410aa2a8a57…`, test Catalogue `7618fc6e704d…`).
+
+Recette navigateur authentifiée sur les données Northlight, sans écriture : ouverture de **Budgets & devis**, puis de `DEV-2026-0001`. L'aperçu A4 affiche sept colonnes alignées, les références `08-MONT`, `66-MONT` et `T TECH`, les désignations professionnelles complètes et les P.U. HT `450,00`, `680,00` et `65,00 EUR`. L'ouverture de la première ligne conserve exactement la désignation « Salle de montage image », l'unité `jour`, la quantité `1`, le P.U. manuel `450 EUR` et le coût interne `250 EUR`. Le panneau a été fermé par **Annuler** ; le devis est resté en révision 7 et aucun enregistrement n'a été envoyé. Aucun avertissement ni erreur console n'a été observé.
+
+Les cas impossibles à fabriquer sans altérer la démonstration sont exécutés sur le serveur isolé : Article N → N+1 → archivé, option historique réservée à l'édition, P.U. manuel/coût/snapshot conservés après PATCH, vraie nouvelle source recapturée, permissions d'override et Finance appliquées, isolation société et historique de versions conservés. Ciblés `55/55`, suite `367/367`, lint/build/diff-check PASS. La parité visuelle PDF/éditeur avait été validée explicitement par le Product Owner immédiatement avant ces gates ; le P2 d'automatisation géométrique PDF reste suivi dans la REVIEW.

@@ -1,3 +1,422 @@
+# Analyse d'impact SECURITY — métadonnées RELEASE `0.6.0-rc2`
+
+Date : 2026-08-30
+
+Le passage de `package.json` à `0.6.0-rc2` (SHA-256 `aa90023d025139aecb3535a976dd1bbf4b4957c5e82c261df1b25faef6f6447a`) et les mises à jour `README.md` / `CHANGELOG.md` / statut sont exclusivement documentaires. Les empreintes produit approuvées restent strictement identiques : `app.js 9601017d92cf…`, `server.js 3f4b87eb8ee4…`, Planning `32464251b162…`, Devis `ba661c8cb654…`, OpenAPI `055f9a05f5f7…`. Aucun chemin runtime ne lit la version du package; **aucun re-gate SECURITY n'est requis**.
+
+L'incohérence de rollback détectée pendant l'analyse est fermée : la documentation déclare désormais explicitement la migration additive `article-catalog-sage-pricing-v2` et exige d'exécuter `rollbackArticleCatalogPricingV2({ exportFile })` avec le code RC2 avant le retour applicatif vers RC1. La procédure conserve les contrôles déjà audités : marqueur et digest de sauvegarde, export neuf distinct des données actives, écriture privée `0600`, vérification de l'export avant restauration et avertissement sur la réapplication au redémarrage RC2. Les écritures post-migration quittant le fichier actif restent récupérables dans cet export. Aucun secret, commande distante, nouvelle permission ou exposition statique n'est ajouté.
+
+Les chiffres RELEASE sont cohérents avec les rapports : REVIEW jusqu'à `191/191`, QA `170/170`, suite complète `368/368`, SECURITY sans vulnérabilité ouverte. Le verdict SECURITY final ci-dessous reste **APPROVED — 0 P0/P1/P2/P3** pour le candidat exact.
+
+---
+
+# Revalidation SECURITY finale — contraste Projet et historique Devis/PDF
+
+Date : 2026-08-30
+
+Candidat revalidé : `app.js` SHA-256 `9601017d92cf6884df6c74e3b688b15421b1f6b60c4fe99e692aabf3255b96aa`; `server.js` `3f4b87eb8ee4106b819878a0eb73f71516a92099d2fa9e43995a7582444b3af1`; `tests/planning-postproduction.test.js` `32464251b1622da22054f17e7b150104c044262e7d441ec411986f04fdc2b3c6`; `tests/quotes.test.js` `ba661c8cb654b403d6312aebf8a68d150fdaa301b2935239cdca6a805b0fa7f8`; OpenAPI `055f9a05f5f722345aa8237cb994395426af76314a75abd370e70d6e8aae2a97`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 0 P3 ouvert.**
+
+Ce verdict remplace le gate global et les revalidations partielles historiques ci-dessous pour ce candidat exact. Le P1 `REV-GLOBAL-20` est **fermé** : les deux chemins de création Projet proposent et envoient désormais la combinaison `#6553db` / `#ffffff`, dont le contraste calculé est supérieur ou égal à `4,5:1`; le smoke HTTP frais crée le Projet en `201`.
+
+## Threat-check ciblé
+
+- **Contraste et validation serveur :** `color` et `textColor` doivent chacun respecter strictement `#RRGGBB`, puis le serveur recalcule le ratio WCAG et refuse toute combinaison inférieure à `4,5:1` en `422`. Le contrôle UI, le bouton désactivé et l'aperçu ne constituent qu'un feedback; ils ne remplacent pas l'autorité serveur.
+- **Création rapide et formulaire complet :** le payload rapide envoie les deux couleurs sûres. Le formulaire complet les initialise de la même façon, recalcule le ratio sur chaque saisie et bloque localement une combinaison illisible. Le serveur choisit aussi une couleur de texte noire ou blanche sûre si le client omet `textColor`.
+- **Compatibilité legacy :** les anciennes couleurs mal contrastées sont rendues avec une couleur noire/blanche calculée, sans injection de la valeur legacy dans le style. Lors d'un PATCH sans changement de couleurs, le serveur répare `textColor` avant validation et l'audite dans la mutation normale. Preuve fraîche : un Projet historique `#7667f5` sans `textColor` passe de version 1 à 2 avec `textColor: #000000` et conserve les autres modifications.
+- **XSS/CSS et accessibilité :** les valeurs utilisées comme variables CSS sont filtrées par l'expression hexadécimale stricte; les données textuelles restent échappées. L'information de statut demeure écrite dans la cellule et ne dépend pas uniquement de la couleur. Aucun nouveau `innerHTML` non échappé, URL, chemin ou contenu actif n'est introduit.
+- **RBAC, tenant, CSRF et audit Projet :** création et modification restent sous `project.manage`, contexte société/site issu de la session, validation des propriétaires, contrôle d'origine/CSRF, idempotence, version optimiste, audit avant/après, persistance atomique et SSE après succès. Le correctif ne crée aucun chemin de contournement.
+- **Historique Devis/PDF :** `professionalQuoteProjection` ne re-projette plus une ligne persistée depuis le Catalogue courant. Le détail, la liste et le PDF présentent donc le libellé et le snapshot historiques réellement signés, même après renommage ou archivage de l'Article; cela ferme le risque de dérive rétroactive et améliore la traçabilité. Les lignes nouvelles ou dont la source change continuent à capturer `articleSnapshot` et `appliedRateSnapshot` au moment de la mutation.
+- **Isolation et exposition Devis :** la suppression de la re-projection n'élargit pas l'accès. `quoteById`/`quoteAllowed` vérifient toujours société, projet, site et scope d'entité avant lecture ou PDF. Les chaînes PDF restent normalisées et échappées; en-têtes `no-store`/`nosniff`, limite de 500 lignes et snapshots fiscal/commercial demeurent inchangés.
+- **Secrets, logs et dépendances :** aucune dépendance, ressource distante, donnée sensible ou journalisation de corps/cookie/CSRF n'est ajoutée. La liste statique et le modèle de session ne changent pas.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| empreintes du candidat | **MATCH** |
+| `node --check app.js && node --check server.js` | **PASS** |
+| `node --test tests/planning-postproduction.test.js` | **54/54 PASS**, `147,05 ms` |
+| `node --test tests/quotes.test.js` | **51/51 PASS**, `4 869,04 ms` |
+| `node --test tests/article-catalog.test.js` | **5/5 PASS**, `609,79 ms` |
+| `node --test tests/sprint8-security.test.js` | **4/4 PASS**, `2 201,86 ms` |
+| `npm test` | **368/368 PASS**, 0 échec, `9 611,05 ms` |
+| smoke POST Projet avec `#6553db/#ffffff` | **201**, couleurs et version 1 persistées |
+| smoke PATCH legacy `#7667f5` sans `textColor` | **200**, réparation `#000000`, version 2 |
+| `git diff --check` | **PASS** |
+
+Les négatifs frais des suites couvrent notamment auth, origine/CSRF, rôles, société/site, scopes SSE/entité, version obsolète, prix/coût non autorisés, Article archivé/étranger et rendu legacy. Le test Devis ajouté confirme qu'une ancienne ligne sans snapshot conserve son libellé persisté après renommage puis archivage du Catalogue.
+
+## Limites et handoff
+
+La revue est une inspection du diff avec tests HTTP et tests DOM purs, pas un pentest externe, un fuzzing CSS/PDF ou une campagne multi-processus. Elle ne prouve pas le contraste de chaque couleur possible par capture visuelle; l'invariant serveur et les tests de ratio sont l'autorité. Toute modification d'une empreinte ci-dessus invalide ce verdict.
+
+Gate SECURITY final : **APPROVED**. Fichier modifié : `docs/security-review.md` uniquement; `docs/project-status.md` reste à l'intégrateur conformément à la mission.
+
+---
+
+# Gate SECURITY global — candidat post-`v0.6.0-rc1`
+
+Date : 2026-08-30
+
+Base auditée : tag `v0.6.0-rc1` (`df0f02351b09bf9d64418ee5f864c6fe5cc4629f`). Candidat produit : `app.js` SHA-256 `404f4c608036dc0cbbf009e17f98493b7cba0c69cbd21d43fe6ef1ee7584d41c`, `server.js` `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025`, `planning.css` `7455ab68e6bb232acf6e45dce48d1ba78eb477f13bd238594f925bca0a1320cd`, `styles.css` `f4be1bf5bb9f977cc58a70d707a25520eb74e0e788950c0ab49f0b58699a9f27`, OpenAPI `b49948864cb9d08ad36382cfa8ccc3002cc56eeecfce6d42e68a132d2e0f8936`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 0 P3 ouvert sur le diff global depuis `v0.6.0-rc1`.**
+
+Ce verdict global remplace, pour ce candidat exact, les revalidations partielles Tarifs/Devis/PDF consignées plus bas. Il couvre Planning (déplacement/copie/annulation/rétablissement, `cellOverrides`, historique de route et gestes), Dashboard temporel, couleurs Projet, Catalogue Articles, éditeur de Devis et PDF.
+
+## Threat-check et constats
+
+- **Auth/session/CSRF et origine :** toutes les routes nouvelles ou affectées passent par `requireAuth`; les mutations sont soumises à `mutationGuard`, origine stricte et jeton CSRF. Les sessions restent opaques, expirables et liées au contexte société; aucun fallback prototype silencieux n'est introduit.
+- **RBAC serveur :** Planning exige `planning.write`, Dashboard `dashboard.read`, Catalogue `article.read/article.manage`, Projet `project.manage`, Devis `quote.read/quote.manage`; override de prix et coût restent séparés par `quote.overridePrice` et `finance.cost.manage`. Le masquage UI n'est jamais utilisé comme autorisation.
+- **Isolation société/site/entité :** `companyId` vient de la session. Les réservations et leurs overrides revalident projet, site, ressources source/cible et scopes d'entité. Le Dashboard construit ressources, réservations et documents avec `resourceAllowed`, `reservationSnapshotAllowed` et `quoteAllowed`. Les Articles et snapshots de Devis sont limités à la société; les accès hors contexte répondent sans divulgation.
+- **Mutations Planning :** déplacement de cellule confirmé ou option impose version optimiste, cible active et autorisée, intervalle borné à 370 jours, conflit/capacité, override motivé, audit avant/après et idempotence. Copie unitaire et lot atomique (maximum 200 actions) recréent une seule réservation cible; annulation logique/rétablissement sont versionnés. Les replays revalident le périmètre courant et n'émettent pas de SSE en double.
+- **Intégrité commerciale :** une ligne Article conserve `articleSnapshot` et `appliedRateSnapshot` pour la même source, y compris changement d'unité; un changement réel de source recapture l'Article actif. Les prix manuels exigent permission et motif, les coûts exigent la permission Finance, et l'audit/version du document restent l'autorité. Le PDF lit uniquement le snapshot autorisé du Devis.
+- **Entrées/XSS/PDF :** couleurs Projet limitées à `#RRGGBB`; valeurs numériques, unités tarifaires et tailles sont validées/bornées. Les libellés dynamiques HTML utilisent `esc`, l'option Article historique utilise `createElement`/`textContent`, les champs utilisent `.value`; les couleurs ne peuvent injecter de CSS arbitraire. Le générateur PDF échappe parenthèses et antislashs, borne le texte et renvoie `nosniff`, `no-store` et un nom issu du numéro contrôlé.
+- **Dashboard temporel :** `asOf` et le mois comparé sont strictement validés; le mois comparé doit être antérieur au mois courant. Les périodes sont calculées côté serveur dans le fuseau de la société et les données commerciales ne sont incluses qu'avec `quote.read`.
+- **Navigation/gestes :** l'absorption du geste horizontal et `history.replaceState` ne touchent ni session ni autorisation et ne construisent que des routes hash internes. Aucun URL externe, HTML ou script n'est dérivé du geste.
+- **SSE/abus/exposition :** SSE reste borné à une connexion par session, capacité globale, revalidation périodique des droits et filtrage société/site/type. Corps, lots, périodes, pagination et exports restent bornés. La liste statique demeure explicite et refuse encodages/chemins arbitraires; `data/`, serveur, tests, docs et `.git` ne sont pas servis.
+- **Secrets, logs, dépendances :** aucun secret ou jeton n'est ajouté au diff; les journaux structurés n'enregistrent ni corps, ni cookie, ni CSRF. Les sauvegardes de migration tarifaire sont privées (`0600`) et vérifiées par digest. Aucune dépendance, ressource distante ou accès réseau runtime n'est ajouté.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Commande / contrôle | Résultat |
+|---|---|
+| empreintes candidat et diff depuis le tag | **MATCH**; 19 fichiers, `1 892` insertions / `80` suppressions |
+| `node --check app.js && node --check server.js` | **PASS** |
+| `node --test tests/api.test.js` | **43/43 PASS** |
+| `node --test tests/foundations.test.js` | **17/17 PASS** |
+| `node --test tests/planning-postproduction.test.js` | **54/54 PASS** |
+| `node --test tests/article-catalog.test.js` | **5/5 PASS** |
+| `node --test tests/quotes.test.js` | **50/50 PASS** |
+| `node --test tests/sprint8-security.test.js` | **4/4 PASS** |
+| `npm test` | **367/367 PASS**, 0 échec, `9 779,61 ms` |
+| `git diff --check` | **PASS** |
+
+Les négatifs frais couvrent notamment absence d'auth, CSRF/origine, rôles, autre société/site, portée SSE, replay après réduction de scope, tenant forgé, version obsolète, override/coût non autorisés, source Article archivée ou étrangère, conflit Planning et ressource cible invalide.
+
+## Limites et handoff
+
+La revue combine inspection du diff, tests HTTP et tests DOM purs; elle n'est ni un pentest externe, ni un fuzzing navigateur/lecteur PDF, ni une analyse multi-processus. Le runtime local monoprocessus et l'accès au poste hôte restent dans le modèle de menace RC1. Toute modification d'une empreinte produit ci-dessus invalide ce verdict.
+
+Gate SECURITY global : **APPROVED**. Fichier modifié : `docs/security-review.md` uniquement; la mise à jour de `docs/project-status.md` reste à l'intégrateur conformément à la mission.
+
+---
+
+# Revalidation SECURITY — ordre d’initialisation éditeur REV-QUOTE-ARTICLE-16
+
+Date : 2026-08-30
+
+Candidat revalidé : `app.js` SHA-256 `404f4c608036dc0cbbf009e17f98493b7cba0c69cbd21d43fe6ef1ee7584d41c`; `server.js` SHA-256 `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025`; `tests/article-catalog.test.js` SHA-256 `7618fc6e704def68f3d455aba41d3f97668617ba2900902d7d84f34683c44f23`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 0 P3 ouvert sur le correctif et le lot Tarifs Articles + Éditeur/PDF Devis.**
+
+`REV-QUOTE-ARTICLE-16` déplace uniquement l’appel de synchronisation UI avant la restauration des champs de la ligne existante. L’option Article historique est donc sélectionnée et synchronisée, puis les montants, l’unité et le coût réellement persistés sont restaurés. Un tarif manuel autorisé et son coût ne sont plus remplacés visuellement par le tarif catalogue/snapshot lors de l’ouverture; les contrôles serveur byte-identiques restent l’autorité.
+
+## Override, coût, RBAC et intégrité
+
+- `activeStockEditor.line` est défini avant `syncQuoteArticleTariff(false)`. La synchronisation peut donc résoudre correctement le snapshot historique; elle ne lit jamais un autre document ou tenant.
+- Après cette synchronisation, l’éditeur restaure `line.unit`, `line.unitPriceMinor`, `line.costUnitMinor` et fixe `price.dataset.resolvedMinor` au prix persistant. Une soumission sans changement n’invente donc ni override ni dérive de coût.
+- Si l’opérateur modifie ensuite le prix, `manualPriceOverridePayload` compare au `resolvedMinor` restauré. Le serveur exige toujours `quote.overridePrice` et un motif; le test API confirme qu’un override autorisé à `73 500` produit `manualPriceTrace` et conserve le snapshot.
+- Le coût n’est envoyé que si `can('finance.cost.manage')`; le serveur vérifie à nouveau `finance.cost.manage`. Le test confirme la persistance de `31 000` puis sa conservation lors d’un PATCH de quantité. Les négatifs de la suite Devis couvrent le refus d’un coût sans permission.
+- L’Article archivé reste la même source : snapshot et tarif historique sont conservés. Toute autre source repasse par `quoteCatalogSource`, société, activité et `article.read`. Audit, version optimiste, persistance atomique et SSE sont inchangés.
+- Les mécanismes XSS approuvés au gate précédent sont byte-identiques : option par `createElement`/`.textContent`, champs via `.value`, références via `esc()`. Aucun changement CSRF/session, tenant, PDF, secret/log ou exposition statique.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| empreintes candidat | **MATCH** pour `app.js`, `server.js` et le test Catalogue |
+| `node --check app.js` / `node --check server.js` | **PASS** |
+| `node --test tests/article-catalog.test.js` isolé | **PASS, 5/5**, `583,64 ms`; archive, override, coût et ordre UI couverts |
+| `node --test tests/quotes.test.js` | **PASS, 50/50**, `6 143,06 ms` en campagne parallèle |
+| `node --test tests/sprint8-security.test.js` | **PASS, 4/4**, `4 411,72 ms` en campagne parallèle |
+| PATCH ciblés isolés | Article archivé, override/coût, conservation et nouvelle source : `5–6 ms`, statuts `200` |
+| `git diff --check` avant rapports | **PASS** |
+
+## Limites et handoff
+
+Le test d’ordre est statique sur la séquence source et les tests API valident l’effet métier; aucun navigateur réel n’a simulé la saisie caractère par caractère. Le backend étant byte-identique, les preuves antérieures RBAC/tenant/snapshot/audit restent applicables. Toute nouvelle empreinte impose une revalidation.
+
+Gate SECURITY Tarifs Articles + Éditeur/PDF Devis : **APPROVED**. Le verdict `REV-QUOTE-ARTICLE-15` inférieur reste historique et est remplacé par celui-ci. Fichier modifié : `docs/security-review.md` uniquement; statut projet laissé à l’intégrateur.
+
+---
+
+# Revalidation SECURITY — option Article historique REV-QUOTE-ARTICLE-15
+
+Date : 2026-08-30
+
+Candidat revalidé : `app.js` SHA-256 `894956d4bacd1ab9462c1bd1c4bf9aa4e43d6c246d44c61c197a5f1e489c0ef9`; `server.js` SHA-256 `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025`; `tests/article-catalog.test.js` SHA-256 `f852af2fd3461c0588b0a3c4a52eebed94fedfc7dbc3a8fcbe2508c595d57700`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 0 P3 ouvert sur le correctif et le lot Tarifs Articles + Éditeur/PDF Devis.**
+
+`REV-QUOTE-ARTICLE-15` permet d’éditer une ligne dont l’Article a quitté le catalogue actif sans réinjecter de HTML et sans étendre l’autorité du client. L’option historique n’est produite que pour une ligne existante `sourceType:"article"`, munie d’un `sourceId` et d’un `articleSnapshot`, lorsque ce même identifiant est absent du catalogue autorisé chargé. Le serveur byte-identique reste l’unique autorité sur la mutation et le snapshot.
+
+## XSS, autorisations et intégrité
+
+- `quoteHistoricalArticleOption` retourne deux chaînes de présentation. L’appelant crée un élément `option`, renseigne `.value` et `.textContent`, puis l’ajoute au `select`; référence, désignation et identifiant historiques ne passent jamais par `innerHTML`.
+- L’option n’est ajoutée que dans `openQuoteLineDrawer(line)` lorsque `line` existe. La création d’une nouvelle ligne ne peut donc pas inventer une source archivée depuis ce mécanisme.
+- Le `catalog.some(...)` vérifie strictement `sourceType==='article'` et l’égalité d’identifiant. Si l’Article est encore actif/visible, aucune option historique dupliquée n’est créée. Les lignes manuelles et les snapshots absents retournent `null`.
+- Choisir/conserver cette option ne réactive pas l’Article et ne confère aucun `article.read` supplémentaire : elle référence le snapshot déjà inclus dans un Devis accessible. Au PATCH, `quote.manage`, `quoteAllowed`, société/site et version restent vérifiés; `sameSource` conserve le snapshot historique. Choisir une autre source active repasse par les contrôles Article du serveur.
+- Une falsification de la valeur DOM ne permet pas de charger un Article archivé arbitraire : seule l’identité déjà attachée à la ligne bénéficie du chemin `sameSource`; une autre identité passe par `quoteCatalogSource` et doit être active, de la société et lisible.
+- `syncQuoteArticleTariff` affecte désignation/prix aux propriétés de formulaire et son message via `.textContent`. Les références du Devis restent rendues avec `esc()`. Aucun nouveau canal XSS, tenant, RBAC, CSRF, PDF, secret/log ou exposition statique n’est ajouté.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| empreintes candidat | **MATCH** pour `app.js`, `server.js` et le test Catalogue |
+| `node --check app.js` / `node --check server.js` | **PASS** |
+| `node --test tests/article-catalog.test.js` | **PASS, 5/5**, `588,13 ms`; option archivée/active/manuelle couverte |
+| `node --test tests/quotes.test.js` | **PASS, 50/50**, `4 828,30 ms` |
+| `node --test tests/sprint8-security.test.js` | **PASS, 4/4**, `2 401,64 ms` |
+| négatifs hérités | tenant forgé `400`, autre société `404`, Catalogue non autorisé `403`, version obsolète `409` |
+| `git diff --check` avant rapports | **PASS** |
+
+## Limites et handoff
+
+La vérification XSS est une inspection statique du sink et un test pur du helper; elle ne remplace pas un fuzzing DOM dans un navigateur réel. Le serveur étant byte-identique au gate précédent, ses preuves de snapshot, audit, tenant et tarification restent applicables. Toute modification ultérieure des empreintes impose une nouvelle revalidation.
+
+Gate SECURITY Tarifs Articles + Éditeur/PDF Devis : **APPROVED**. Le verdict `REV-QUOTE-ARTICLE-14` immédiatement inférieur est historique et remplacé par le présent candidat. Fichier modifié : `docs/security-review.md` uniquement; statut projet laissé à l’intégrateur.
+
+---
+
+# Revalidation finale SECURITY — correction UI snapshot Article REV-QUOTE-ARTICLE-14
+
+Date : 2026-08-30
+
+Candidat revalidé : `app.js` SHA-256 `2504722ff6cc67722c410b4513594fb57aa38711b26445d0f8a89f90dd978115`; `server.js` SHA-256 `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025`; `tests/article-catalog.test.js` SHA-256 `6051a48f89c83031a406dd8f5eff0c72d3a4f25440ca3d0bb22f0975dba2575d`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict final
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 0 P3 ouvert sur le correctif final et le lot Tarifs Articles + Éditeur/PDF Devis.**
+
+`REV-QUOTE-ARTICLE-14` aligne l’éditeur sur l’autorité serveur sans déplacer cette autorité dans le navigateur. `quoteArticlePricingSource` sélectionne le snapshot figé uniquement lorsque `sourceType`, `sourceId` et `articleSnapshot.articleId` désignent la ligne existante; un véritable changement de source reprend l’Article du catalogue courant. La correction serveur précédemment approuvée reste byte-identique et continue de contrôler source, snapshot, prix, permissions, société et version.
+
+## XSS, tenant, RBAC et snapshot
+
+- Le helper UI ne lit ni `companyId`, ni permission, ni route arbitraire. Il travaille seulement sur la ligne Devis déjà reçue et le catalogue déjà filtré par l’API. Sa décision n’est jamais une décision d’autorisation.
+- Au submit, l’UI transmet `sourceType/sourceId`, unité, quantité et éventuel override. Le serveur reste l’autorité : `quote.manage`, `quoteAllowed`, `article.read`, société/site, source active, version optimiste et motif d’override sont réévalués avant écriture.
+- Même source : le libellé, la référence et les cinq tarifs affichés viennent du `articleSnapshot` N. Changement de source : le test force un identifiant différent et vérifie que le helper rend le catalogue N+1, sans conserver le flag `frozenSnapshot`.
+- Le spread de l’item n’altère ni la ligne, ni le catalogue, ni le snapshot. Les données du snapshot sont assignées aux propriétés `.value` des champs; le message de conséquence utilise `.textContent`; les références du tableau Devis utilisent `esc()`. Aucun `innerHTML` nouveau ne reçoit la désignation, le code ou le tarif non échappé.
+- Le client peut toujours être falsifié, mais cela ne permet pas de choisir un snapshot ou un prix serveur arbitraire : la correction backend byte-identique recapture une nouvelle source et conserve/résout le snapshot existant selon l’identité réelle. Audit, version documentaire, persistance atomique et SSE restent inchangés.
+- Aucun changement de session/CSRF, cookies, exposition statique, PDF, secrets/logs, dépendance ou accès réseau n’est présent dans ce delta UI.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| empreintes candidat | **MATCH** pour `app.js`, `server.js` et le test Catalogue |
+| `node --check app.js` / `node --check server.js` | **PASS** |
+| `node --test tests/article-catalog.test.js` isolé | **PASS, 5/5**, `548,85 ms`; helper N/N+1 couvert |
+| `node --test tests/quotes.test.js` | **PASS, 50/50**, `4 985,52 ms` lors de la campagne parallèle |
+| `node --test tests/sprint8-security.test.js` | **PASS, 4/4**, `3 279,61 ms` |
+| contrôles négatifs hérités | tenant forgé `400`, autre société `404`, mutation Catalogue non autorisée `403`, version obsolète `409` |
+| `git diff --check` avant rapports | **PASS** |
+
+## Limites et handoff
+
+La revue DOM est statique et ciblée, complétée par le test pur du helper; aucun navigateur réel ni fuzzing de chaîne hostile n’a été exécuté. L’absence de modification serveur permet de réutiliser les preuves d’intégrité/audit du gate immédiatement précédent, dont l’empreinte `server.js` est identique. Toute nouvelle modification d’une des trois empreintes impose une revalidation.
+
+Gate SECURITY final Tarifs Articles + Éditeur/PDF Devis : **APPROVED**. Fichier modifié : `docs/security-review.md` uniquement; mise à jour de `docs/project-status.md` laissée à l’intégrateur.
+
+---
+
+# Revalidation SECURITY — changement d’unité depuis le snapshot Article figé
+
+Date : 2026-08-30
+
+Candidat revalidé : `server.js` SHA-256 `a410aa2a8a57932f570ef0e24445c33847d575f32b40ef78c470cc4daf95d025`; `tests/article-catalog.test.js` SHA-256 `b0b8a92951728a059100bfba3d3df4ad6936ed907ded71597135fb60436dbd68`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict revalidé
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 0 P3 ouvert sur ce correctif et le lot Tarifs Articles + Éditeur/PDF Devis.**
+
+La fermeture de `SEC-ARTICLE-QUOTE-01` reste valide et couvre désormais le changement d’unité. Lorsque l’identité Article ne change pas, le tarif de la nouvelle unité est résolu depuis `existing.articleSnapshot.tariffsMinor`, donc depuis la version contractuelle N, avant tout fallback vers le catalogue courant. Une véritable nouvelle source repasse au contraire par `quoteCatalogSource` et capture le nouvel Article autorisé.
+
+## Intégrité commerciale et audit
+
+- Le scénario de non-régression crée `66-MONT` en V2 (`jour` à `68 000`, `semaine` à `306 000`), fait évoluer le catalogue en V3, conserve V2 sur un PATCH de quantité, puis change l’unité en `semaine`. La ligne reste liée au snapshot V2, prend `306 000`, et son `appliedRateVersion`, son identifiant tarifaire et `baseSaleUnitMinor` référencent V2.
+- `articleSnapshotRate` n’accepte que le snapshot dont `articleId` correspond exactement à `sourceId`, une unité de la liste fermée et un montant décimal présent. Une unité invalide reste refusée; un snapshot incomplet ne devient pas un prix implicite.
+- Le changement réel vers `longestSource.id` rend `sameSource=false` : la route exige à nouveau la source active, la même société et `article.read`, puis capture sa référence, sa désignation et son tarif. Le test confirme un nouveau `articleId`, un snapshot différent et le tarif `forfait` de la nouvelle source.
+- Les versions historiques conservent le snapshot d’origine. Les mutations de ligne restent soumises à `quote.manage`, `quoteAllowed`, contrôle optimiste, audit `quote.lineUpdated`, persistance atomique et SSE après succès. Le changement d’unité et son nouveau `appliedRateSnapshot` sont ainsi traçables dans la version documentaire, sans override manuel silencieux.
+- Aucun impact sur auth/session/CSRF, isolation société/site, XSS, génération PDF, exposition statique, secrets/logs ou bornes d’abus n’est introduit par ce delta.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| empreintes candidat | **MATCH** pour `server.js` et le test Article |
+| `node --test tests/article-catalog.test.js` | **PASS, 5/5**, `549,44 ms`; PATCH quantité `5 ms`, changement d’unité `6 ms`, changement de source `5 ms` |
+| `node --test tests/quotes.test.js` | **PASS, 50/50**, `4 354,08 ms` |
+| campagne ciblée cumulée | **PASS, 55/55**, 0 échec/skip/todo |
+| suite complète communiquée par l’intégrateur | **PASS, 367/367**; non relancée par ce reviewer ciblé |
+| `git diff --check` avant rapports | **PASS** |
+
+## Limites et handoff
+
+La revalidation autonome est ciblée sur l’intégrité Article/tarif et les consommateurs Devis; la campagne complète `367/367` est une preuve transmise par l’intégrateur, clairement distincte des 55 tests exécutés ici. La revue ne remplace ni fuzzing PDF ni E2E visuel navigateur. Toute modification ultérieure des empreintes impose une nouvelle revalidation.
+
+Gate SECURITY Tarifs Articles + Éditeur/PDF Devis : **APPROVED**. Fichier modifié : `docs/security-review.md` uniquement; mise à jour de `docs/project-status.md` laissée à l’intégrateur.
+
+---
+
+# Revalidation SECURITY — fermeture de SEC-ARTICLE-QUOTE-01
+
+Date : 2026-08-30
+
+Candidat revalidé : `server.js` SHA-256 `11ddba279a199942e3787849ebfa0b06fc9b414552aa7ee868d904c618efe86c`; `tests/article-catalog.test.js` SHA-256 `0b3da91772e11791a14c3dace67ee1345c6bf5a822dc3c8323a748ed3f659ab9`.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict revalidé
+
+**APPROVED — 0 P0, 0 P1, 0 P2, 0 P3 ouvert sur ce correctif et le lot Tarifs Articles + Éditeur/PDF Devis.**
+
+`SEC-ARTICLE-QUOTE-01` est fermé. Lorsque le PATCH renvoie la même identité `sourceType/sourceId`, `quoteLineFromInput` réutilise désormais `existing.articleSnapshot`. Si l'unité, la période de prestation et le prix restent inchangés, il réutilise aussi `appliedRateId`, `appliedRateVersion` et `appliedRateSnapshot`. Une édition de quantité ne peut donc plus recapturer silencieusement la version courante du catalogue ni créer une incohérence entre désignation, référence Article, prix appliqué et preuve tarifaire.
+
+## Intégrité et audit revalidés
+
+- L'identité de source est comparée après normalisation. Une source inchangée conserve le snapshot contractuel; une véritable nouvelle source repasse par `quoteCatalogSource`, ses contrôles société/site/RBAC et capture explicitement son propre snapshot.
+- Le scénario de non-régression crée une ligne sur l'Article V2 à `68 000`, fait évoluer le catalogue en V3 à `70 000`, puis PATCH la quantité avec la même source explicitement renvoyée. Le résultat conserve byte-identiques `articleSnapshot`, `appliedRateSnapshot` et le prix V2; la version documentaire historique conserve également le snapshot V2.
+- Le mécanisme ne masque pas une resynchronisation tarifaire légitime : un changement d'unité, de période ou de prix désactive la préservation du snapshot tarifaire et emprunte les validations/permissions existantes. Un changement de source recapture le nouvel Article.
+- La mutation reste soumise à `quote.manage`, `quoteAllowed`, contrôle optimiste de version, audit `quote.lineUpdated`, persistance atomique et SSE après succès. Aucun champ de tenant, secret, contenu HTML/PDF, chemin statique ou donnée de coût supplémentaire n'est introduit.
+- Le bypass de relecture du catalogue pour une source inchangée ne confère pas d'accès à un nouvel Article : il ne rend que le snapshot déjà contenu dans un Devis auquel l'acteur est autorisé. Il préserve ainsi la preuve contractuelle même si le catalogue courant est désactivé ou modifié.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| empreintes candidat | **MATCH** pour `server.js` et le test Article |
+| `node --check server.js` | **PASS** |
+| `node --test tests/article-catalog.test.js` | **PASS, 5/5**, durée `551,74 ms`; PATCH correctif HTTP `200` en `6 ms` |
+| `node --test tests/quotes.test.js` | **PASS, 50/50**, durée `4 116,84 ms` |
+| campagne ciblée cumulée | **PASS, 55/55**, 0 échec/skip/todo |
+| `git diff --check` avant rapports | **PASS** |
+
+## Limites et handoff
+
+La revalidation porte sur le correctif d'intégrité et ses consommateurs directs; les contrôles auth/CSRF/RBAC/isolation, XSS/PDF, secrets/logs et abus du rapport immédiatement ci-dessous restent applicables car leurs chemins n'ont pas été modifiés par ce delta. Il ne s'agit pas d'un fuzzing PDF ni d'une validation visuelle navigateur. Toute modification ultérieure des empreintes impose une nouvelle analyse d'impact.
+
+Gate SECURITY Tarifs Articles + Éditeur/PDF Devis : **APPROVED**. Le constat historique `SEC-ARTICLE-QUOTE-01` reste documenté ci-dessous comme preuve de la boucle REVIEW → DEV → revalidation. Fichier modifié : `docs/security-review.md` uniquement; mise à jour de `docs/project-status.md` laissée à l'intégrateur.
+
+---
+
+# Gate SECURITY indépendant — Tarifs Articles + Éditeur/PDF Devis
+
+Date : 2026-08-30
+
+Candidat observé : HEAD `6cb10c90a12077ef26442c0a8a80e06ad7cd8d9e`, avec lot non commité identifié par les empreintes ci-dessous.
+
+Reviewer : agent indépendant `security_performance_tarifs_devis_pdf`.
+
+## Verdict
+
+**NOT APPROVED — 0 P0, 1 P1, 0 P2, 0 P3 ouvert sur ce lot.**
+
+Le catalogue tarifaire, les routes Devis et la génération PDF restent correctement protégés par session, scopes, CSRF/Origin et RBAC. Cependant, un PATCH d'une ligne Article qui renvoie son `sourceType/sourceId` inchangé recapture silencieusement l'Article courant. Après modification du catalogue, une simple édition de quantité peut donc remplacer le snapshot historique, la désignation et les références de tarif de la ligne sans action explicite de changement d'Article ni audit de cette dérive. Cette rupture d'intégrité et de traçabilité commerciale est bloquante.
+
+## P1 ouvert
+
+### SEC-ARTICLE-QUOTE-01 — snapshot Article recapturé silencieusement lors d'un PATCH de ligne
+
+`quoteLineFromInput` conserve correctement `existing.articleSnapshot` seulement lorsque `input.sourceType` et `input.sourceId` sont tous deux absents. L'éditeur renvoie toutefois ces champs sur une modification ordinaire. `quoteCatalogSource` recharge alors la version courante de l'Article et `articleCatalogSnapshot(item)` remplace le snapshot figé, même si l'identité de source n'a pas changé.
+
+Après un changement du catalogue de la version 2 à la version 3, le scénario suivant est possible sur un devis brouillon :
+
+1. ligne créée et figée avec désignation/tarif Article V2 ;
+2. Article modifié en V3 ;
+3. PATCH de la seule quantité, avec le même `sourceType:"article"` et le même `sourceId` ;
+4. ligne enregistrée avec snapshot/désignation V3, tandis que son prix historique peut rester V2 et que `appliedRateSnapshot` référence le tarif V3.
+
+L'audit `quote.lineUpdated` ne consigne ce changement que comme override si `unitPriceMinor` change; il ne trace donc pas la recapture implicite du snapshot ni l'incohérence prix/référence. La correction doit préserver `existing.articleSnapshot` et ses références tarifaires lorsque l'identité Article ne change pas, ou exiger une commande explicite et auditée de resynchronisation. Ajouter un négatif : modifier Article V2→V3, PATCH quantité avec source inchangée, puis vérifier snapshot/désignation/prix/référence tarifaire V2 byte-identiques.
+
+## Entrées, autorité et intégrité
+
+- `companyId` n'est jamais accepté depuis les commandes Article : `assertNoTenantFields` ferme les champs de tenant et les recherches/mutations sélectionnent la société de session. Le test de contexte croisé retourne `404` et un catalogue vide.
+- Les lectures Article exigent `article.read`; création et modification exigent `article.manage`. Les routes Devis/PDF exigent `quote.read` ou `quote.manage` selon la méthode, puis `quoteAllowed` vérifie société, projet, site et scope d'entité avant accès.
+- `tariffsMinor` est un objet fermé aux cinq unités autorisées, chaque valeur est un entier positif borné à l'int64 monétaire. Les codes sont bornés et validés, les désignations à 240 caractères, les motifs à 200 caractères. Les lignes d'un document sont bornées à 200 à la création et 500 après ajouts successifs.
+- Une modification Article exige un motif, la version courante et produit une révision append-only plus un audit. Une lecture simple conserve le snapshot historique, mais le P1 `SEC-ARTICLE-QUOTE-01` montre que son immutabilité n'est pas préservée par un PATCH ordinaire renvoyant la même source.
+- Les montants restent calculés en `BigInt`, les overrides tarifaires exigent la permission et le motif dédiés, et les valeurs hors int64 sont refusées avant écriture.
+- La migration tarifaire V2 vérifie la source locale versionnée, l'identité des désignations, écrit une sauvegarde privée `0600` et le rollback exige un export de reprise distinct, vérifié et `0600`.
+
+## XSS, PDF, exposition et abus
+
+- L'interface Article et l'éditeur Devis rendent les valeurs métier avec `esc()`/`inputValue()`; aucune désignation ou référence n'est concaténée dans un attribut ou un sink HTML sans échappement.
+- Le générateur PDF n'interprète ni HTML, ni URL, ni fichier utilisateur. `pdfAscii` retire les caractères non imprimables et échappe les délimiteurs de chaînes PDF. La référence SAGE est bornée à 40 caractères et les désignations à 240 caractères; la pagination est calculée sur un maximum de 500 lignes.
+- La route PDF utilise `Content-Type: application/pdf`, `Content-Disposition: inline` avec numéro généré côté serveur, `Cache-Control: no-store` et `X-Content-Type-Options: nosniff`.
+- La réponse client ne contient pas `costTotal`, marge ou coût interne; le test PDF vérifie explicitement leur absence.
+- Aucun actif distant, SaaS, CDN, dépendance npm ou accès réseau d'exécution n'est ajouté. La liste blanche des fichiers statiques reste inchangée; le nouveau JSON référentiel n'est pas exposé comme fichier statique.
+- Les bornes à 500 lignes et 240 caractères limitent l'amplification CPU/mémoire du PDF. La mesure PERFORMANCE parallèle confirme `27,59 ms` p95 pour 500 désignations longues, sans signal de déni de service local sur ce plafond.
+
+## Preuves fraîches
+
+Environnement : macOS arm64, Node `v26.6.0`.
+
+| Contrôle | Résultat |
+|---|---|
+| `node --test tests/article-catalog.test.js` | **PASS, 5/5**, durée `555,70 ms` |
+| `node --test tests/quotes.test.js` | **PASS, 50/50**, 0 échec (campagne parallèle fraîche) |
+| `node --test tests/sprint8-security.test.js` | **PASS, 4/4**, durée `2 173,24 ms` |
+| `node --check server.js` / `node --check app.js` | **PASS** |
+| `git diff --check` | **PASS** avant rapport |
+| négatifs Article | non-admin `403`, tarif hors borne `422`, tenant forgé `400`, scope société croisé `404`, version obsolète `409` |
+| négatifs Devis | permission d'override `403`, scope site/société `404`, version obsolète `409`, montant hors borne `422` |
+| inspection ciblée | auth/session, Origin/CSRF, RBAC, scopes, XSS, PDF, logs, secrets, migration/rollback et bornes relus |
+
+Empreintes SHA-256 du candidat :
+
+```text
+server.js                                      fe058707cb39cfac16face519ded6ebbaa83b8e06c85b0ce0cb4e931251a3a49
+app.js                                         4bcb5fcb7669da6f8779e71973df95467ad27dde7e43ee3b002106adc6085bb1
+referentials/article-catalog-sage-pricing-v2.json 8787dd307faca61d3bb12dbf05274ec742179e5bb4504bad475bbed35bc1e053
+tests/article-catalog.test.js                   9773657dfe9ee9a9ac9d9f0436331881547332db80ce881a53f51eea1ebe5624
+tests/quotes.test.js                            6a99884d758321269bb2d715e5b2e14d4a340ba017e6fe10d278423014ab7e9e
+```
+
+## Limites et handoff
+
+La revue XSS/DOM et PDF est statique et automatisée; elle ne constitue pas un fuzzing exhaustif du format PDF ni une inspection de toutes les versions de lecteurs PDF natifs. Le navigateur réel et la présentation visuelle relèvent du gate E2E; ils n'ont pas révélé de nouveau canal de sécurité dans le périmètre inspecté. Toute modification ultérieure des empreintes ci-dessus impose une revalidation d'impact.
+
+Gate SECURITY Tarifs Articles + Éditeur/PDF Devis : **NOT APPROVED** jusqu'à fermeture de `SEC-ARTICLE-QUOTE-01`, puis revalidation ciblée et aval. Fichier modifié : `docs/security-review.md` uniquement; mise à jour de `docs/project-status.md` laissée à l'intégrateur conformément à l'ownership imposé.
+
+---
+
 # Revalidation terminale SECURITY — existence documentaire à la date de situation
 
 Date : 2026-08-26

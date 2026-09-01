@@ -11,11 +11,11 @@ npm start
 
 Puis ouvrir <http://localhost:8080>.
 
-## Release locale V1 — 0.6.0-rc1
+## Release locale V1 — 0.6.0-rc2
 
-La release locale `0.6.0-rc1` ajoute le Catalogue articles SAGE au socle Planning de RC6. Northlight dispose de 71 articles nettoyés, administrables et isolés par société, avec code SAGE source, code analytique Planify unique, permissions dédiées, audit, contrôle de version et actualisation SSE. Les lignes et PDF de Devis conservent un snapshot immuable de la référence ; Finance et Analytics exposent les deux dimensions Article. Tous les gates techniques, l’intégration et la recette E2E sont approuvés sans P0/P1. Le détail des preuves, limites P2 et empreintes est conservé dans `docs/project-status.md` et les rapports indépendants `docs/code-review.md`, `docs/qa-report.md`, `docs/security-review.md`, `docs/performance-report.md`, `docs/integration-report.md` et `docs/e2e-report.md`.
+La release locale `0.6.0-rc2` consolide le Planning, la Vue d’ensemble, les couleurs Projet et le cycle Catalogue → Devis → PDF. Les cellules actives se déplacent dans le temps et entre salles, les copies restent bornées à la cellule choisie, l’effacement logique est récupérable et les gestes horizontaux ne changent plus de page. Le dashboard expose l’occupation Jour/Semaine/Mois, le détail par métier, la tendance six mois et une comparaison mensuelle aux bornes exactes. Les couleurs Projet respectent un contraste minimal `4,5:1`. L’éditeur Devis et son PDF utilisent les références, désignations professionnelles et tarifs multi-unités du Catalogue sans réécrire les lignes historiques. Tous les gates techniques, l’intégration et la recette E2E sont approuvés sans P0/P1. Le détail des preuves, limites P2 et empreintes est conservé dans `docs/project-status.md` et les rapports indépendants `docs/code-review.md`, `docs/qa-report.md`, `docs/security-review.md`, `docs/performance-report.md`, `docs/integration-report.md` et `docs/e2e-report.md`.
 
-Le runtime RC1 reste local et autonome. Les contrats V1 sont introduits de façon additive dans `packages/` : erreurs/enveloppes, RBAC et scopes, idempotence, audit, événements, planning, pricing et consommation Devis/Planning. Les décisions structurantes sont dans `docs/adr/` et l'API candidate dans `docs/api/openapi-v1.yaml`.
+Le runtime RC2 reste local et autonome. Les contrats V1 sont introduits de façon additive dans `packages/` : erreurs/enveloppes, RBAC et scopes, idempotence, audit, événements, planning, pricing et consommation Devis/Planning. Les décisions structurantes sont dans `docs/adr/` et l'API candidate dans `docs/api/openapi-v1.yaml`.
 
 Commandes de vérification :
 
@@ -27,7 +27,7 @@ npm run build
 node scripts/generate-performance-dataset.js --output /tmp/planify-performance.json
 ```
 
-État de référence de la release : `npm test` exécute 360 tests. Les fichiers `data/*.json`, `output/` et `tmp/` restent locaux et sont exclus de Git afin qu'aucune donnée de travail, export client ou artefact temporaire n'entre dans la release.
+État de référence de la release : `npm test` exécute 368 tests. Les fichiers `data/*.json`, `output/` et `tmp/` restent locaux et sont exclus de Git afin qu'aucune donnée de travail, export client ou artefact temporaire n'entre dans la release.
 
 Le générateur produit un jeu déterministe de 250 ressources et 10 000 réservations sur six mois. Il n'écrit jamais dans les données métier sans chemin `--output` explicite.
 
@@ -56,7 +56,16 @@ npm run rollback:article-catalog
 
 Le rollback vérifie la sauvegarde et exporte d’abord l’état courant. Il retire les écritures réalisées depuis la migration ; il faut ensuite remettre en service une version applicative antérieure à ce lot pour éviter sa réapplication au démarrage.
 
-Pour revenir de `0.6.0-rc1` à `0.5.0-rc6`, utiliser cette procédure de rollback Catalogue avant le retour applicatif. L’export de récupération doit être conservé séparément : il contient les créations et modifications Article intervenues depuis la migration. Remettre ensuite en service le tag `v0.5.0-rc6` depuis un clone ou worktree dédié, redémarrer sur le fichier restauré et vérifier connexion, Devis, Finance, Analytics et Planning. Ne pas redémarrer `0.6.0-rc1` sur l’état restauré, car sa migration Catalogue serait réappliquée.
+RC2 ajoute la migration tarifaire additive `article-catalog-sage-pricing-v2` : elle enrichit les 71 articles avec les tarifs heure, jour, semaine, mois et forfait, crée un marqueur d’intégrité et une sauvegarde privée `0600`. Pour revenir de `0.6.0-rc2` à `0.6.0-rc1`, arrêter le serveur puis exécuter le rollback **avec le code RC2 encore en place** et un export de récupération neuf et distinct :
+
+```bash
+PLANIFY_DATA_FILE=/chemin/vers/planify.json \
+node -e "console.log(require('./server.js').rollbackArticleCatalogPricingV2({ exportFile: '/chemin/vers/recovery-pricing-v2.json' }))"
+```
+
+Le rollback vérifie le marqueur, la sauvegarde et l’export avant de restaurer l’état antérieur à la migration tarifaire. Il retire donc du fichier actif les modifications réalisées depuis cette sauvegarde ; l’export `0600` doit être conservé pour une reprise contrôlée. Remettre ensuite RC1 en service depuis un clone ou worktree dédié et vérifier connexion, Planning, Projets, Devis, tarifs et Catalogue. Ne pas redémarrer RC2 sur l’état restauré, car la migration tarifaire serait réappliquée.
+
+Pour revenir ensuite de `0.6.0-rc1` à `0.5.0-rc6`, utiliser la procédure de rollback Catalogue avant le retour applicatif. L’export de récupération doit être conservé séparément : il contient les créations et modifications Article intervenues depuis la migration. Remettre ensuite en service le tag `v0.5.0-rc6` depuis un clone ou worktree dédié, redémarrer sur le fichier restauré et vérifier connexion, Devis, Finance, Analytics et Planning. Ne pas redémarrer `0.6.0-rc1` ou RC2 sur l’état restauré, car leur migration Catalogue serait réappliquée.
 
 ## Parc matériel et salles
 

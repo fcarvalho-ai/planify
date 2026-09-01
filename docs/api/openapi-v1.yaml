@@ -140,6 +140,20 @@ paths:
       responses:
         '201': { description: Projet créé avec responsabilités actives du tenant, content: { application/json: { schema: { type: object } } } }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /projects/{projectId}:
+    patch:
+      operationId: updateProject
+      tags: [Projects]
+      parameters:
+        - { name: projectId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProjectUpdateCommand' } } } }
+      responses:
+        '200': { description: Projet et couleurs Planning mis à jour, content: { application/json: { schema: { type: object } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /sites:
     get:
       operationId: listSites
@@ -1302,10 +1316,21 @@ components:
     Page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
     PageSize: { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
   schemas:
+    ArticleTariffsMinor:
+      type: object
+      additionalProperties: false
+      description: Tarifs de vente HT en centimes d’euro, par unité commerciale.
+      required: [heure, jour, semaine, mois, forfait]
+      properties:
+        heure: { type: string, pattern: '^\d+$' }
+        jour: { type: string, pattern: '^\d+$' }
+        semaine: { type: string, pattern: '^\d+$' }
+        mois: { type: string, pattern: '^\d+$' }
+        forfait: { type: string, pattern: '^\d+$' }
     ArticleSnapshot:
       type: object
       additionalProperties: false
-      required: [articleId, sageCode, normalizedCode, analyticsCode, designation, family, category1, category2, version, capturedAt]
+      required: [articleId, sageCode, normalizedCode, analyticsCode, designation, family, category1, category2, currency, currencyExponent, defaultUnit, tariffsMinor, version, capturedAt]
       properties:
         articleId: { type: string }
         sageCode: { type: string, maxLength: 40 }
@@ -1315,6 +1340,10 @@ components:
         family: { type: string, maxLength: 120 }
         category1: { type: string, maxLength: 120 }
         category2: { type: string, maxLength: 120 }
+        currency: { type: string, const: EUR }
+        currencyExponent: { type: integer, const: 2 }
+        defaultUnit: { type: string, enum: [heure, jour, semaine, mois, forfait] }
+        tariffsMinor: { $ref: '#/components/schemas/ArticleTariffsMinor' }
         version: { type: integer, minimum: 1 }
         capturedAt: { type: string, format: date-time }
     ArticleQuoteLineSource:
@@ -1339,6 +1368,8 @@ components:
         category2: { type: string, minLength: 1, maxLength: 120 }
         designation: { type: string, minLength: 1, maxLength: 240 }
         sourceDesignation: { type: string, maxLength: 500 }
+        defaultUnit: { type: string, enum: [heure, jour, semaine, mois, forfait], default: jour }
+        tariffsMinor: { $ref: '#/components/schemas/ArticleTariffsMinor' }
         active: { type: boolean, default: true }
         reason: { type: string, maxLength: 200 }
     ArticleCatalogUpdateCommand:
@@ -1356,11 +1387,13 @@ components:
         category2: { type: string, minLength: 1, maxLength: 120 }
         designation: { type: string, minLength: 1, maxLength: 240 }
         sourceDesignation: { type: string, maxLength: 500 }
+        defaultUnit: { type: string, enum: [heure, jour, semaine, mois, forfait] }
+        tariffsMinor: { $ref: '#/components/schemas/ArticleTariffsMinor' }
         active: { type: boolean }
     ArticleCatalogItem:
       type: object
       additionalProperties: false
-      required: [id, companyId, sageCode, normalizedCode, analyticsCode, family, category1, category2, designation, active, version, createdAt, updatedAt]
+      required: [id, companyId, sageCode, normalizedCode, analyticsCode, family, category1, category2, designation, currency, currencyExponent, defaultUnit, tariffsMinor, active, version, createdAt, updatedAt]
       properties:
         id: { type: string }
         companyId: { type: string, readOnly: true }
@@ -1372,6 +1405,10 @@ components:
         category2: { type: string, minLength: 1, maxLength: 120 }
         designation: { type: string, minLength: 1, maxLength: 240 }
         sourceDesignation: { type: string, maxLength: 500 }
+        currency: { type: string, const: EUR }
+        currencyExponent: { type: integer, const: 2 }
+        defaultUnit: { type: string, enum: [heure, jour, semaine, mois, forfait] }
+        tariffsMinor: { $ref: '#/components/schemas/ArticleTariffsMinor' }
         active: { type: boolean }
         version: { type: integer, minimum: 1 }
         createdAt: { type: string, format: date-time }
@@ -1662,8 +1699,39 @@ components:
         salesOwnerId: { type: string, description: Utilisateur actif et membre actif de la société. }
         projectManagerId: { type: string, description: Utilisateur actif et membre actif de la société. }
         planningOwnerId: { type: string, description: Utilisateur actif et membre actif de la société. }
-        color: { type: string }
+        color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', default: '#6553db', description: Couleur de fond des cellules du Projet dans le Planning. }
+        textColor: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', default: '#ffffff', description: Couleur du texte des cellules du Projet ; la combinaison avec color doit atteindre un contraste WCAG d'au moins 4,5:1. }
         active: { type: boolean, default: true }
+        projectNumber: { type: string, maxLength: 48 }
+        projectType: { type: string, maxLength: 160 }
+        productionCompany: { type: string, maxLength: 160 }
+        contactClient: { type: string, maxLength: 160 }
+        salesOwner: { type: string, maxLength: 160 }
+        projectManager: { type: string, maxLength: 160 }
+        planningOwner: { type: string, maxLength: 160 }
+        internalOwner: { type: string, maxLength: 160 }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        description: { type: string, maxLength: 4000 }
+        notes: { type: string, maxLength: 4000 }
+        costCenter: { type: string, maxLength: 160 }
+    ProjectUpdateCommand:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version: { type: integer, minimum: 1 }
+        name: { type: string, maxLength: 160 }
+        code: { type: string, maxLength: 32 }
+        clientId: { type: string }
+        siteId: { type: string }
+        lifecycleStatus: { $ref: '#/components/schemas/ProjectLifecycleStatus' }
+        salesOwnerId: { type: string }
+        projectManagerId: { type: string }
+        planningOwnerId: { type: string }
+        color: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: Avec textColor effectif, contraste WCAG minimal 4,5:1. }
+        textColor: { type: string, pattern: '^#[0-9A-Fa-f]{6}$', description: Avec color effectif, contraste WCAG minimal 4,5:1. }
+        active: { type: boolean }
         projectNumber: { type: string, maxLength: 48 }
         projectType: { type: string, maxLength: 160 }
         productionCompany: { type: string, maxLength: 160 }
